@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"linkstar/modules/stun/model"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,9 +47,100 @@ func sleepWithCtx(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+type ServicePhase int
+
+const (
+	PhaseProbing ServicePhase = iota
+	PhaseRunning
+	PhaseRestarting
+	PhaseFailed
+	PhaseStopped
+)
+
+func (p ServicePhase) String() string {
+	switch p {
+	case PhaseProbing:
+		return "PROBING"
+	case PhaseRunning:
+		return "RUNNING"
+	case PhaseRestarting:
+		return "RESTARTING"
+	case PhaseFailed:
+		return "FAILED"
+	default:
+		return "STOPPED"
+	}
+}
+
+type StateEvent struct {
+	Key          string       `json:"key"`
+	DeviceName   string       `json:"deviceName"`
+	ServiceName  string       `json:"serviceName"`
+	Phase        ServicePhase `json:"phase"`
+	PhaseStr     string       `json:"phaseStr"`
+	ExternalPort uint16       `json:"externalPort"`
+	RestartCount int          `json:"restartCount"`
+	LastError    string       `json:"lastError"`
+	UpdatedAt    time.Time    `json:"updatedAt"`
+}
+
 type serviceEntry struct {
-	cancel context.CancelFunc
-	done   chan struct{}
+	cancel      context.CancelFunc
+	done        chan struct{}
+	deviceName  string
+	serviceName string
+
+	mu           sync.RWMutex
+	phase        ServicePhase
+	externalPort uint16
+	restartCount int
+	lastError    string
+	updatedAt    time.Time
+}
+
+func newServiceEntry(cancel context.CancelFunc, deviceName, serviceName string) *serviceEntry {
+	return &serviceEntry{
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		deviceName:  deviceName,
+		serviceName: serviceName,
+		phase:       PhaseProbing,
+		updatedAt:   time.Now(),
+	}
+}
+
+func (e *serviceEntry) setState(phase ServicePhase, port uint16, errMsg string) {
+	e.mu.Lock()
+	if phase == PhaseRestarting {
+		e.restartCount++
+	}
+	e.phase = phase
+	e.externalPort = port
+	e.lastError = errMsg
+	e.updatedAt = time.Now()
+	e.mu.Unlock()
+}
+
+func (e *serviceEntry) phaseValue() ServicePhase {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.phase
+}
+
+func (e *serviceEntry) snapshot(key string) StateEvent {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return StateEvent{
+		Key:          key,
+		DeviceName:   e.deviceName,
+		ServiceName:  e.serviceName,
+		Phase:        e.phase,
+		PhaseStr:     e.phase.String(),
+		ExternalPort: e.externalPort,
+		RestartCount: e.restartCount,
+		LastError:    e.lastError,
+		UpdatedAt:    e.updatedAt,
+	}
 }
 
 type Scheduler struct {
@@ -56,6 +148,10 @@ type Scheduler struct {
 	services    map[string]*serviceEntry
 	runner      TunnelRunner
 	environment TunnelEnvironmentProvider
+
+	subMu        sync.RWMutex
+	subscribers  map[chan StateEvent]struct{}
+	subBufferCap int
 }
 
 func NewScheduler(runner TunnelRunner, environment TunnelEnvironmentProvider) *Scheduler {
@@ -67,14 +163,74 @@ func NewScheduler(runner TunnelRunner, environment TunnelEnvironmentProvider) *S
 	}
 
 	return &Scheduler{
-		services:    make(map[string]*serviceEntry),
-		runner:      runner,
-		environment: environment,
+		services:     make(map[string]*serviceEntry),
+		runner:       runner,
+		environment:  environment,
+		subscribers:  make(map[chan StateEvent]struct{}),
+		subBufferCap: 16,
 	}
+}
+
+func (s *Scheduler) Subscribe() (<-chan StateEvent, func()) {
+	ch := make(chan StateEvent, s.subBufferCap)
+
+	s.subMu.Lock()
+	s.subscribers[ch] = struct{}{}
+	s.subMu.Unlock()
+
+	cancel := func() {
+		s.subMu.Lock()
+		if _, ok := s.subscribers[ch]; ok {
+			delete(s.subscribers, ch)
+		}
+		s.subMu.Unlock()
+	}
+
+	return ch, cancel
+}
+
+func (s *Scheduler) Snapshot() []StateEvent {
+	s.mu.Lock()
+	entries := make([]struct {
+		key   string
+		entry *serviceEntry
+	}, 0, len(s.services))
+	for key, entry := range s.services {
+		entries = append(entries, struct {
+			key   string
+			entry *serviceEntry
+		}{key: key, entry: entry})
+	}
+	s.mu.Unlock()
+
+	result := make([]StateEvent, 0, len(entries))
+	for _, item := range entries {
+		result = append(result, item.entry.snapshot(item.key))
+	}
+
+	return result
 }
 
 func serviceKey(deviceID, serviceID uint) string {
 	return fmt.Sprintf("%d-%d", deviceID, serviceID)
+}
+
+func (s *Scheduler) emit(entry *serviceEntry, key string) {
+	event := entry.snapshot(key)
+
+	s.subMu.RLock()
+	subscribers := make([]chan StateEvent, 0, len(s.subscribers))
+	for ch := range s.subscribers {
+		subscribers = append(subscribers, ch)
+	}
+	s.subMu.RUnlock()
+
+	for _, ch := range subscribers {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
 }
 
 func (s *Scheduler) StartAll(devices []model.Device) {
@@ -96,16 +252,14 @@ func (s *Scheduler) StartService(device *model.Device, service *model.Service) {
 	waitServiceEntry(old)
 
 	resetServiceRuntime(service)
+	service.LastError = ""
+
 	if !service.Enabled {
-		service.LastError = ""
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	entry := &serviceEntry{
-		cancel: cancel,
-		done:   make(chan struct{}),
-	}
+	entry := newServiceEntry(cancel, device.Name, service.Name)
 
 	s.mu.Lock()
 	if _, exists := s.services[key]; exists {
@@ -154,33 +308,38 @@ func (s *Scheduler) runService(
 	probeFailures := 0
 	backoff := NewBackoff()
 
+	s.setRuntimeState(service, entry, key, PhaseProbing, 0, "")
+
 	for {
-		ready := false
+		if ctx.Err() != nil {
+			s.setRuntimeState(service, entry, key, PhaseStopped, 0, "")
+			return
+		}
+
+		var ready atomic.Bool
 		err := s.runner.Run(ctx, s.buildRequest(device, service), func(result TunnelReady) {
-			ready = true
-			service.PunchSuccess = true
-			service.ExternalPort = result.ExternalPort
-			service.LastError = ""
+			ready.Store(true)
+			s.setRuntimeState(service, entry, key, PhaseRunning, result.ExternalPort, "")
 		})
 
 		if ctx.Err() != nil {
-			resetServiceRuntime(service)
-			service.LastError = ""
+			s.setRuntimeState(service, entry, key, PhaseStopped, 0, "")
 			return
 		}
 
-		resetServiceRuntime(service)
 		if err == nil {
-			service.LastError = ""
+			s.setRuntimeState(service, entry, key, PhaseStopped, 0, "")
 			return
 		}
 
-		service.LastError = err.Error()
-		if ready {
+		errMsg := err.Error()
+		if ready.Load() {
 			probeFailures = 0
 			backoff.Reset()
-			if !sleepWithCtx(ctx, backoff.Next()) {
-				service.LastError = ""
+			wait := backoff.Next()
+			s.setRuntimeState(service, entry, key, PhaseRestarting, 0, errMsg)
+			if !sleepWithCtx(ctx, wait) {
+				s.setRuntimeState(service, entry, key, PhaseStopped, 0, "")
 				return
 			}
 			continue
@@ -189,13 +348,56 @@ func (s *Scheduler) runService(
 		probeFailures++
 		if probeFailures >= maxProbeFailures {
 			service.Enabled = false
+			s.setRuntimeState(service, entry, key, PhaseFailed, 0, errMsg)
 			return
 		}
 
+		s.setRuntimeState(service, entry, key, PhaseRestarting, 0, errMsg)
 		if !sleepWithCtx(ctx, 1*time.Second) {
-			service.LastError = ""
+			s.setRuntimeState(service, entry, key, PhaseStopped, 0, "")
 			return
 		}
+
+		s.setRuntimeState(service, entry, key, PhaseProbing, 0, errMsg)
+	}
+}
+
+func (s *Scheduler) setRuntimeState(
+	service *model.Service,
+	entry *serviceEntry,
+	key string,
+	phase ServicePhase,
+	port uint16,
+	errMsg string,
+) {
+	entry.setState(phase, port, errMsg)
+	s.applyServiceRuntime(service, phase, port, errMsg)
+	s.emit(entry, key)
+}
+
+func (s *Scheduler) applyServiceRuntime(
+	service *model.Service,
+	phase ServicePhase,
+	port uint16,
+	errMsg string,
+) {
+	switch phase {
+	case PhaseRunning:
+		service.PunchSuccess = true
+		service.ExternalPort = port
+		service.LastError = ""
+	case PhaseFailed:
+		service.PunchSuccess = false
+		service.ExternalPort = 0
+		service.LastError = errMsg
+	case PhaseRestarting, PhaseProbing:
+		service.PunchSuccess = false
+		service.ExternalPort = 0
+		service.LastError = errMsg
+	default:
+		service.PunchSuccess = false
+		service.ExternalPort = 0
+		service.LastError = ""
 	}
 }
 
@@ -231,6 +433,10 @@ func (s *Scheduler) detachService(key string) *serviceEntry {
 }
 
 func (s *Scheduler) releaseService(key string, entry *serviceEntry) {
+	if entry.phaseValue() == PhaseFailed {
+		return
+	}
+
 	s.mu.Lock()
 	if current, ok := s.services[key]; ok && current == entry {
 		delete(s.services, key)
