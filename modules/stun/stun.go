@@ -11,7 +11,10 @@ import (
 	"github.com/pion/stun"
 )
 
+// stun内网穿透实现
 func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func(TunnelReady)) error {
+
+	// 验证环境
 	protocol, err := normalizeProtocol(req.Protocol)
 	if err != nil {
 		return err
@@ -23,6 +26,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 		return fmt.Errorf("best STUN server is not ready")
 	}
 
+	// 端口复用
 	localAddr := fmt.Sprintf("%s:0", req.Environment.LocalIP)
 	stunConn, err := reuseport.Dial(protocol, localAddr, req.Environment.BestSTUN)
 	if err != nil {
@@ -37,6 +41,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 		localPort = uint16(stunConn.LocalAddr().(*net.UDPAddr).Port)
 	}
 
+	// 发送stun 请求
 	var publicIP string
 	var publicPort int
 	if protocol == "tcp" {
@@ -55,6 +60,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 		return fmt.Errorf("stun handshake failed: %w", err)
 	}
 
+	// 监听端口
 	listenAddr := fmt.Sprintf("%s:%d", req.Environment.LocalIP, localPort)
 	listener, err := reuseport.Listen(protocol, listenAddr)
 	if err != nil {
@@ -62,6 +68,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 		return fmt.Errorf("listen on %s failed: %w", listenAddr, err)
 	}
 
+	// upnp
 	if req.UseUPnP {
 		upnpCtx, upnpCancel := context.WithTimeout(ctx, 25*time.Second)
 		_ = AddPortMappingQueueWithLocalIP(
@@ -92,12 +99,14 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 		listener.Close()
 	}()
 
+	// 传出去端口
 	if onReady != nil {
 		onReady(TunnelReady{ExternalPort: uint16(publicPort)})
 	}
 
 	errCh := make(chan error, 2)
 
+	// 保活
 	if protocol == "tcp" {
 		go func() {
 			if err := tcpStunHealthCheck(
