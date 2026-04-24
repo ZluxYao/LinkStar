@@ -33,7 +33,12 @@ func InitSTUN() error {
 	var g errgroup.Group
 
 	g.Go(func() error {
-		global.StunConfig.BestSTUN = GetFastStunServer()
+		stunService := NewSTUNService(global.StunConfig.StunServerList)
+		bestSTUN, err := stunService.GetBestSTUNServer()
+		if err != nil {
+			return err
+		}
+		global.StunConfig.BestSTUN = bestSTUN
 		return nil
 	})
 
