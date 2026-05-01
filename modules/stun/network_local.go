@@ -54,7 +54,8 @@ func GetLocalIP() (string, error) {
 			strings.HasPrefix(name, "br-") ||
 			strings.HasPrefix(name, "veth") ||
 			strings.HasPrefix(name, "lo") ||
-			strings.HasPrefix(name, "virbr") {
+			strings.HasPrefix(name, "virbr") ||
+			strings.HasPrefix(name, "v") {
 			continue
 		}
 

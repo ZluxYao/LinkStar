@@ -84,7 +84,7 @@ func createConfig() (model.Config, error) {
 
 // UpdateConfig 更新stun配置文件
 func UpdateConfig(config model.Config) error {
-	const ConfigPath = "config/Config.json"
+	const ConfigPath = "config/stunConfig.json"
 
 	// 更新时间戳
 	config.UpdatedAt = time.Now()

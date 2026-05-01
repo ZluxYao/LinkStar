@@ -68,6 +68,8 @@ func updateNetworkAddress(stunServer string) bool {
 		return false
 	}
 
+	logrus.Infof("通过 STUN 服务器 %s 获取到的网络地址: LocalIP=%s, PublicIP=%s", stunServer, addrInfo.LocalIP, addrInfo.PublicIP)
+
 	//如果发生网络变化更新NatRouter
 	if Runtime.Network.LocalIP != addrInfo.LocalIP || Runtime.Network.PublicIP != addrInfo.PublicIP {
 		// 更新网络信息

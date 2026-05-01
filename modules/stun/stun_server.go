@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pion/stun"
+	"github.com/sirupsen/logrus"
 )
 
 type STUNServiceDelay struct {
@@ -108,6 +109,7 @@ func (s *STUNService) UpdateSTUNService() {
 			if err != nil {
 				return
 			}
+			logrus.Infof("STUN服务器 %s 延时: %v", res.Server, res.Delay)
 			results <- *res
 		}(server)
 	}
