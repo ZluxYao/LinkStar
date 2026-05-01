@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const ConfigPath = "config/Config.json"
+const ConfigPath = "config/stunConfig.json"
 
 // shutdownChan 用于接收退出信号
 var shutdownChan = make(chan struct{})
