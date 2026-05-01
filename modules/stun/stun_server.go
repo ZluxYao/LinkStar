@@ -44,12 +44,39 @@ func (s *STUNService) GetBestSTUNServer() (string, error) {
 // 返回备用STUN服务器
 func (s *STUNService) GetBackupServer() (string, error) {
 
-	//遍历测试返回可用的
-	for _, server := range s.AvailableSTUNServers {
-		_, err := getSTUNServerDeelay(server)
-		if err != nil {
-			continue
+	// 如果没有可用服务器，先更新在返回
+	if len(s.AvailableSTUNServers) == 0 {
+		s.UpdateSTUNService()
+		if s.BestSTUNServer == "" {
+			return "", fmt.Errorf("no best STUN server")
 		}
+		return s.BestSTUNServer, nil
+	}
+
+	var wg sync.WaitGroup
+	resultCh := make(chan string, len(s.AvailableSTUNServers))
+
+	//遍历测试返回可用的
+	wg.Add(len(s.AvailableSTUNServers))
+	for _, server := range s.AvailableSTUNServers {
+		go func() {
+			defer wg.Done()
+			serverDeelay, err := getSTUNServerDelay(server)
+			if err != nil {
+				return
+			}
+
+			resultCh <- serverDeelay.Server
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	// 只要拿到可用服务器直接返回
+	if server, ok := <-resultCh; ok {
 		return server, nil
 	}
 
@@ -77,7 +104,7 @@ func (s *STUNService) UpdateSTUNService() {
 		wg.Add(1)
 		go func(srv string) {
 			defer wg.Done()
-			res, err := getSTUNServerDeelay(srv)
+			res, err := getSTUNServerDelay(srv)
 			if err != nil {
 				return
 			}
@@ -107,7 +134,7 @@ func (s *STUNService) UpdateSTUNService() {
 }
 
 // 获取连接延时
-func getSTUNServerDeelay(srv string) (*STUNServiceDelay, error) {
+func getSTUNServerDelay(srv string) (*STUNServiceDelay, error) {
 	star := time.Now()
 
 	// 建立TCP连接

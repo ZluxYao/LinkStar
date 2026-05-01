@@ -1,7 +1,6 @@
 package stun_api
 
 import (
-	"linkstar/global"
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/utils/res"
@@ -31,7 +30,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 
 	// 查找目标设备
 	deviceIndex := -1
-	for i, device := range global.StunConfig.Devices {
+	for i, device := range stun.Runtime.Config.Devices {
 		if device.DeviceID == cr.DeviceID {
 			deviceIndex = i
 			break
@@ -44,7 +43,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 
 	// 查找目标服务
 	serviceIndex := -1
-	for i, svc := range global.StunConfig.Devices[deviceIndex].Services {
+	for i, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
 		if svc.ID == cr.ServiceID {
 			serviceIndex = i
 			break
@@ -56,7 +55,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	}
 
 	// 更新服务字段
-	svc := &global.StunConfig.Devices[deviceIndex].Services[serviceIndex]
+	svc := &stun.Runtime.Config.Devices[deviceIndex].Services[serviceIndex]
 	svc.Name = cr.Name
 	svc.InternalPort = cr.InternalPort
 	svc.Protocol = cr.Protocol
@@ -68,15 +67,15 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.UpdatedAt = time.Now()
 
 	// 持久化配置到文件
-	if err := stun.UpdateStunConfig(global.StunConfig); err != nil {
+	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
 	}
 
 	// 重启该服务的 STUN 穿透（停旧起新）
 	// 修复：原版调用已删除的全局函数 stun.StartService，改为调度器实例方法
-	device := &global.StunConfig.Devices[deviceIndex]
-	global.StunScheduler.StartService(device, &device.Services[serviceIndex])
+	device := &stun.Runtime.Config.Devices[deviceIndex]
+	stun.Runtime.Scheduler.StartService(device, &device.Services[serviceIndex])
 
 	res.OkWithData(*svc, c)
 }

@@ -1,7 +1,6 @@
 package stun_api
 
 import (
-	"linkstar/global"
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/modules/stun/model"
@@ -31,7 +30,7 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 
 	// 查找目标设备
 	deviceIndex := -1
-	for i, device := range global.StunConfig.Devices {
+	for i, device := range stun.Runtime.Config.Devices {
 		if device.DeviceID == cr.DeviceID {
 			deviceIndex = i
 			break
@@ -44,7 +43,7 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 
 	// 生成新服务ID（取当前最大ID+1）
 	var maxID uint = 0
-	for _, svc := range global.StunConfig.Devices[deviceIndex].Services {
+	for _, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
 		if svc.ID > maxID {
 			maxID = svc.ID
 		}
@@ -65,13 +64,13 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 	}
 
 	// 添加服务到设备
-	global.StunConfig.Devices[deviceIndex].Services = append(
-		global.StunConfig.Devices[deviceIndex].Services,
+	stun.Runtime.Config.Devices[deviceIndex].Services = append(
+		stun.Runtime.Config.Devices[deviceIndex].Services,
 		newService,
 	)
 
 	// 持久化配置到文件
-	if err := stun.UpdateStunConfig(global.StunConfig); err != nil {
+	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
 	}
@@ -79,9 +78,9 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 	// 启动该服务的 STUN 穿透
 	// 修复：原版调用已删除的全局函数 stun.StartService，改为调度器实例方法
 	// 注意：必须从 global 切片取指针，不能用局部变量 newService（append 后地址可能已变）
-	device := &global.StunConfig.Devices[deviceIndex]
+	device := &stun.Runtime.Config.Devices[deviceIndex]
 	services := device.Services
-	global.StunScheduler.StartService(device, &services[len(services)-1])
+	stun.Runtime.Scheduler.StartService(device, &services[len(services)-1])
 
 	res.OkWithData(newService, c)
 }

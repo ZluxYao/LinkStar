@@ -1,7 +1,6 @@
 package stun_api
 
 import (
-	"linkstar/global"
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/utils/res"
@@ -26,7 +25,7 @@ func (StunApi) StunDeviceUpdateView(c *gin.Context) {
 
 	// 查找目标设备
 	deviceIndex := -1
-	for i, device := range global.StunConfig.Devices {
+	for i, device := range stun.Runtime.Config.Devices {
 		if device.DeviceID == cr.DeviceID {
 			deviceIndex = i
 			break
@@ -38,14 +37,14 @@ func (StunApi) StunDeviceUpdateView(c *gin.Context) {
 	}
 
 	// 更新设备字段
-	dev := &global.StunConfig.Devices[deviceIndex]
+	dev := &stun.Runtime.Config.Devices[deviceIndex]
 	oldIP := dev.IP
 	dev.Name = cr.Name
 	dev.IP = cr.IP
 	dev.UpdatedAt = time.Now()
 
 	// 持久化配置到文件
-	if err := stun.UpdateStunConfig(global.StunConfig); err != nil {
+	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
 	}
@@ -55,7 +54,7 @@ func (StunApi) StunDeviceUpdateView(c *gin.Context) {
 	if oldIP != cr.IP {
 		for j := range dev.Services {
 			svc := &dev.Services[j]
-			global.StunScheduler.StartService(dev, svc)
+			stun.Runtime.Scheduler.StartService(dev, svc)
 		}
 	}
 
