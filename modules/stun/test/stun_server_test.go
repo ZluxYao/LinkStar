@@ -8,6 +8,7 @@ import (
 
 	stunpkg "linkstar/modules/stun"
 
+	"github.com/libp2p/go-reuseport"
 	"github.com/pion/stun"
 )
 
@@ -54,7 +55,7 @@ func TestNewSTUNService(t *testing.T) {
 func TestGetBackupServer(t *testing.T) {
 	svc := stunpkg.NewSTUNService(testServers)
 
-	backup, err := svc.GetBackupServer()
+	backup, err := svc.GetBackupSTUNServer()
 	if err != nil {
 		t.Logf("GetBackupServer error: %v", err)
 		return
@@ -115,4 +116,85 @@ func TestRawSTUNBinding(t *testing.T) {
 	}
 
 	fmt.Printf("[TestRawSTUNBinding] 公网地址 = %s\n", xorAddr.String())
+}
+
+func TestSTUNHandshake(t *testing.T) {
+	srv := "stun.radiojar.com:3478"
+
+	t.Run("tcp", func(t *testing.T) {
+		conn, err := net.DialTimeout("tcp", srv, 3*time.Second)
+		if err != nil {
+			t.Skipf("TCP 网络不可达，跳过: %v", err)
+		}
+		defer conn.Close()
+
+		ip, port, err := doStunHandshake(conn)
+		if err != nil {
+			t.Fatalf("TCP STUN 失败: %v", err)
+		}
+		t.Logf("[TCP] 公网地址: %s:%d", ip, port)
+	})
+
+	t.Run("udp", func(t *testing.T) {
+		conn, err := net.DialTimeout("udp", srv, 3*time.Second)
+		if err != nil {
+			t.Skipf("UDP 网络不可达，跳过: %v", err)
+		}
+		defer conn.Close()
+
+		ip, port, err := doStunHandshake(conn)
+		if err != nil {
+			t.Fatalf("UDP STUN 失败: %v", err)
+		}
+		t.Logf("[UDP] 公网地址: %s:%d", ip, port)
+	})
+}
+
+func TestReuseportUDPWrite(t *testing.T) {
+	srv := "stun.radiojar.com:3478"
+	localIP := "0.0.0.0"
+	localAddr := fmt.Sprintf("%s:0", localIP)
+
+	conn, err := reuseport.Dial("udp", localAddr, srv)
+	if err != nil {
+		t.Skipf("网络不可达，跳过: %v", err)
+	}
+	defer conn.Close()
+
+	t.Logf("conn 类型: %T", conn) // 看看实际类型
+
+	ip, port, err := doStunHandshake(conn)
+	if err != nil {
+		t.Fatalf("reuseport UDP STUN 失败: %v", err)
+	}
+	t.Logf("[reuseport UDP] 公网地址: %s:%d", ip, port)
+}
+
+func doStunHandshake(conn net.Conn) (string, int, error) {
+	msg := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+	if _, err := conn.Write(msg.Raw); err != nil {
+		return "", 0, fmt.Errorf("send stun request: %w", err)
+	}
+
+	conn.SetDeadline(time.Now().Add(3 * time.Second))
+	defer conn.SetDeadline(time.Time{})
+
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return "", 0, fmt.Errorf("read stun response: %w", err)
+	}
+
+	var response stun.Message
+	response.Raw = buf[:n]
+	if err = response.Decode(); err != nil {
+		return "", 0, fmt.Errorf("decode stun response: %w", err)
+	}
+
+	var xorAddr stun.XORMappedAddress
+	if err = xorAddr.GetFrom(&response); err != nil {
+		return "", 0, fmt.Errorf("get mapped address: %w", err)
+	}
+
+	return xorAddr.IP.String(), xorAddr.Port, nil
 }

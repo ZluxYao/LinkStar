@@ -43,7 +43,7 @@ func (s *STUNService) GetBestSTUNServer() (string, error) {
 }
 
 // 返回备用STUN服务器
-func (s *STUNService) GetBackupServer() (string, error) {
+func (s *STUNService) GetBackupSTUNServer() (string, error) {
 
 	// 如果没有可用服务器，先更新在返回
 	if len(s.AvailableSTUNServers) == 0 {
@@ -91,8 +91,10 @@ func (s *STUNService) GetBackupServer() (string, error) {
 
 // 更新当前STUN服务器
 func (s *STUNService) UpdateSTUNService() {
-	// 只能单次运行
+	// 只能单次运行,当有运行，等待运行完成即可返回
 	if !s.updating.TryLock() {
+		s.updating.Lock()
+		s.updating.Unlock()
 		return
 	}
 	defer s.updating.Unlock()

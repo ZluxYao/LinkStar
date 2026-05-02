@@ -178,7 +178,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 
 func currentSTUNServer() (string, error) {
 	if Runtime.STUNService != nil {
-		stunServer, err := Runtime.STUNService.GetBackupServer()
+		stunServer, err := Runtime.STUNService.GetBackupSTUNServer()
 		if err == nil && stunServer != "" {
 			return stunServer, nil
 		}
