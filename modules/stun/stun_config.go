@@ -56,7 +56,6 @@ func createConfig() (model.Config, error) {
 		"stun.bau-ha.us:3478",
 		"stun.bridesbay.com:3478",
 		"stun.3wayint.com:3478",
-		"stun.finsterwalder.com:3478",
 		"stun.romaaeterna.nl:3478",
 		"stun.fitauto.ru:3478",
 		"stun.antisip.com:3478",
