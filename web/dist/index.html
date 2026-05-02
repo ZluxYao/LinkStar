@@ -634,6 +634,11 @@
         let deviceModalMode = 'add'; // 'add' | 'edit'
         let deviceModalId = null;    // 编辑时的设备ID
 
+        function getDeviceId(device) {
+            if (!device) return null;
+            return device.id ?? device.deviceId ?? device.DeviceID ?? null;
+        }
+
         // ================= 添加/编辑设备 =================
         function openDeviceModal() {
             deviceModalMode = 'add';
@@ -649,7 +654,7 @@
             const dev = globalData.devices[deviceIndex];
             if (!dev) return;
             deviceModalMode = 'edit';
-            deviceModalId = dev.DeviceID || dev.deviceId || dev.id;
+            deviceModalId = getDeviceId(dev);
             document.getElementById('deviceModalTitle').textContent = '✏️ 编辑设备';
             document.getElementById('deviceSubmitBtn').textContent = '保存';
             document.getElementById('d-name').value = dev.name || '';
@@ -705,7 +710,7 @@
             if (!dev) return;
             if (!confirm(`确认删除设备「${dev.name}」？该设备下所有服务也将被删除，此操作不可撤销。`)) return;
 
-            const deviceId = dev.DeviceID || dev.deviceId || dev.id;
+            const deviceId = getDeviceId(dev);
             try {
                 const resp = await fetch('/api/stun/device/delete', {
                     method: 'DELETE',
@@ -781,7 +786,7 @@
             btn.disabled = true;
 
             const body = {
-                deviceId: device.DeviceID || device.deviceId || device.id,
+                deviceId: getDeviceId(device),
                 name,
                 internalPort,
                 protocol: document.getElementById('f-protocol').value,
@@ -838,7 +843,7 @@
                     method: 'DELETE',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        deviceId: device.DeviceID || device.deviceId || device.id,
+                        deviceId: getDeviceId(device),
                         serviceId,
                     }),
                 });
@@ -1029,7 +1034,7 @@
 
             // 记住当前选中的设备ID，刷新后恢复
             const prevDeviceId = globalData && globalData.devices && globalData.devices[selectedDeviceIndex]
-                ? (globalData.devices[selectedDeviceIndex].DeviceID || globalData.devices[selectedDeviceIndex].deviceId)
+                ? (getDeviceId(globalData.devices[selectedDeviceIndex]))
                 : null;
 
             globalData = await fetchConfig();
@@ -1095,7 +1100,7 @@
                 let restoreIndex = 0;
                 if (prevDeviceId !== null) {
                     const found = globalData.devices.findIndex(d =>
-                        (d.DeviceID || d.deviceId) === prevDeviceId
+                        getDeviceId(d) === prevDeviceId
                     );
                     if (found !== -1) restoreIndex = found;
                 }
@@ -1107,7 +1112,7 @@
         // 静默刷新：不重建页面，只更新数据和当前视图
         async function refreshData() {
             const prevDeviceId = globalData && globalData.devices && globalData.devices[selectedDeviceIndex]
-                ? (globalData.devices[selectedDeviceIndex].DeviceID || globalData.devices[selectedDeviceIndex].deviceId)
+                ? (getDeviceId(globalData.devices[selectedDeviceIndex]))
                 : null;
 
             const newData = await fetchConfig();
@@ -1118,7 +1123,7 @@
                 let restoreIndex = 0;
                 if (prevDeviceId !== null) {
                     const found = globalData.devices.findIndex(d =>
-                        (d.DeviceID || d.deviceId) === prevDeviceId
+                        getDeviceId(d) === prevDeviceId
                     );
                     if (found !== -1) restoreIndex = found;
                 }
