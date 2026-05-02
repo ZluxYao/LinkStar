@@ -1,7 +1,6 @@
 package stun_api
 
 import (
-	"linkstar/global"
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/modules/stun/model"
@@ -26,7 +25,7 @@ func (StunApi) StunDeviceAddView(c *gin.Context) {
 
 	// 生成新设备ID（取当前最大ID+1）
 	var maxID uint = 0
-	for _, d := range global.StunConfig.Devices {
+	for _, d := range stun.Runtime.Config.Devices {
 		if d.DeviceID > maxID {
 			maxID = d.DeviceID
 		}
@@ -41,9 +40,9 @@ func (StunApi) StunDeviceAddView(c *gin.Context) {
 		UpdatedAt: time.Now(),
 	}
 
-	global.StunConfig.Devices = append(global.StunConfig.Devices, newDevice)
+	stun.Runtime.Config.Devices = append(stun.Runtime.Config.Devices, newDevice)
 
-	if err := stun.UpdateStunConfig(global.StunConfig); err != nil {
+	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
 	}

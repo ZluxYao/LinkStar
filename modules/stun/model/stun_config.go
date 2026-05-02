@@ -2,22 +2,19 @@ package model
 
 import "time"
 
-type StunConfig struct {
+type Config struct {
 	// 基础网络信息
-	LocalIP  string `json:"localIP"`  // 本机内网IP
-	PublicIP string `json:"publicIP"` // 真实公网IP
 
-	NatRouterList []NatRouterInfo `json:"natRouterList"` // 路由信息
-	BestSTUN      string          `json:"bestStun"`      // 最快的STUN服务器
-	CreatedAt     time.Time       `json:"createdAt"`     // 配置创建时间
-	UpdatedAt     time.Time       `json:"updatedAt"`     // 最后更新时间
+	BestSTUN  string    `json:"bestStun"`  // 最快的STUN服务器
+	CreatedAt time.Time `json:"createdAt"` // 配置创建时间
+	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
 
 	Devices        []Device `json:"devices"`        // stun设备列表
 	StunServerList []string `json:"stunServerList"` // stun服务器列表
 }
 
 type Device struct {
-	DeviceID uint      `josn:"id"`       // 设备ID
+	DeviceID uint      `json:"id"`       // 修复：原版拼写错误 josn -> json，序列化时该字段会丢失
 	Name     string    `json:"name"`     // "本机" / "群晖NAS" / "树莓派"
 	IP       string    `json:"ip"`       // 设备ip
 	Services []Service `json:"services"` // 该设备上的服务
@@ -46,10 +43,4 @@ type Service struct {
 	PunchSuccess bool      `json:"punchSuccess"` // STUN穿透是否成功
 	LastError    string    `json:"lastError"`    // 最后一次操作的错误信息
 	UpdatedAt    time.Time `json:"updatedAt"`    // 最后更新时间
-}
-
-// 每个Nat路由信息
-type NatRouterInfo struct {
-	NatLevel uint   `json:"natLevel"` // NAT层级
-	LanIp    string `json:"lanIP"`    // LAN口IP地址
 }
