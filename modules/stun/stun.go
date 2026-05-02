@@ -13,6 +13,11 @@ import (
 
 // stun内网穿透实现
 func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNState)) error {
+	emitLog := func(format string, args ...any) {
+		if onState != nil {
+			onState(STUNState{State: STUNLog, Log: fmt.Sprintf(format, args...)})
+		}
+	}
 
 	// 验证环境
 	protocol, err := normalizeProtocol(req.Protocol)
@@ -28,6 +33,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 	if err != nil {
 		return err
 	}
+	emitLog("选择 STUN 服务器: %s", stunServer)
 
 	// 端口复用
 	localAddr := fmt.Sprintf("%s:0", localIP)
@@ -35,6 +41,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 	if err != nil {
 		return fmt.Errorf("connect stun server %s: %w", stunServer, err)
 	}
+	emitLog("已连接 STUN 服务器: %s，本地地址: %s", stunServer, stunConn.LocalAddr())
 
 	var localPort uint16
 	switch protocol {
@@ -62,6 +69,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 		stunConn.Close()
 		return fmt.Errorf("stun handshake failed: %w", err)
 	}
+	emitLog("STUN 打洞成功: %s:%d -> 本地端口 %d/%s", publicIP, publicPort, localPort, strings.ToUpper(protocol))
 
 	// 监听端口
 	listenAddr := fmt.Sprintf("%s:%d", localIP, localPort)
@@ -70,18 +78,23 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 		stunConn.Close()
 		return fmt.Errorf("listen on %s failed: %w", listenAddr, err)
 	}
+	emitLog("开始监听隧道端口: %s", listenAddr)
 
 	// upnp
 	if req.UseUPnP {
 		upnpCtx, upnpCancel := context.WithTimeout(ctx, 25*time.Second)
-		_ = AddPortMappingQueueWithLocalIP(
+		if err := AddPortMappingQueueWithLocalIP(
 			upnpCtx,
 			localPort,
 			localPort,
 			strings.ToUpper(protocol),
 			fmt.Sprintf("LinkStar-%s", req.ServiceName),
 			localIP,
-		)
+		); err != nil {
+			emitLog("UPnP 端口映射失败: %v", err)
+		} else {
+			emitLog("UPnP 端口映射成功: %d/%s -> %s:%d", localPort, strings.ToUpper(protocol), localIP, localPort)
+		}
 		upnpCancel()
 	}
 
@@ -104,7 +117,11 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 
 	// 传出去端口
 	if onState != nil {
-		onState(STUNState{State: STUNMapped, ExternalPort: uint16(publicPort)})
+		onState(STUNState{
+			State:        STUNMapped,
+			ExternalPort: uint16(publicPort),
+			Log:          fmt.Sprintf("端口打通: 公网 %s:%d，本地 %s:%d/%s", publicIP, publicPort, localIP, localPort, strings.ToUpper(protocol)),
+		})
 	}
 
 	errCh := make(chan error, 2)
@@ -122,10 +139,15 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 				stunServer,
 				func() {
 					if onState != nil {
-						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
+						onState(STUNState{
+							State:        STUNAlive,
+							ExternalPort: uint16(publicPort),
+							Log:          fmt.Sprintf("健康检查通过，公网端口可访问: %s:%d", publicIP, publicPort),
+						})
 					}
 				},
 			); err != nil && ctx.Err() == nil {
+				emitLog("TCP 健康检查失败: %v", err)
 				errCh <- fmt.Errorf("tcp health check failed: %w", err)
 			}
 		}()
@@ -135,6 +157,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 			stunServerAddr, resolveErr := net.ResolveUDPAddr("udp", stunServer)
 			if resolveErr != nil {
 				if ctx.Err() == nil {
+					emitLog("解析 STUN UDP 地址失败: %v", resolveErr)
 					errCh <- fmt.Errorf("resolve stun server %s: %w", stunServer, resolveErr)
 				}
 				return
@@ -148,10 +171,15 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 				localIP,
 				func() {
 					if onState != nil {
-						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
+						onState(STUNState{
+							State:        STUNAlive,
+							ExternalPort: uint16(publicPort),
+							Log:          fmt.Sprintf("健康检查通过，公网端口可访问: %s:%d", publicIP, publicPort),
+						})
 					}
 				},
 			); err != nil && ctx.Err() == nil {
+				emitLog("UDP 健康检查失败: %v", err)
 				errCh <- fmt.Errorf("udp health check failed: %w", err)
 			}
 		}()
@@ -165,10 +193,12 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 				if ctx.Err() != nil {
 					errCh <- nil
 				} else {
+					emitLog("接收隧道连接失败: %v", err)
 					errCh <- fmt.Errorf("accept tunnel connection: %w", err)
 				}
 				return
 			}
+			emitLog("收到隧道连接: %s -> %s", clientConn.RemoteAddr(), targetAddr)
 			go Forward(clientConn, targetAddr, protocol)
 		}
 	}()

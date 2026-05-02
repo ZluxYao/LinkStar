@@ -16,11 +16,13 @@ const (
 	STUNMapped STUNStateType = iota
 	STUNAlive
 	STUNFailed
+	STUNLog
 )
 
 type STUNState struct {
 	State        STUNStateType
 	ExternalPort uint16
+	Log          string
 }
 
 type TunnelRunner interface {

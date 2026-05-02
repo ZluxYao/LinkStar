@@ -316,6 +316,60 @@
             background: #f1f5f9;
         }
 
+        .service-logs {
+            margin: 8px 0 12px;
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .service-logs summary {
+            cursor: pointer;
+            padding: 8px 10px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .service-log-list {
+            max-height: 180px;
+            overflow: auto;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .service-log-line {
+            padding: 8px 10px;
+            border-bottom: 1px dashed #e2e8f0;
+            display: grid;
+            grid-template-columns: auto auto 1fr;
+            gap: 8px;
+            align-items: start;
+        }
+
+        .service-log-line:last-child {
+            border-bottom: none;
+        }
+
+        .service-log-time {
+            color: var(--text-desc);
+            font-family: monospace;
+            white-space: nowrap;
+        }
+
+        .service-log-phase {
+            color: #0369a1;
+            background: #e0f2fe;
+            border-radius: 4px;
+            padding: 1px 5px;
+            font-family: monospace;
+            white-space: nowrap;
+        }
+
+        .service-log-message {
+            color: var(--text-main);
+            word-break: break-word;
+        }
+
         .svc-actions {
             display: flex;
             gap: 12px;
@@ -639,6 +693,49 @@
             return device.id ?? device.deviceId ?? device.DeviceID ?? null;
         }
 
+        function getServiceKey(device, service) {
+            return `${getDeviceId(device)}-${service?.id ?? service?.serviceId ?? service?.ID ?? ''}`;
+        }
+
+        function captureServiceLogState() {
+            const state = new Map();
+            document.querySelectorAll('.service-logs[data-service-key]').forEach(el => {
+                const list = el.querySelector('.service-log-list');
+                state.set(el.dataset.serviceKey, {
+                    open: el.open,
+                    scrollTop: list ? list.scrollTop : 0,
+                });
+            });
+            return state;
+        }
+
+        function restoreServiceLogState(state) {
+            if (!state) return;
+            document.querySelectorAll('.service-logs[data-service-key]').forEach(el => {
+                const item = state.get(el.dataset.serviceKey);
+                if (!item) return;
+                el.open = item.open;
+                const list = el.querySelector('.service-log-list');
+                if (list) list.scrollTop = item.scrollTop;
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function formatLogTime(value) {
+            if (!value) return '--';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '--';
+            return date.toLocaleTimeString('zh-CN', { hour12: false });
+        }
+
         // ================= 添加/编辑设备 =================
         function openDeviceModal() {
             deviceModalMode = 'add';
@@ -939,7 +1036,8 @@
         }
 
         // 渲染右侧服务大卡片
-        window.renderServices = function (index) {
+        window.renderServices = function (index, options = {}) {
+            const logState = options.preserveLogState ? captureServiceLogState() : null;
             selectedDeviceIndex = index;
             // 更新左侧高亮
             document.querySelectorAll('.device-item').forEach((el, idx) => {
@@ -991,8 +1089,25 @@
 
                 const errorHtml = srv.lastError ? `
                     <div style="background:#fef2f2; border:1px solid #fca5a5; padding:8px; border-radius:6px; color:#ef4444; font-size:12px; margin-top:8px; margin-bottom:8px;">
-                        ⚠️ <strong>错误:</strong> ${srv.lastError}
+                        ⚠️ <strong>错误:</strong> ${escapeHtml(srv.lastError)}
                     </div>
+                ` : '';
+
+                const serviceKey = getServiceKey(device, srv);
+                const logs = Array.isArray(srv.logs) ? [...srv.logs].reverse() : [];
+                const logsHtml = logs.length ? `
+                    <details class="service-logs" data-service-key="${escapeHtml(serviceKey)}">
+                        <summary>运行日志 (${logs.length})</summary>
+                        <div class="service-log-list">
+                            ${logs.map(log => `
+                                <div class="service-log-line">
+                                    <span class="service-log-time">${formatLogTime(log.createdAt)}</span>
+                                    <span class="service-log-phase">${escapeHtml(log.phaseStr || log.phase || '--')}</span>
+                                    <span class="service-log-message">${escapeHtml(log.message)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </details>
                 ` : '';
 
                 return `
@@ -1018,6 +1133,7 @@
                         </div>
 
                         ${errorHtml}
+                        ${logsHtml}
                         ${extAddrHtml}
 
                         <div class="svc-actions">
@@ -1026,6 +1142,7 @@
                     </div>
                 `;
             }).join('');
+            restoreServiceLogState(logState);
         }
 
         async function initDashboard() {
@@ -1105,8 +1222,23 @@
                     if (found !== -1) restoreIndex = found;
                 }
                 modalDeviceIndex = restoreIndex;
-                renderServices(restoreIndex);
+                renderServices(restoreIndex, { preserveLogState: true });
             }
+        }
+
+        function getDeviceListSignature(data) {
+            return JSON.stringify((data?.devices || []).map(dev => ({
+                id: getDeviceId(dev),
+                name: dev.name || '',
+                ip: dev.ip || '',
+                serviceCount: Array.isArray(dev.services) ? dev.services.length : 0,
+            })));
+        }
+
+        function getSelectedDeviceSignature(data, index) {
+            const device = data?.devices?.[index];
+            if (!device) return '';
+            return JSON.stringify(device.services || []);
         }
 
         // 静默刷新：不重建页面，只更新数据和当前视图
@@ -1114,6 +1246,8 @@
             const prevDeviceId = globalData && globalData.devices && globalData.devices[selectedDeviceIndex]
                 ? (getDeviceId(globalData.devices[selectedDeviceIndex]))
                 : null;
+            const prevDeviceListSignature = getDeviceListSignature(globalData);
+            const prevSignature = getSelectedDeviceSignature(globalData, selectedDeviceIndex);
 
             const newData = await fetchConfig();
             if (!newData) return;
@@ -1127,9 +1261,14 @@
                     );
                     if (found !== -1) restoreIndex = found;
                 }
-                // 只重新渲染左侧设备列表和右侧服务卡片，不重建整个页面
+                const nextSignature = getSelectedDeviceSignature(globalData, restoreIndex);
+                const deviceListChanged = prevDeviceListSignature !== getDeviceListSignature(globalData);
+                if (prevSignature === nextSignature && selectedDeviceIndex === restoreIndex && !deviceListChanged) {
+                    return;
+                }
+                // 只重新渲染有变化的区域，避免左侧设备选择框每秒闪烁
                 const devicesListEl = document.getElementById('devices-list-inner');
-                if (devicesListEl) {
+                if (devicesListEl && deviceListChanged) {
                     devicesListEl.innerHTML = globalData.devices.map((dev, index) => `
                         <div class="device-item" onclick="renderServices(${index})">
                             <div class="device-item-name">💻 ${dev.name || '未知设备'}</div>
@@ -1141,7 +1280,7 @@
                         </div>
                     `).join('');
                 }
-                renderServices(restoreIndex);
+                renderServices(restoreIndex, { preserveLogState: true });
             }
         }
 

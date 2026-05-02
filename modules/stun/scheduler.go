@@ -81,8 +81,18 @@ type StateEvent struct {
 	ExternalPort uint16       `json:"externalPort"`
 	RestartCount int          `json:"restartCount"`
 	LastError    string       `json:"lastError"`
+	Logs         []ServiceLog `json:"logs"`
 	UpdatedAt    time.Time    `json:"updatedAt"`
 }
+
+type ServiceLog struct {
+	Message   string       `json:"message"`
+	Phase     ServicePhase `json:"phase"`
+	PhaseStr  string       `json:"phaseStr"`
+	CreatedAt time.Time    `json:"createdAt"`
+}
+
+const maxServiceLogs = 15
 
 type serviceEntry struct {
 	cancel      context.CancelFunc
@@ -95,6 +105,7 @@ type serviceEntry struct {
 	externalPort uint16
 	restartCount int
 	lastError    string
+	logMessages  []ServiceLog
 	updatedAt    time.Time
 }
 
@@ -111,14 +122,42 @@ func newServiceEntry(cancel context.CancelFunc, deviceName, serviceName string) 
 
 func (e *serviceEntry) setState(phase ServicePhase, port uint16, errMsg string) {
 	e.mu.Lock()
+	now := time.Now()
 	if phase == PhaseRestarting {
 		e.restartCount++
 	}
 	e.phase = phase
 	e.externalPort = port
 	e.lastError = errMsg
-	e.updatedAt = time.Now()
+	e.updatedAt = now
+	e.appendLogLocked(phase, errMsg, now)
 	e.mu.Unlock()
+}
+
+func (e *serviceEntry) addLog(phase ServicePhase, message string) {
+	e.mu.Lock()
+	e.appendLogLocked(phase, message, time.Now())
+	e.mu.Unlock()
+}
+
+func (e *serviceEntry) appendLogLocked(phase ServicePhase, message string, now time.Time) {
+	if message == "" {
+		return
+	}
+
+	if len(e.logMessages) > 0 && e.logMessages[len(e.logMessages)-1].Message == message {
+		return
+	}
+
+	e.logMessages = append(e.logMessages, ServiceLog{
+		Message:   message,
+		Phase:     phase,
+		PhaseStr:  phase.String(),
+		CreatedAt: now,
+	})
+	if len(e.logMessages) > maxServiceLogs {
+		e.logMessages = e.logMessages[len(e.logMessages)-maxServiceLogs:]
+	}
 }
 
 func (e *serviceEntry) phaseValue() ServicePhase {
@@ -130,6 +169,7 @@ func (e *serviceEntry) phaseValue() ServicePhase {
 func (e *serviceEntry) snapshot(key string) StateEvent {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+	logs := append([]ServiceLog(nil), e.logMessages...)
 	return StateEvent{
 		Key:          key,
 		DeviceName:   e.deviceName,
@@ -139,6 +179,7 @@ func (e *serviceEntry) snapshot(key string) StateEvent {
 		ExternalPort: e.externalPort,
 		RestartCount: e.restartCount,
 		LastError:    e.lastError,
+		Logs:         logs,
 		UpdatedAt:    e.updatedAt,
 	}
 }
@@ -366,11 +407,18 @@ func (s *Scheduler) handleSTUNState(
 	switch state.State {
 	case STUNMapped:
 		s.setRuntimeState(service, entry, key, PhaseProbing, state.ExternalPort, "")
+		entry.addLog(PhaseProbing, state.Log)
+		s.emit(entry, key)
 	case STUNAlive:
 		ready.Store(true)
 		s.setRuntimeState(service, entry, key, PhaseRunning, state.ExternalPort, "")
+		entry.addLog(PhaseRunning, state.Log)
+		s.emit(entry, key)
 	case STUNFailed:
-		s.setRuntimeState(service, entry, key, PhaseRestarting, 0, "")
+		s.setRuntimeState(service, entry, key, PhaseRestarting, 0, state.Log)
+	case STUNLog:
+		entry.addLog(entry.phaseValue(), state.Log)
+		s.emit(entry, key)
 	}
 }
 
