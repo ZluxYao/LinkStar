@@ -317,9 +317,8 @@ func (s *Scheduler) runService(
 		}
 
 		var ready atomic.Bool
-		err := s.runner.Run(ctx, s.buildRequest(device, service), func(result TunnelReady) {
-			ready.Store(true)
-			s.setRuntimeState(service, entry, key, PhaseRunning, result.ExternalPort, "")
+		err := s.runner.Run(ctx, s.buildRequest(device, service), func(event TunnelEvent) {
+			s.handleTunnelEvent(service, entry, key, &ready, event)
 		})
 
 		if ctx.Err() != nil {
@@ -362,6 +361,22 @@ func (s *Scheduler) runService(
 	}
 }
 
+func (s *Scheduler) handleTunnelEvent(
+	service *model.Service,
+	entry *serviceEntry,
+	key string,
+	ready *atomic.Bool,
+	event TunnelEvent,
+) {
+	switch event.Type {
+	case TunnelMapped:
+		s.setRuntimeState(service, entry, key, PhaseProbing, event.ExternalPort, "")
+	case TunnelAlive:
+		ready.Store(true)
+		s.setRuntimeState(service, entry, key, PhaseRunning, event.ExternalPort, "")
+	}
+}
+
 func (s *Scheduler) setRuntimeState(
 	service *model.Service,
 	entry *serviceEntry,
@@ -390,9 +405,13 @@ func (s *Scheduler) applyServiceRuntime(
 		service.PunchSuccess = false
 		service.ExternalPort = 0
 		service.LastError = errMsg
-	case PhaseRestarting, PhaseProbing:
+	case PhaseRestarting:
 		service.PunchSuccess = false
 		service.ExternalPort = 0
+		service.LastError = errMsg
+	case PhaseProbing:
+		service.PunchSuccess = false
+		service.ExternalPort = port
 		service.LastError = errMsg
 	default:
 		service.PunchSuccess = false

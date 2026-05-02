@@ -12,7 +12,7 @@ import (
 )
 
 // stun内网穿透实现
-func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func(TunnelReady)) error {
+func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func(TunnelEvent)) error {
 
 	// 验证环境
 	protocol, err := normalizeProtocol(req.Protocol)
@@ -100,8 +100,8 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 	}()
 
 	// 传出去端口
-	if onReady != nil {
-		onReady(TunnelReady{ExternalPort: uint16(publicPort)})
+	if onEvent != nil {
+		onEvent(TunnelEvent{Type: TunnelMapped, ExternalPort: uint16(publicPort)})
 	}
 
 	errCh := make(chan error, 2)
@@ -116,6 +116,11 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 				publicPort,
 				localPort,
 				req.Environment,
+				func() {
+					if onEvent != nil {
+						onEvent(TunnelEvent{Type: TunnelAlive, ExternalPort: uint16(publicPort)})
+					}
+				},
 			); err != nil && ctx.Err() == nil {
 				errCh <- fmt.Errorf("tcp health check failed: %w", err)
 			}
@@ -137,6 +142,11 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onReady func
 				publicPort,
 				localPort,
 				req.Environment.LocalIP,
+				func() {
+					if onEvent != nil {
+						onEvent(TunnelEvent{Type: TunnelAlive, ExternalPort: uint16(publicPort)})
+					}
+				},
 			); err != nil && ctx.Err() == nil {
 				errCh <- fmt.Errorf("udp health check failed: %w", err)
 			}
@@ -254,12 +264,17 @@ func tcpStunHealthCheck(
 	expectedPublicPort int,
 	localPort uint16,
 	environment TunnelEnvironment,
+	onAlive func(),
 ) error {
 	if !firstTcpHealthKeep(ctx, publicIP, expectedPublicPort) {
 		if ctx.Err() != nil {
 			return nil
 		}
 		return fmt.Errorf("initial tcp keepalive failed")
+	}
+
+	if onAlive != nil {
+		onAlive()
 	}
 
 	healthTicker := time.NewTicker(28 * time.Second)
@@ -328,6 +343,7 @@ func udpStunHealthCheck(
 	expectedPublicPort int,
 	localPort uint16,
 	localIP string,
+	onAlive func(),
 ) error {
 	healthTicker := time.NewTicker(28 * time.Second)
 	defer healthTicker.Stop()
@@ -335,6 +351,7 @@ func udpStunHealthCheck(
 	consecutiveFailures := 0
 	maxFailures := 3
 	currentConn := udpConn
+	aliveReported := false
 
 	for {
 		select {
@@ -377,6 +394,13 @@ func udpStunHealthCheck(
 
 			if port != expectedPublicPort {
 				return fmt.Errorf("public port changed from %d to %d", expectedPublicPort, port)
+			}
+
+			if !aliveReported {
+				if onAlive != nil {
+					onAlive()
+				}
+				aliveReported = true
 			}
 
 			consecutiveFailures = 0

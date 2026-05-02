@@ -16,12 +16,20 @@ type TunnelRequest struct {
 	Environment  TunnelEnvironment
 }
 
-type TunnelReady struct {
+type TunnelEventType int
+
+const (
+	TunnelMapped TunnelEventType = iota
+	TunnelAlive
+)
+
+type TunnelEvent struct {
+	Type         TunnelEventType
 	ExternalPort uint16
 }
 
 type TunnelRunner interface {
-	Run(ctx context.Context, req TunnelRequest, onReady func(TunnelReady)) error
+	Run(ctx context.Context, req TunnelRequest, onEvent func(TunnelEvent)) error
 }
 
 type TunnelEnvironmentProvider func() TunnelEnvironment
