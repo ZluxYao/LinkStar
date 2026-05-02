@@ -12,25 +12,28 @@ import (
 )
 
 // stun内网穿透实现
-func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func(TunnelEvent)) error {
+func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNState)) error {
 
 	// 验证环境
 	protocol, err := normalizeProtocol(req.Protocol)
 	if err != nil {
 		return err
 	}
-	if req.Environment.LocalIP == "" {
+	localIP := Runtime.Network.LocalIP
+	if localIP == "" {
 		return fmt.Errorf("local IP is not ready")
 	}
-	if req.Environment.BestSTUN == "" {
-		return fmt.Errorf("best STUN server is not ready")
+
+	stunServer, err := currentSTUNServer()
+	if err != nil {
+		return err
 	}
 
 	// 端口复用
-	localAddr := fmt.Sprintf("%s:0", req.Environment.LocalIP)
-	stunConn, err := reuseport.Dial(protocol, localAddr, req.Environment.BestSTUN)
+	localAddr := fmt.Sprintf("%s:0", localIP)
+	stunConn, err := reuseport.Dial(protocol, localAddr, stunServer)
 	if err != nil {
-		return fmt.Errorf("connect stun server %s: %w", req.Environment.BestSTUN, err)
+		return fmt.Errorf("connect stun server %s: %w", stunServer, err)
 	}
 
 	var localPort uint16
@@ -48,10 +51,10 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 		publicIP, publicPort, err = doTcpStunHandshake(stunConn)
 	} else {
 		udpConn := stunConn.(*net.UDPConn)
-		stunServerAddr, resolveErr := net.ResolveUDPAddr("udp", req.Environment.BestSTUN)
+		stunServerAddr, resolveErr := net.ResolveUDPAddr("udp", stunServer)
 		if resolveErr != nil {
 			stunConn.Close()
-			return fmt.Errorf("resolve stun server %s: %w", req.Environment.BestSTUN, resolveErr)
+			return fmt.Errorf("resolve stun server %s: %w", stunServer, resolveErr)
 		}
 		publicIP, publicPort, err = doUDPStunHandshake(udpConn, stunServerAddr)
 	}
@@ -61,7 +64,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 	}
 
 	// 监听端口
-	listenAddr := fmt.Sprintf("%s:%d", req.Environment.LocalIP, localPort)
+	listenAddr := fmt.Sprintf("%s:%d", localIP, localPort)
 	listener, err := reuseport.Listen(protocol, listenAddr)
 	if err != nil {
 		stunConn.Close()
@@ -77,7 +80,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 			localPort,
 			strings.ToUpper(protocol),
 			fmt.Sprintf("LinkStar-%s", req.ServiceName),
-			req.Environment.LocalIP,
+			localIP,
 		)
 		upnpCancel()
 	}
@@ -100,8 +103,8 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 	}()
 
 	// 传出去端口
-	if onEvent != nil {
-		onEvent(TunnelEvent{Type: TunnelMapped, ExternalPort: uint16(publicPort)})
+	if onState != nil {
+		onState(STUNState{State: STUNMapped, ExternalPort: uint16(publicPort)})
 	}
 
 	errCh := make(chan error, 2)
@@ -115,10 +118,11 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 				publicIP,
 				publicPort,
 				localPort,
-				req.Environment,
+				localIP,
+				stunServer,
 				func() {
-					if onEvent != nil {
-						onEvent(TunnelEvent{Type: TunnelAlive, ExternalPort: uint16(publicPort)})
+					if onState != nil {
+						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
 					}
 				},
 			); err != nil && ctx.Err() == nil {
@@ -128,10 +132,10 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 	} else {
 		go func() {
 			udpConn := stunConn.(*net.UDPConn)
-			stunServerAddr, resolveErr := net.ResolveUDPAddr("udp", req.Environment.BestSTUN)
+			stunServerAddr, resolveErr := net.ResolveUDPAddr("udp", stunServer)
 			if resolveErr != nil {
 				if ctx.Err() == nil {
-					errCh <- fmt.Errorf("resolve stun server %s: %w", req.Environment.BestSTUN, resolveErr)
+					errCh <- fmt.Errorf("resolve stun server %s: %w", stunServer, resolveErr)
 				}
 				return
 			}
@@ -141,10 +145,10 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 				stunServerAddr,
 				publicPort,
 				localPort,
-				req.Environment.LocalIP,
+				localIP,
 				func() {
-					if onEvent != nil {
-						onEvent(TunnelEvent{Type: TunnelAlive, ExternalPort: uint16(publicPort)})
+					if onState != nil {
+						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
 					}
 				},
 			); err != nil && ctx.Err() == nil {
@@ -170,6 +174,21 @@ func (STUNTunnelRunner) Run(ctx context.Context, req TunnelRequest, onEvent func
 	}()
 
 	return <-errCh
+}
+
+func currentSTUNServer() (string, error) {
+	if Runtime.STUNService != nil {
+		stunServer, err := Runtime.STUNService.GetBackupServer()
+		if err == nil && stunServer != "" {
+			return stunServer, nil
+		}
+	}
+
+	if Runtime.Config.BestSTUN != "" {
+		return Runtime.Config.BestSTUN, nil
+	}
+
+	return "", fmt.Errorf("best STUN server is not ready")
 }
 
 func normalizeProtocol(protocol string) (string, error) {
@@ -263,7 +282,8 @@ func tcpStunHealthCheck(
 	publicIP string,
 	expectedPublicPort int,
 	localPort uint16,
-	environment TunnelEnvironment,
+	localIP string,
+	stunServer string,
 	onAlive func(),
 ) error {
 	if !firstTcpHealthKeep(ctx, publicIP, expectedPublicPort) {
@@ -304,8 +324,8 @@ func tcpStunHealthCheck(
 			if err != nil {
 				currentStunConn.Close()
 
-				localAddr := fmt.Sprintf("%s:%d", environment.LocalIP, localPort)
-				newConn, dialErr := reuseport.Dial("tcp", localAddr, environment.BestSTUN)
+				localAddr := fmt.Sprintf("%s:%d", localIP, localPort)
+				newConn, dialErr := reuseport.Dial("tcp", localAddr, stunServer)
 				if dialErr != nil {
 					return fmt.Errorf("reconnect stun failed: %w", dialErr)
 				}

@@ -2,37 +2,30 @@ package stun
 
 import "context"
 
-type TunnelEnvironment struct {
-	LocalIP  string
-	BestSTUN string
-}
-
-type TunnelRequest struct {
+type STUNRequest struct {
 	ServiceName  string
 	TargetIP     string
 	InternalPort uint16
 	Protocol     string
 	UseUPnP      bool
-	Environment  TunnelEnvironment
 }
 
-type TunnelEventType int
+type STUNStateType int
 
 const (
-	TunnelMapped TunnelEventType = iota
-	TunnelAlive
+	STUNMapped STUNStateType = iota
+	STUNAlive
+	STUNFailed
 )
 
-type TunnelEvent struct {
-	Type         TunnelEventType
+type STUNState struct {
+	State        STUNStateType
 	ExternalPort uint16
 }
 
 type TunnelRunner interface {
-	Run(ctx context.Context, req TunnelRequest, onEvent func(TunnelEvent)) error
+	Run(ctx context.Context, req STUNRequest, onState func(STUNState)) error
 }
-
-type TunnelEnvironmentProvider func() TunnelEnvironment
 
 type STUNTunnelRunner struct{}
 

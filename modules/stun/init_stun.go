@@ -19,15 +19,7 @@ func InitSTUN() error {
 	}
 
 	// 初始化调度器
-	Runtime.Scheduler = NewScheduler(
-		NewSTUNTunnelRunner(),
-		func() TunnelEnvironment {
-			return TunnelEnvironment{
-				LocalIP:  Runtime.Network.LocalIP,
-				BestSTUN: Runtime.Config.BestSTUN,
-			}
-		},
-	)
+	Runtime.Scheduler = NewScheduler(NewSTUNTunnelRunner())
 
 	// 监听退出保存配置文件
 	go SetupShutdownHook(func() {

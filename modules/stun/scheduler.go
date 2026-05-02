@@ -60,15 +60,15 @@ const (
 func (p ServicePhase) String() string {
 	switch p {
 	case PhaseProbing:
-		return "PROBING"
+		return "PROBING" // 探测  运行5次探测
 	case PhaseRunning:
-		return "RUNNING"
+		return "RUNNING" // 运行中 配置文件可用
 	case PhaseRestarting:
-		return "RESTARTING"
+		return "RESTARTING" // 无限重启
 	case PhaseFailed:
-		return "FAILED"
+		return "FAILED" // 探测失败
 	default:
-		return "STOPPED"
+		return "STOPPED" // 手动停止
 	}
 }
 
@@ -144,28 +144,23 @@ func (e *serviceEntry) snapshot(key string) StateEvent {
 }
 
 type Scheduler struct {
-	mu          sync.Mutex
-	services    map[string]*serviceEntry
-	runner      TunnelRunner
-	environment TunnelEnvironmentProvider
+	mu       sync.Mutex
+	services map[string]*serviceEntry
+	runner   TunnelRunner
 
 	subMu        sync.RWMutex
 	subscribers  map[chan StateEvent]struct{}
 	subBufferCap int
 }
 
-func NewScheduler(runner TunnelRunner, environment TunnelEnvironmentProvider) *Scheduler {
+func NewScheduler(runner TunnelRunner) *Scheduler {
 	if runner == nil {
 		runner = NewSTUNTunnelRunner()
-	}
-	if environment == nil {
-		environment = func() TunnelEnvironment { return TunnelEnvironment{} }
 	}
 
 	return &Scheduler{
 		services:     make(map[string]*serviceEntry),
 		runner:       runner,
-		environment:  environment,
 		subscribers:  make(map[chan StateEvent]struct{}),
 		subBufferCap: 16,
 	}
@@ -317,8 +312,8 @@ func (s *Scheduler) runService(
 		}
 
 		var ready atomic.Bool
-		err := s.runner.Run(ctx, s.buildRequest(device, service), func(event TunnelEvent) {
-			s.handleTunnelEvent(service, entry, key, &ready, event)
+		err := s.runner.Run(ctx, s.buildRequest(device, service), func(state STUNState) {
+			s.handleSTUNState(service, entry, key, &ready, state)
 		})
 
 		if ctx.Err() != nil {
@@ -361,19 +356,21 @@ func (s *Scheduler) runService(
 	}
 }
 
-func (s *Scheduler) handleTunnelEvent(
+func (s *Scheduler) handleSTUNState(
 	service *model.Service,
 	entry *serviceEntry,
 	key string,
 	ready *atomic.Bool,
-	event TunnelEvent,
+	state STUNState,
 ) {
-	switch event.Type {
-	case TunnelMapped:
-		s.setRuntimeState(service, entry, key, PhaseProbing, event.ExternalPort, "")
-	case TunnelAlive:
+	switch state.State {
+	case STUNMapped:
+		s.setRuntimeState(service, entry, key, PhaseProbing, state.ExternalPort, "")
+	case STUNAlive:
 		ready.Store(true)
-		s.setRuntimeState(service, entry, key, PhaseRunning, event.ExternalPort, "")
+		s.setRuntimeState(service, entry, key, PhaseRunning, state.ExternalPort, "")
+	case STUNFailed:
+		s.setRuntimeState(service, entry, key, PhaseRestarting, 0, "")
 	}
 }
 
@@ -420,19 +417,13 @@ func (s *Scheduler) applyServiceRuntime(
 	}
 }
 
-func (s *Scheduler) buildRequest(device *model.Device, service *model.Service) TunnelRequest {
-	environment := TunnelEnvironment{}
-	if s.environment != nil {
-		environment = s.environment()
-	}
-
-	return TunnelRequest{
+func (s *Scheduler) buildRequest(device *model.Device, service *model.Service) STUNRequest {
+	return STUNRequest{
 		ServiceName:  service.Name,
 		TargetIP:     device.IP,
 		InternalPort: service.InternalPort,
 		Protocol:     service.Protocol,
 		UseUPnP:      service.UseUPnP,
-		Environment:  environment,
 	}
 }
 
