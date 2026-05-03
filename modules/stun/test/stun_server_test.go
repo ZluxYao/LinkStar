@@ -152,7 +152,7 @@ func TestSTUNHandshake(t *testing.T) {
 
 func TestReuseportUDPWrite(t *testing.T) {
 	srv := "stun.radiojar.com:3478"
-	localIP := "0.0.0.0"
+	localIP := "192.168.9.105"
 	localAddr := fmt.Sprintf("%s:0", localIP)
 
 	conn, err := reuseport.Dial("udp", localAddr, srv)
