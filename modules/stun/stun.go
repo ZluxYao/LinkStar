@@ -151,7 +151,7 @@ func (STUNTunnelRunner) Run(ctx context.Context, req STUNRequest, onState func(S
 			if err := udpStunHealthKeepAlive(
 				innerCtx,
 				stunConn,
-				udpListener, // 用来收包
+				// udpListener, // 用来收包
 				publicIP,
 				publicPort,
 				localPort,
@@ -388,7 +388,7 @@ func tcpConnectCheck(host string, port int, timeout time.Duration) bool {
 func udpStunHealthKeepAlive(
 	ctx context.Context,
 	currentStunConn net.Conn,
-	udpListener *net.UDPConn,
+	// udpListener *net.UDPConn,
 	publicIP string,
 	publicPort int,
 	localPort uint16,
@@ -396,7 +396,7 @@ func udpStunHealthKeepAlive(
 	onAlive func(),
 ) error {
 	// 先做一次外部连通性验证
-	if !udpStunHealthCheck(ctx, publicIP, publicPort, udpListener) {
+	if !udpStunHealthCheck(ctx, publicIP, publicPort, localPort) {
 		if ctx.Err() != nil {
 			return nil
 		}
@@ -426,7 +426,7 @@ func udpStunHealthKeepAlive(
 			currentStunConn.SetWriteDeadline(time.Time{})
 
 		case <-healthTicker.C:
-			if udpStunHealthCheck(ctx, publicIP, publicPort, udpListener) {
+			if udpStunHealthCheck(ctx, publicIP, publicPort, localPort) {
 				continue
 			}
 
@@ -472,8 +472,8 @@ func udpStunHealthKeepAlive(
 }
 
 // UDP 梯度健康检查
-func udpStunHealthCheck(ctx context.Context, publicIP string, publicPort int, localConn *net.UDPConn) bool {
-	if udpConnectCheck(publicIP, publicPort, localConn, 3*time.Second) {
+func udpStunHealthCheck(ctx context.Context, publicIP string, publicPort int, localPort uint16) bool {
+	if udpConnectCheck(publicIP, publicPort, localPort, 3*time.Second) {
 		return true
 	}
 	sleepTime := 1 * time.Second
@@ -481,7 +481,7 @@ func udpStunHealthCheck(ctx context.Context, publicIP string, publicPort int, lo
 		if !sleepWithCtx(ctx, sleepTime) {
 			return false
 		}
-		if udpConnectCheck(publicIP, publicPort, localConn, 3*time.Second) {
+		if udpConnectCheck(publicIP, publicPort, localPort, 3*time.Second) {
 			return true
 		}
 		sleepTime += 2 * time.Second
@@ -489,32 +489,30 @@ func udpStunHealthCheck(ctx context.Context, publicIP string, publicPort int, lo
 	return false
 }
 
-// 向 publicIP:publicPort 发一个探测包，看对端（本机监听端口）能不能收到
-func udpConnectCheck(publicIP string, publicPort int, localConn *net.UDPConn, timeout time.Duration) bool {
-	addr := fmt.Sprintf("%s:%d", publicIP, publicPort)
-	dst, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return false
-	}
-
-	// 用一个临时 UDP conn 向公网地址发探测包
-	probe, err := net.DialUDP("udp", nil, dst)
+// 向 publicIP:publicPort 发一个探测包，用临时 socket 收回包，不干扰 udpListener
+func udpConnectCheck(publicIP string, publicPort int, localPort uint16, timeout time.Duration) bool {
+	// 发探测包
+	dst := fmt.Sprintf("%s:%d", publicIP, publicPort)
+	probe, err := net.Dial("udp", dst)
 	if err != nil {
 		return false
 	}
 	defer probe.Close()
 
 	probe.SetDeadline(time.Now().Add(timeout))
-	_, err = probe.Write([]byte("ping"))
-	if err != nil {
+	if _, err = probe.Write([]byte("ping")); err != nil {
 		return false
 	}
 
-	// 在 localConn 上等回包
-	localConn.SetReadDeadline(time.Now().Add(timeout))
-	defer localConn.SetReadDeadline(time.Time{})
+	// 单独开一个临时 socket 在同端口收回包，不碰 udpListener
+	tempConn, err := reuseport.ListenPacket("udp", fmt.Sprintf(":%d", localPort))
+	if err != nil {
+		return false
+	}
+	defer tempConn.Close()
 
+	tempConn.SetDeadline(time.Now().Add(timeout))
 	buf := make([]byte, 64)
-	_, _, err = localConn.ReadFrom(buf)
+	_, _, err = tempConn.ReadFrom(buf)
 	return err == nil
 }
