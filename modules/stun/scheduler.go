@@ -31,7 +31,7 @@ type StateEvent struct {
 	UpdatedAt    time.Time    `json:"updatedAt"`    // 最后一次状态更新时间
 }
 
-const maxServiceLogs = 15
+const maxServiceLogs = 30
 
 // ServiceLog 每个服务日志
 type ServiceLog struct {
@@ -364,11 +364,6 @@ func (s *Scheduler) StartService(device *model.Device, service *model.Service) {
 	// 先停止旧的服务,并且等待服务取消
 	old := s.detach(key)
 	waitEntry(old)
-
-	// 重置运行时字段，清空上次遗留状态
-	service.PunchSuccess = false
-	service.ExternalPort = 0
-	service.LastError = ""
 
 	if !service.Enabled {
 		return

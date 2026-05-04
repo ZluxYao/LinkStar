@@ -29,8 +29,7 @@ type Service struct {
 	StartupSuccess bool   `json:"-"`
 	Name           string `json:"name"`         // 服务名称,如 "SSH" / "Web管理" / "照片库"
 	InternalPort   uint16 `json:"internalPort"` // 内网端口,如 22
-	ExternalPort   uint16 `json:"externalPort"` // 外网映射端口,如 2222 (默认与 upnp映射端口一样
-	Protocol       string `json:"protocol"`     // 传输协议 "TCP"/"UDP" (默认 TCP)
+	Protocol string `json:"protocol"` // 传输协议 "TCP"/"UDP" (默认 TCP)
 	TLS            bool   `json:"tls"`          // 证书
 
 	// UPnP 相关配置
@@ -40,7 +39,5 @@ type Service struct {
 	Enabled     bool   `json:"enabled"`     // 服务是否启用 (默认 true)
 	Description string `json:"description"` // 服务描述信息 (可选)
 
-	PunchSuccess bool      `json:"punchSuccess"` // STUN穿透是否成功
-	LastError    string    `json:"lastError"`    // 最后一次操作的错误信息
-	UpdatedAt    time.Time `json:"updatedAt"`    // 最后更新时间
+	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
 }

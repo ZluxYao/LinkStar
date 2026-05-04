@@ -624,9 +624,25 @@
         </div>
     </div>
 
+    <!-- 日志查看模态框 -->
+    <div class="modal-overlay" id="logModal">
+        <div class="modal" style="width: 760px; max-width: 95vw;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color);">
+                <span id="logModalTitle" style="font-size:17px;font-weight:600;">📋 服务日志</span>
+                <button onclick="closeLogModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-desc);padding:0 8px;">✕</button>
+            </div>
+            <div id="logModalMeta" style="font-size:13px;color:var(--text-desc);margin-bottom:12px;"></div>
+            <div id="logModalBody" style="max-height:60vh;overflow-y:auto;background:var(--bg-submodule);border-radius:8px;padding:12px;border:1px solid var(--border-color);">
+                <div style="color:var(--text-desc);text-align:center;padding:20px;">暂无日志</div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 全局状态管理
         let globalData = null;
+        let statusMap = {}; // key: "deviceID-serviceID" → StateEvent
+        let activeLogKey = null; // 当前打开日志弹窗的服务 key
         let selectedDeviceIndex = 0; // 当前选中的设备索引
         let modalMode = 'add';       // 'add' | 'edit'
         let modalDeviceIndex = -1;   // 当前操作的设备索引
@@ -893,6 +909,81 @@
             }
         }
 
+        // ================= SSE 实时状态 =================
+        function initSSE() {
+            const es = new EventSource('/api/stun/status/events');
+            es.onmessage = function(e) {
+                try {
+                    const event = JSON.parse(e.data);
+                    statusMap[event.key] = event;
+                    if (activeLogKey === event.key) {
+                        renderLogModal();
+                    }
+                    if (!globalData || !globalData.devices) return;
+                    const device = globalData.devices[selectedDeviceIndex];
+                    if (!device) return;
+                    if (event.key.startsWith(String(device.id) + '-')) {
+                        renderServices(selectedDeviceIndex);
+                    }
+                } catch(err) {
+                    console.error('SSE parse error', err);
+                }
+            };
+        }
+
+        function openLogModal(key) {
+            activeLogKey = key;
+            renderLogModal();
+            document.getElementById('logModal').classList.add('active');
+        }
+
+        function closeLogModal() {
+            activeLogKey = null;
+            document.getElementById('logModal').classList.remove('active');
+        }
+
+        function renderLogModal() {
+            if (!activeLogKey) return;
+            const status = statusMap[activeLogKey];
+            const titleEl = document.getElementById('logModalTitle');
+            const metaEl = document.getElementById('logModalMeta');
+            const bodyEl = document.getElementById('logModalBody');
+
+            if (!status) {
+                titleEl.textContent = '📋 服务日志';
+                metaEl.textContent = '';
+                bodyEl.innerHTML = '<div style="color:var(--text-desc);text-align:center;padding:20px;">暂无运行时数据</div>';
+                return;
+            }
+
+            titleEl.textContent = `📋 ${status.deviceName || ''} / ${status.serviceName || ''} - 服务日志`;
+            metaEl.innerHTML = `当前阶段: <strong>${status.phaseStr}</strong> · 重启次数: <strong>${status.restartCount ?? 0}</strong> · 共 ${(status.logs || []).length} 条日志`;
+
+            const logs = status.logs || [];
+            if (logs.length === 0) {
+                bodyEl.innerHTML = '<div style="color:var(--text-desc);text-align:center;padding:20px;">暂无日志</div>';
+                return;
+            }
+
+            const wasNearBottom = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40;
+            bodyEl.innerHTML = logs.map(log => {
+                const t = new Date(log.createdAt).toLocaleString();
+                return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border-color);font-size:13px;">
+                    <span style="color:var(--text-desc);white-space:nowrap;font-family:monospace;font-size:12px;">${t}</span>
+                    <span class="svc-badge" style="flex-shrink:0;">${log.phaseStr}</span>
+                    <span style="color:var(--text-main);word-break:break-all;flex:1;">${log.message}</span>
+                </div>`;
+            }).join('');
+            if (wasNearBottom) bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+
+        document.getElementById('logModal').addEventListener('click', function(e) {
+            if (e.target === this) closeLogModal();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && activeLogKey) closeLogModal();
+        });
+
         // ================= 2. 数据请求与渲染 =================
         async function fetchConfig() {
             try {
@@ -957,23 +1048,28 @@
             const publicIP = globalData.publicIP || '';
 
             container.innerHTML = device.services.map(srv => {
-                const isPunchSuccess = srv.punchSuccess === true;
+                const key = `${device.id}-${srv.id}`;
+                const status = statusMap[key];
+                const phaseStr = status?.phaseStr || 'STOPPED';
+                const isPunchSuccess = phaseStr === 'RUNNING';
                 const statusDot = isPunchSuccess ? 'status-on' : 'status-off';
+                const phaseLabel = { PROBING: '探测中', RUNNING: '穿透成功', RESTARTING: '重启中', FAILED: '探测失败', STOPPED: '已停止' }[phaseStr] || phaseStr;
                 const statusText = isPunchSuccess
                     ? '<span style="color:var(--success); font-weight:600;">✅ 穿透成功</span>'
-                    : '<span style="color:var(--danger); font-weight:600;">❌ 待分配 / 失败</span>';
+                    : `<span style="color:var(--danger); font-weight:600;">❌ ${phaseLabel}</span>`;
 
                 const protocol = (srv.protocol || 'TCP').toUpperCase();
                 const upnpTag = srv.useUpnp ? `<span class="svc-badge" style="background:#fef08a;color:#854d0e;">UPnP</span>` : '';
 
+                const externalPort = status?.externalPort ?? 0;
                 let extAddrHtml = '<div class="ext-addr empty">尚未获取外部地址</div>';
                 let actionBtns = `
                     <button class="btn-action" disabled>📋 复制地址</button>
                     <button class="btn-action direct" disabled>🚀 一键直达</button>
                 `;
 
-                if (srv.externalPort > 0 && publicIP) {
-                    const fullAddr = `${publicIP}:${srv.externalPort}`;
+                if (externalPort > 0 && publicIP) {
+                    const fullAddr = `${publicIP}:${externalPort}`;
                     extAddrHtml = `
                         <div style="font-size:12px; color:var(--text-desc); margin-top:8px;">外部连接地址</div>
                         <div class="ext-addr">${fullAddr}</div>
@@ -984,11 +1080,22 @@
                     `;
                 }
 
-                const errorHtml = srv.lastError ? `
+                const lastError = status?.lastError || '';
+                const restartCount = status?.restartCount ?? 0;
+                const errorHtml = lastError ? `
                     <div style="background:#fef2f2; border:1px solid #fca5a5; padding:8px; border-radius:6px; color:#ef4444; font-size:12px; margin-top:8px; margin-bottom:8px;">
-                        ⚠️ <strong>错误:</strong> ${srv.lastError}
+                        ⚠️ <strong>错误:</strong> ${lastError}${restartCount > 0 ? ` (已重启 ${restartCount} 次)` : ''}
                     </div>
                 ` : '';
+
+                const logCount = (status?.logs || []).length;
+                const logsHtml = `
+                    <div style="border-top:1px solid var(--border-color);margin-top:12px;padding-top:10px;text-align:center;">
+                        <button onclick="openLogModal('${key}')" style="background:none;border:1px solid var(--border-color);cursor:pointer;font-size:13px;color:var(--text-main);padding:6px 14px;border-radius:6px;transition:all 0.2s;">
+                            📋 查看日志 (${logCount})
+                        </button>
+                    </div>
+                `;
 
                 return `
                     <div class="service-card">
@@ -1018,6 +1125,8 @@
                         <div class="svc-actions">
                             ${actionBtns}
                         </div>
+
+                        ${logsHtml}
                     </div>
                 `;
             }).join('');
@@ -1140,10 +1249,10 @@
             }
         }
 
-        // 页面加载完毕自动执行，并启动 1s 轮询
         window.onload = () => {
             initDashboard();
-            setInterval(refreshData, 1000);
+            initSSE();
+            setInterval(refreshData, 30000);
         };
     </script>
 </body>
