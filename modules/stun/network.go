@@ -2,6 +2,7 @@ package stun
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -40,6 +41,7 @@ func refreshNetworkRuntime() {
 		}
 	}
 
+	// 更新网络信息
 	if updateNetworkAddress(stunServer) {
 		return
 	}
@@ -69,6 +71,12 @@ func updateNetworkAddress(stunServer string) bool {
 	}
 
 	logrus.Infof("通过 STUN 服务器 %s 获取到的网络地址: LocalIP=%s, PublicIP=%s", stunServer, addrInfo.LocalIP, addrInfo.PublicIP)
+
+	// 如果公网ip是10网段，就失败（部分 STUN 服务器会错误地返回内网地址）
+	if strings.HasPrefix(addrInfo.PublicIP, "10.") {
+		logrus.Warnf("STUN 服务器 %s 返回的公网 IP 属于 10 网段，视为失败: %s", stunServer, addrInfo.PublicIP)
+		return false
+	}
 
 	//如果发生网络变化更新NatRouter
 	if Runtime.Network.LocalIP != addrInfo.LocalIP || Runtime.Network.PublicIP != addrInfo.PublicIP {
