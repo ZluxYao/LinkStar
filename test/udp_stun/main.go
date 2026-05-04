@@ -9,7 +9,7 @@ import (
 	"github.com/pion/stun/v2"
 )
 
-const stunServer = "stun.tula.nu:3478"
+const stunServer = "stun.hot-chilli.net:3478"
 
 // 主函数
 func main() {
@@ -70,7 +70,7 @@ func UDPService(conn *net.UDPConn) {
 
 // 保活
 func keepAlive(conn *net.UDPConn, stunAddr *net.UDPAddr) {
-	ticker := time.NewTicker(20 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
 		msg := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
