@@ -61,7 +61,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 	}
 
 	// 发送STUN 请求,获取外部端口
-	publicIP, publicPort, err := doStunHandshake(stunConn)
+	publicIP, publicPort, err := DoStunHandshake(stunConn)
 	if err != nil {
 		return fmt.Errorf("stun handshake: %w", err)
 	}
@@ -226,7 +226,7 @@ func formatProtocol(protocol string) (string, error) {
 }
 
 // 发送 STUN 请求
-func doStunHandshake(conn net.Conn) (string, int, error) {
+func DoStunHandshake(conn net.Conn) (string, int, error) {
 	msg := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
 	if _, err := conn.Write(msg.Raw); err != nil {
 		return "", 0, fmt.Errorf("send stun request: %w", err)
@@ -297,7 +297,7 @@ func tcpStunHealthKeepAlive(
 			}
 
 			// 梯度健康检查失败，先尝试用现有 stunConn 重新握手确认端口
-			_, port, err := doStunHandshake(currentStunConn)
+			_, port, err := DoStunHandshake(currentStunConn)
 			if err == nil {
 				// 握手成功，但端口变了，说明 NAT 映射已变，无法恢复
 				if port != publicPort {
@@ -324,7 +324,7 @@ func tcpStunHealthKeepAlive(
 				return fmt.Errorf("reconnect stun server %s failed: %w", stunServer, dialErr)
 			}
 
-			_, newPort, handshakeErr := doStunHandshake(newConn)
+			_, newPort, handshakeErr := DoStunHandshake(newConn)
 			if handshakeErr != nil {
 				newConn.Close()
 				return fmt.Errorf("stun handshake after reconnect failed: %w", handshakeErr)
@@ -433,7 +433,7 @@ func udpStunHealthKeepAlive(
 			}
 
 			// 外部连通性失败，先用现有 conn 重新握手确认端口
-			_, port, err := doStunHandshake(currentStunConn)
+			_, port, err := DoStunHandshake(currentStunConn)
 			if err == nil {
 				if port != publicPort {
 					return fmt.Errorf("public port changed from %d to %d", publicPort, port)
@@ -457,7 +457,7 @@ func udpStunHealthKeepAlive(
 				return fmt.Errorf("reconnect stun server %s failed: %w", stunServer, dialErr)
 			}
 
-			_, newPort, handshakeErr := doStunHandshake(newConn)
+			_, newPort, handshakeErr := DoStunHandshake(newConn)
 			if handshakeErr != nil {
 				newConn.Close()
 				return fmt.Errorf("stun handshake after reconnect failed: %w", handshakeErr)
