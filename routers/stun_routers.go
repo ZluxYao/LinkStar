@@ -17,6 +17,18 @@ func StunRouters(g *gin.RouterGroup) {
 		app.GetStunConfigView,
 	)
 
+	// 运行时状态快照（一次性）
+	g.GET(
+		"stun/status",
+		app.GetStunStatusView,
+	)
+
+	// 运行时状态 SSE 推送
+	g.GET(
+		"stun/status/events",
+		app.StunStatusEventsView,
+	)
+
 	// 新增服务
 	g.POST(
 		"stun/service/add",

@@ -3,7 +3,6 @@ package stun
 import (
 	"context"
 	"fmt"
-	"linkstar/global"
 	"linkstar/modules/stun/model"
 	"strings"
 	"sync"
@@ -12,6 +11,10 @@ import (
 	"github.com/huin/goupnp/dcps/internetgateway2"
 	"github.com/sirupsen/logrus"
 )
+
+/*
+Upnp初始化
+*/
 
 // 全局队列，在程序启动时初始化一次
 var upnpQueue = NewUpnpQueue(10)
@@ -207,26 +210,55 @@ func (q *UpnpQueue) stop() {
 	q.once.Do(q.cancel)
 }
 
+/*
+Upnp 业务实现
+*/
+
 // 添加Upnp端口映射队列
-func AddPortMappingQueue(ctx context.Context, externalPort, internalPort uint16, protocol, description string) error {
+func AddPortMappingByQueue(ctx context.Context, externalPort, internalPort uint16, protocol, description string) error {
+	return AddPortMappingByQueueWithLocalIP(
+		ctx,
+		externalPort,
+		internalPort,
+		protocol,
+		description,
+		Runtime.Network.LocalIP,
+	)
+}
+
+// 添加Upnp端口映射队列指定ip
+func AddPortMappingByQueueWithLocalIP(
+	ctx context.Context,
+	externalPort, internalPort uint16,
+	protocol, description, localIP string,
+) error {
 	return upnpQueue.submit(ctx, func() error {
-		return AddPortMapping(externalPort, internalPort, protocol, description)
+		return AddPortMapping(localIP, externalPort, internalPort, protocol, description)
 	})
 }
 
 // 删除Upnp端口映射
-func DeletePortMappingSave(ctx context.Context, externalPort uint16, protocol string) error {
+func DeletePortMappingQueue(ctx context.Context, externalPort uint16, protocol string) error {
 	return upnpQueue.submit(ctx, func() error {
 		return DeletePortMapping(externalPort, protocol)
 	})
 }
 
-// 添加UPNP端口映射
-func AddPortMapping(externalPort, internalPort uint16, protocol, description string) error {
+// 添加UPNP端口映射具体实现 默认本地ip
+func AddPortMapping(localIP string, externalPort, internalPort uint16, protocol, description string) error {
+	if localIP == "" {
+		localIP = Runtime.Network.LocalIP
+	}
+	protocol = strings.ToUpper(strings.TrimSpace(protocol))
+	switch protocol {
+	case "TCP", "UDP":
+	default:
+		return fmt.Errorf("UPNP unsupported protocol: %s", protocol)
+	}
 
 	logrus.Infof("尝试添加端口映射: 外部端口 %d -> 内部端口 %d (%s)", externalPort, internalPort, protocol)
 
-	gw := global.UpnpGateway
+	gw := Runtime.UpnpGateway
 	if gw.DefaultGateway == "" {
 		return fmt.Errorf("未初始化网关")
 	}
@@ -235,14 +267,14 @@ func AddPortMapping(externalPort, internalPort uint16, protocol, description str
 	switch gw.DefaultGateway {
 	case "IGDv2":
 		err = gw.DefaultV2.AddPortMapping(
-			"",                        // NewRemoteHost: 空字符串表示接受来自任意IP的连接
-			externalPort,              // NewExternalPort: 外网端口号
-			protocol,                  // NewProtocol: "TCP" 或 "UDP"
-			internalPort,              // NewInternalPort: 内网端口号
-			global.StunConfig.LocalIP, // NewInternalClient: 内网目标IP（本机IP）
-			true,                      // NewEnabled: 是否启用此映射
-			description,               // NewPortMappingDescription: 映射说明
-			uint32(0),                 // NewLeaseDuration: 租期，0表示永久有效
+			"",           // NewRemoteHost: 空字符串表示接受来自任意IP的连接
+			externalPort, // NewExternalPort: 外网端口号
+			protocol,     // NewProtocol: "TCP" 或 "UDP"
+			internalPort, // NewInternalPort: 内网端口号
+			localIP,      // NewInternalClient: 内网目标IP（本机IP）
+			true,         // NewEnabled: 是否启用此映射
+			description,  // NewPortMappingDescription: 映射说明
+			uint32(0),    // NewLeaseDuration: 租期，0表示永久有效
 		)
 	case "IGDv1":
 		err = gw.DefaultV1.AddPortMapping(
@@ -250,7 +282,7 @@ func AddPortMapping(externalPort, internalPort uint16, protocol, description str
 			externalPort,
 			protocol,
 			internalPort,
-			global.StunConfig.LocalIP,
+			localIP,
 			true,
 			description,
 			uint32(0),
@@ -261,7 +293,7 @@ func AddPortMapping(externalPort, internalPort uint16, protocol, description str
 			externalPort,
 			protocol,
 			internalPort,
-			global.StunConfig.LocalIP,
+			localIP,
 			true,
 			description,
 			uint32(0),
@@ -272,7 +304,7 @@ func AddPortMapping(externalPort, internalPort uint16, protocol, description str
 			externalPort,
 			protocol,
 			internalPort,
-			global.StunConfig.LocalIP,
+			localIP,
 			true,
 			description,
 			uint32(0),
@@ -312,9 +344,10 @@ func AddPortMapping(externalPort, internalPort uint16, protocol, description str
 // 	}
 // }
 
+// 删除Upnp端口映射
 func DeletePortMapping(externalPort uint16, protocol string) error {
 
-	gw := global.UpnpGateway
+	gw := Runtime.UpnpGateway
 	if gw.DefaultGateway == "" {
 		return fmt.Errorf("未初始化网关")
 	}

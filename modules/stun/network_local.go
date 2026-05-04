@@ -2,24 +2,22 @@ package stun
 
 import (
 	"fmt"
-	"linkstar/global"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/pion/stun"
-	"github.com/sirupsen/logrus"
 )
 
-type PublicIPInfo struct {
+type NetworkAddressInfo struct {
 	// 基础网络信息
 	LocalIP  string `json:"localIP"`  // 本机内网IP
 	PublicIP string `json:"publicIP"` // 真实公网IP
 }
 
 // 获取网络基本信息
-func GetPublicIPInfo() (*PublicIPInfo, error) {
-	var info PublicIPInfo
+func GetPublicIPInfo(stunServer string) (NetworkAddressInfo, error) {
+	var info NetworkAddressInfo
 
 	// 获取本机ip
 	LocalIP, err := GetLocalIP()
@@ -29,13 +27,13 @@ func GetPublicIPInfo() (*PublicIPInfo, error) {
 	info.LocalIP = LocalIP
 
 	// 获取真实公网ip
-	PublicIP, err := GetPublicIP()
+	PublicIP, err := GetPublicIP(stunServer)
 	if err != nil {
 		fmt.Printf("获取真实公网ip失败%s", err)
 	}
 	info.PublicIP = PublicIP
 
-	return &info, nil
+	return info, nil
 }
 
 // 获取本机ip
@@ -56,7 +54,12 @@ func GetLocalIP() (string, error) {
 			strings.HasPrefix(name, "br-") ||
 			strings.HasPrefix(name, "veth") ||
 			strings.HasPrefix(name, "lo") ||
-			strings.HasPrefix(name, "virbr") {
+			strings.HasPrefix(name, "virbr") ||
+			strings.HasPrefix(name, "v") ||
+			strings.HasPrefix(name, "et") ||
+			strings.HasPrefix(name, "singbox") ||
+			strings.HasPrefix(name, "VMware") ||
+			strings.Contains(name, "tun") {
 			continue
 		}
 
@@ -77,10 +80,10 @@ func GetLocalIP() (string, error) {
 }
 
 // 获取公网ip
-func GetPublicIP() (string, error) {
+func GetPublicIP(stunServer string) (string, error) {
 
 	// 链接STUN服务器
-	conn, err := net.DialTimeout("tcp4", global.StunConfig.BestSTUN, 3*time.Second) //指定tcp4
+	conn, err := net.DialTimeout("tcp4", stunServer, 3*time.Second) //指定tcp4
 	if err != nil {
 		return "", fmt.Errorf("连接STUN服务器失败: %w", err)
 	}
@@ -114,23 +117,4 @@ func GetPublicIP() (string, error) {
 	}
 
 	return xorAddr.IP.String(), nil
-}
-
-// 不断更新当前公网ip
-func UpdatedPublicIP() {
-	time.Sleep(3 * time.Second)
-	for {
-		publicIp, err := GetPublicIP()
-		if err != nil {
-			logrus.Warn("获取公网ip失败:", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		// 获取新的公网ip成功
-		if global.StunConfig.PublicIP != publicIp {
-			global.StunConfig.PublicIP = publicIp
-		}
-		time.Sleep(5 * time.Second)
-	}
 }

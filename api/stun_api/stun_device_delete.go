@@ -1,7 +1,6 @@
 package stun_api
 
 import (
-	"linkstar/global"
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/utils/res"
@@ -18,7 +17,7 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 
 	// 查找目标设备
 	deviceIndex := -1
-	for i, device := range global.StunConfig.Devices {
+	for i, device := range stun.Runtime.Config.Devices {
 		if device.DeviceID == cr.DeviceID {
 			deviceIndex = i
 			break
@@ -30,19 +29,20 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	}
 
 	// 停止该设备下所有服务的 STUN 穿透
-	for _, svc := range global.StunConfig.Devices[deviceIndex].Services {
-		stun.StopService(cr.DeviceID, svc.ID)
+	// 修复：原版调用已删除的全局函数 stun.StopService，改为调度器实例方法
+	for _, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
+		stun.Runtime.Scheduler.StopService(cr.DeviceID, svc.ID)
 	}
 
 	// 从切片中删除该设备
-	devices := global.StunConfig.Devices
-	global.StunConfig.Devices = append(
+	devices := stun.Runtime.Config.Devices
+	stun.Runtime.Config.Devices = append(
 		devices[:deviceIndex],
 		devices[deviceIndex+1:]...,
 	)
 
 	// 持久化配置到文件
-	if err := stun.UpdateStunConfig(global.StunConfig); err != nil {
+	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
 	}

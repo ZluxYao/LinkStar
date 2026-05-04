@@ -11,25 +11,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const stunConfigPath = "config/stunConfig.json"
+const ConfigPath = "config/stunConfig.json"
 
 // shutdownChan 用于接收退出信号
 var shutdownChan = make(chan struct{})
 
 // 读取stun_config 配置文件
-func ReadStunConfig() (model.StunConfig, error) {
-	var config model.StunConfig
+func ReadConfig() (model.Config, error) {
+	var config model.Config
 
 	//检测文件是否存在
-	if fileInfo, err := os.Stat(stunConfigPath); os.IsNotExist(err) || fileInfo.Size() == 0 {
+	if fileInfo, err := os.Stat(ConfigPath); os.IsNotExist(err) || fileInfo.Size() == 0 {
 		//不存在创建空配置文件
-		return createStunConfig()
+		return createConfig()
 
 	} else {
 		//文件存在读取配置文件
-		config, err = utilsFile.ReadJsonFile[model.StunConfig](stunConfigPath)
+		config, err = utilsFile.ReadJsonFile[model.Config](ConfigPath)
 		if err != nil {
-			logrus.Error("StunConfig读取失败：", err)
+			logrus.Error("Config读取失败：", err)
 			return config, err
 		}
 
@@ -38,8 +38,8 @@ func ReadStunConfig() (model.StunConfig, error) {
 
 }
 
-func createStunConfig() (model.StunConfig, error) {
-	var config model.StunConfig
+func createConfig() (model.Config, error) {
+	var config model.Config
 	// 首次创建，设置创建时间
 	config.CreatedAt = time.Now()
 	config.UpdatedAt = time.Now()
@@ -56,7 +56,6 @@ func createStunConfig() (model.StunConfig, error) {
 		"stun.bau-ha.us:3478",
 		"stun.bridesbay.com:3478",
 		"stun.3wayint.com:3478",
-		"stun.finsterwalder.com:3478",
 		"stun.romaaeterna.nl:3478",
 		"stun.fitauto.ru:3478",
 		"stun.antisip.com:3478",
@@ -66,6 +65,10 @@ func createStunConfig() (model.StunConfig, error) {
 		"stun.vincross.com:3478",
 		"stun.cibercloud.com.br:3478",
 		"stun.siptrunk.com:3478",
+		"stun.chat.bilibili.com:3478",
+		"stun.hitv.com:3478",
+		"stun.miwifi.com:3478",
+		"stun.cloudflare.com:3478",
 	}
 
 	// 确保 config 目录存在
@@ -75,23 +78,23 @@ func createStunConfig() (model.StunConfig, error) {
 	}
 
 	// 写入一个空的配置文件
-	if err := utilsFile.WriteJsonFile(stunConfigPath, config); err != nil {
-		logrus.Error("StunConfig写入失败：", err)
+	if err := utilsFile.WriteJsonFile(ConfigPath, config); err != nil {
+		logrus.Error("Config写入失败：", err)
 		return config, err
 	}
 	return config, nil
 }
 
-// UpdateStunConfig 更新stun配置文件
-func UpdateStunConfig(config model.StunConfig) error {
-	const stunConfigPath = "config/stunConfig.json"
+// UpdateConfig 更新stun配置文件
+func UpdateConfig(config model.Config) error {
+	const ConfigPath = "config/stunConfig.json"
 
 	// 更新时间戳
 	config.UpdatedAt = time.Now()
 
 	// 写入配置文件
-	if err := utilsFile.WriteJsonFile(stunConfigPath, config); err != nil {
-		logrus.Error("StunConfig写入失败：", err)
+	if err := utilsFile.WriteJsonFile(ConfigPath, config); err != nil {
+		logrus.Error("Config写入失败：", err)
 		return err
 	}
 

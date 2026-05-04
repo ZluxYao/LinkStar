@@ -1,8 +1,8 @@
 package stun
 
 import (
+	"context"
 	"fmt"
-	"linkstar/global"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -12,91 +12,83 @@ import (
 func InitSTUN() error {
 	var err error
 
-	// 读取stun配置文件
-	global.StunConfig, err = ReadStunConfig()
+	// 读取 STUN 配置文件
+	Runtime.Config, err = ReadConfig()
 	if err != nil {
-		logrus.Fatal("读取配置文件失败", err)
+		return fmt.Errorf("读取 STUN 配置失败: %w", err)
 	}
 
-	// 监听退出保持配置文件
+	// 初始化调度器
+	Runtime.Scheduler = NewScheduler(NewSTUNRunner())
+
+	// 监听退出保存配置文件
 	go SetupShutdownHook(func() {
-		err := UpdateStunConfig(global.StunConfig)
-		if err != nil {
+		syncRuntimeConfig()
+		if err := UpdateConfig(Runtime.Config); err != nil {
 			logrus.Error("保存配置失败：", err)
 		}
 	})
 
-	// 监听协程数量
-	// go func() {
-	// 	for {
-	// 		numGoroutines := runtime.NumGoroutine()
-	// 		time.Sleep(1 * time.Second)
-	// 		logrus.Infof("当前 goroutine 数量: %d", numGoroutines)
-	// 	}
-	// }()
+	var g errgroup.Group
 
-	var g errgroup.Group //并发启动，减少时间
-
-	// 1. 获取最快的 STUN 服务器
+	// 1. 初始化 STUN 服务，获取最快的 STUN 服务器
 	g.Go(func() error {
-		bestSTUN := GetFastStunServer()
-		global.StunConfig.BestSTUN = bestSTUN
+		Runtime.STUNService = NewSTUNService(Runtime.Config.StunServerList)
+		Runtime.Config.BestSTUN = Runtime.STUNService.BestSTUNServer
+		logrus.Info("当前使用stun服务器：", Runtime.Config.BestSTUN)
+
+		if Runtime.Config.BestSTUN == "" {
+			return fmt.Errorf("没有可用的 STUN 服务器")
+		}
 		return nil
 	})
 
-	// 3. 获取 NAT 路由列表
+	// 2. 获取 NAT 路由列表
 	g.Go(func() error {
 		natRouterList, err := GetNatRouterList()
 		if err != nil {
-			logrus.Errorf("获取NatRouterList失败:%v", err)
-			return err
+			return fmt.Errorf("获取 NAT Router 列表失败: %w", err)
 		}
-		global.StunConfig.NatRouterList = natRouterList
+		Runtime.Network.NatRouterList = natRouterList
+		logrus.Info("当前NAT Router：", Runtime.Network.NatRouterList)
 		return nil
 	})
 
-	// 发现 UPnP 设备
+	// 3. 发现 UPnP 设备并选择默认网关
 	g.Go(func() error {
-		// 发现网关
-		wg := DiscoverUPnPGateway()
-
-		// 智能选择网关
-		SelectDefaultGateway(wg)
-
-		global.UpnpGateway = wg
-
+		gateway := DiscoverUPnPGateway()
+		SelectDefaultGateway(gateway)
+		Runtime.UpnpGateway = gateway
 		return nil
 	})
 
-	// 等待所有任务完成
+	// 等待基础运行时准备完成
 	if err := g.Wait(); err != nil {
-		logrus.Errorf("初始化STUN配置失败: %v", err)
-		return err
+		return fmt.Errorf("初始化 STUN 运行时失败: %w", err)
 	}
 
-	// 2. 获取公网IP信息  得先获取最快的stun服务器
-	publicIPInfo, err := GetPublicIPInfo()
+	// 4. 获取网络地址信息，依赖上面选出的 STUN 服务器
+	addrInfo, err := GetPublicIPInfo(Runtime.Config.BestSTUN)
 	if err != nil {
-		logrus.Errorf("获取网络信息失败:%v", err)
-		return err
+		return fmt.Errorf("获取网络地址信息失败: %w", err)
 	}
-	global.StunConfig.PublicIP = publicIPInfo.PublicIP
-	global.StunConfig.LocalIP = publicIPInfo.LocalIP
+	Runtime.Network.LocalIP = addrInfo.LocalIP
+	Runtime.Network.PublicIP = addrInfo.PublicIP
 
-	// 启动公网ip更新
-	go UpdatedPublicIP()
+	syncRuntimeConfig()
 
-	// 设置时间戳
-	now := time.Now()
-	global.StunConfig.UpdatedAt = now
+	// 5. 启动网络信息更新器
+	go RunNetworkRuntimeUpdater(context.Background())
 
-	fmt.Println("最快的stun服务器", global.StunConfig.BestSTUN)
-	fmt.Println("本地ip:", global.StunConfig.LocalIP, "当前公网ip", global.StunConfig.PublicIP)
-	fmt.Println("网络拓扑图", global.StunConfig.NatRouterList)
+	// 6. 启动所有 STUN 服务映射
+	go Runtime.Scheduler.StartAll(Runtime.Config.Devices)
 
-	// 3. 启动所有服务的STUN映射（协程启动）
-	go StartAllServices()
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("✅ 所有服务已启动,可通过以下地址访问:")
 	return nil
+}
+
+func syncRuntimeConfig() {
+	if Runtime.STUNService != nil && Runtime.STUNService.BestSTUNServer != "" {
+		Runtime.Config.BestSTUN = Runtime.STUNService.BestSTUNServer
+	}
+	Runtime.Config.UpdatedAt = time.Now()
 }
