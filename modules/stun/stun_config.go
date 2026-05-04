@@ -65,6 +65,10 @@ func createConfig() (model.Config, error) {
 		"stun.vincross.com:3478",
 		"stun.cibercloud.com.br:3478",
 		"stun.siptrunk.com:3478",
+		"stun.chat.bilibili.com:3478",
+		"stun.hitv.com:3478",
+		"stun.miwifi.com:3478",
+		"stun.cloudflare.com:3478",
 	}
 
 	// 确保 config 目录存在
