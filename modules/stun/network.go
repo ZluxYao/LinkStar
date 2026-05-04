@@ -33,7 +33,7 @@ func refreshNetworkRuntime() {
 	}
 
 	if stunServer == "" {
-		stunServer, err = Runtime.STUNService.GetBackupServer()
+		stunServer, err = Runtime.STUNService.GetBackupSTUNServer()
 		if err != nil {
 			logrus.Errorf("获取备用 STUN 服务器失败: %v", err)
 			return
@@ -45,7 +45,7 @@ func refreshNetworkRuntime() {
 	}
 
 	// 获取备用 STUN 服务器
-	backupServer, err := Runtime.STUNService.GetBackupServer()
+	backupServer, err := Runtime.STUNService.GetBackupSTUNServer()
 	if err != nil {
 		logrus.Errorf("刷新网络信息失败，且获取备用 STUN 服务器失败: %v", err)
 		return
