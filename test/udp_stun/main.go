@@ -19,7 +19,7 @@ func main() {
 	}
 
 	// 本地端口给 0,系统随机分配; 同一个 socket 既发 STUN 又收外来包是穿透成立的前提
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 3334})
 	if err != nil {
 		log.Fatalf("监听 UDP 失败: %v", err)
 	}
@@ -52,8 +52,16 @@ func UDPService(conn *net.UDPConn) {
 			log.Printf("ReadFromUDP 失败: %v", err)
 			return
 		}
-		// 自己发的 STUN 请求会有响应回到这, 不当业务消息
+		// 保活发出的 STUN 响应回到这里，解析并打出最新公网端口
 		if stun.IsMessage(buf[:n]) {
+			var resp stun.Message
+			resp.Raw = buf[:n]
+			if err = resp.Decode(); err == nil {
+				var xor stun.XORMappedAddress
+				if err = xor.GetFrom(&resp); err == nil {
+					log.Printf("保活心跳: 当前公网端口 %s:%d", xor.IP, xor.Port)
+				}
+			}
 			continue
 		}
 		fmt.Printf("收到 from %s: %s\n", remote, string(buf[:n]))

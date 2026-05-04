@@ -15,9 +15,9 @@ import (
 //     (Windows PowerShell: $env:PUBLIC_ADDR='公网IP:Port'; go test -v -run TestUDPService)
 //  3. 回到终端A 看是否打印 "收到 from ..."
 const (
-	targetAddr   = "14.19.73.174:21741" // 从 main 输出复制
-	sendInterval = 2 * time.Second       // 发送间隔
-	testDuration = 30 * time.Second      // 持续发多久
+	targetAddr   = "14.19.73.174:20672" // 从 main 输出复制
+	sendInterval = 5 * time.Second      // 发送间隔
+	testDuration = 300 * time.Second    // 持续发多久
 )
 
 func TestUDPService(t *testing.T) {
