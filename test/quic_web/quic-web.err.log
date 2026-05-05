@@ -1,0 +1,3 @@
+2026/05/04 23:27:26 HTTP/3 server listening on https://127.0.0.1:8443 (UDP only)
+2026/05/04 23:27:26 test with: go run . get -url https://127.0.0.1:8443/
+exit status 0xffffffff
