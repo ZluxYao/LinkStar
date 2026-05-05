@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STUN 节点管理面板</title>
+    <style>
+        /* ================= 核心变量与全局样式 ================= */
+        :root {
+            --bg-page: #f0f2f5;
+            --bg-module: #ffffff;
+            --bg-submodule: #f8fafc;
+            --border-color: #e2e8f0;
+            --text-main: #1e293b;
+            --text-desc: #64748b;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --success: #10b981;
+            --danger: #ef4444;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-page);
+            color: var(--text-main);
+            padding: 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            max-width: 1200px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .btn-main {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .btn-main:hover {
+            background-color: var(--primary-hover);
+        }
+
+        #dashboard {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--primary);
+            padding-left: 8px;
+        }
+
+        /* ================= 基础卡片 ================= */
+        .module-card {
+            background: var(--bg-module);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+        }
+
+        .info-line {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .info-line .label {
+            color: var(--text-desc);
+        }
+
+        .info-line .value {
+            font-weight: 500;
+            font-family: monospace;
+        }
+
+        /* ================= 网络拓扑图 ================= */
+        .topology-container {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--bg-submodule);
+            border-radius: var(--radius-sm);
+            border: 1px dashed #cbd5e1;
+        }
+
+        .topo-node {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            padding: 10px 16px;
+            border-radius: var(--radius-sm);
+            text-align: center;
+            font-size: 14px;
+            font-weight: 600;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+            min-width: 120px;
+        }
+
+        .topo-node span {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--text-desc);
+            font-family: monospace;
+            font-weight: normal;
+        }
+
+        .topo-arrow {
+            color: #94a3b8;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .topo-node.local {
+            border-color: #93c5fd;
+            background: #eff6ff;
+        }
+
+        .topo-node.internet {
+            border-color: #86efac;
+            background: #f0fdf4;
+        }
+
+        .topo-node.router {
+            border-color: #fde047;
+            background: #fefce8;
+        }
+
+        /* ================= 两栏布局 (设备管理与拓扑) ================= */
+        .device-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 24px;
+            align-items: start;
+        }
+
+        @media (max-width: 768px) {
+            .device-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 左侧：设备列表 */
+        .device-list-container {
+            background: var(--bg-module);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .device-item {
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            border: 1px solid transparent;
+        }
+
+        .device-item:hover {
+            background: var(--bg-submodule);
+        }
+
+        .device-item.active {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: #1d4ed8;
+        }
+
+        .device-item-name {
+            font-weight: 600;
+            font-size: 15px;
+        }
+
+        .device-item-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 6px;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+
+        .device-item:hover .device-item-actions {
+            opacity: 1;
+        }
+
+        .device-item-ip {
+            font-size: 12px;
+            color: var(--text-desc);
+            font-family: monospace;
+        }
+
+        /* 右侧：服务大矩形卡片 */
+        .services-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            /* 矩形宽度更大 */
+            gap: 16px;
+        }
+
+        .service-card {
+            background: var(--bg-module);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            transition: all 0.2s;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .service-card:hover {
+            transform: translateY(-2px);
+            border-color: var(--primary);
+            box-shadow: var(--shadow-md);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-main);
+        }
+
+        .svc-badge {
+            font-size: 12px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-weight: bold;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-on {
+            background-color: var(--success);
+            box-shadow: 0 0 4px var(--success);
+        }
+
+        .status-off {
+            background-color: var(--danger);
+            box-shadow: 0 0 4px var(--danger);
+        }
+
+        .ext-addr {
+            font-family: monospace;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 16px;
+            background: var(--bg-submodule);
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+            border: 1px dashed #cbd5e1;
+            margin: 12px 0;
+            word-break: break-all;
+        }
+
+        .ext-addr.empty {
+            color: var(--text-desc);
+            font-size: 14px;
+            background: #f1f5f9;
+        }
+
+        .svc-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: auto;
+        }
+
+        .btn-action {
+            flex: 1;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--text-main);
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-action:hover {
+            background: var(--bg-page);
+            border-color: #94a3b8;
+        }
+
+        .btn-action.direct {
+            background: #eff6ff;
+            border-color: #bfdbfe;
+            color: var(--primary);
+        }
+
+        .btn-action.direct:hover {
+            background: #dbeafe;
+        }
+
+        .btn-action:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 状态提示 */
+        .status-message {
+            text-align: center;
+            padding: 40px;
+            border-radius: var(--radius-md);
+            background: var(--bg-module);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .status-message.error {
+            color: #ef4444;
+            border: 1px solid #fca5a5;
+        }
+
+        /* 吐司提示框 */
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        /* ================= 模态框 ================= */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #fff;
+            border-radius: var(--radius-md);
+            padding: 28px;
+            width: 480px;
+            max-width: 95vw;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            position: relative;
+        }
+
+        .modal-title {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-desc);
+            margin-bottom: 5px;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            color: var(--text-main);
+            background: #fff;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            border-color: var(--primary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .form-check {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .form-check input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .btn-cancel {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            padding: 8px 18px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--text-main);
+            transition: all 0.2s;
+        }
+
+        .btn-cancel:hover {
+            background: var(--bg-page);
+        }
+
+        .btn-submit {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn-submit:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-action.edit {
+            background: #f0fdf4;
+            border-color: #86efac;
+            color: #16a34a;
+        }
+
+        .btn-action.edit:hover {
+            background: #dcfce7;
+        }
+
+        .btn-action.danger {
+            background: #fff5f5;
+            border-color: #fca5a5;
+            color: #dc2626;
+        }
+
+        .btn-action.danger:hover {
+            background: #fee2e2;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h2>STUN 节点管理面板</h2>
+        <button class="btn-main" onclick="refreshData()">🔄 刷新数据</button>
+    </header>
+
+    <main id="dashboard">
+        <div class="status-message loading">正在连接后端服务加载数据...</div>
+    </main>
+
+    <div id="toast">已复制到剪贴板</div>
+
+    <!-- 添加设备模态框 -->
+    <div class="modal-overlay" id="deviceModal">
+        <div class="modal">
+            <div class="modal-title" id="deviceModalTitle">🖥️ 添加设备</div>
+            <div class="form-group">
+                <label>设备名称 *</label>
+                <input type="text" id="d-name" placeholder="如 群晖NAS / 树莓派">
+            </div>
+            <div class="form-group">
+                <label>设备内网 IP *</label>
+                <input type="text" id="d-ip" placeholder="如 192.168.1.100">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeDeviceModal()">取消</button>
+                <button class="btn-submit" id="deviceSubmitBtn" onclick="submitDeviceForm()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 服务表单模态框（添加 / 编辑共用） -->
+    <div class="modal-overlay" id="serviceModal">
+        <div class="modal">
+            <div class="modal-title" id="modalTitle">➕ 添加服务</div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>服务名称 *</label>
+                    <input type="text" id="f-name" placeholder="如 SSH / Web管理">
+                </div>
+                <div class="form-group">
+                    <label>内网端口 *</label>
+                    <input type="number" id="f-internalPort" placeholder="如 22" min="1" max="65535">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>协议类型</label>
+                    <select id="f-protocol">
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>UPnP 映射端口</label>
+                    <input type="number" id="f-upnpMappedPort" placeholder="0 表示自动" min="0" max="65535">
+                </div>
+            </div>
+            <div class="form-row" style="margin-bottom:14px;">
+                <div class="form-check">
+                    <input type="checkbox" id="f-useUpnp" checked>
+                    <label for="f-useUpnp">启用 UPnP 自动映射</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" id="f-tls">
+                    <label for="f-tls">启用 TLS 证书</label>
+                </div>
+                <div class="form-check">
+                    <input type="checkbox" id="f-enabled" checked>
+                    <label for="f-enabled">启用服务</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>描述（可选）</label>
+                <input type="text" id="f-description" placeholder="服务描述信息">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeModal()">取消</button>
+                <button class="btn-submit" id="modalSubmitBtn" onclick="submitServiceForm()">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志查看模态框 -->
+    <div class="modal-overlay" id="logModal">
+        <div class="modal" style="width: 760px; max-width: 95vw;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color);">
+                <span id="logModalTitle" style="font-size:17px;font-weight:600;">📋 服务日志</span>
+                <button onclick="closeLogModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-desc);padding:0 8px;">✕</button>
+            </div>
+            <div id="logModalMeta" style="font-size:13px;color:var(--text-desc);margin-bottom:12px;"></div>
+            <div id="logModalBody" style="max-height:60vh;overflow-y:auto;background:var(--bg-submodule);border-radius:8px;padding:12px;border:1px solid var(--border-color);">
+                <div style="color:var(--text-desc);text-align:center;padding:20px;">暂无日志</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态管理
+        let globalData = null;
+        let statusMap = {}; // key: "deviceID-serviceID" → StateEvent
+        let activeLogKey = null; // 当前打开日志弹窗的服务 key
+        let selectedDeviceIndex = 0; // 当前选中的设备索引
+        let modalMode = 'add';       // 'add' | 'edit'
+        let modalDeviceIndex = -1;   // 当前操作的设备索引
+        let modalServiceId = null;   // 编辑时的服务ID
+        let deviceModalMode = 'add'; // 'add' | 'edit'
+        let deviceModalId = null;    // 编辑时的设备ID
+
+        // ================= 添加/编辑设备 =================
+        function openDeviceModal() {
+            deviceModalMode = 'add';
+            deviceModalId = null;
+            document.getElementById('deviceModalTitle').textContent = '🖥️ 添加设备';
+            document.getElementById('deviceSubmitBtn').textContent = '添加';
+            document.getElementById('d-name').value = '';
+            document.getElementById('d-ip').value = '';
+            document.getElementById('deviceModal').classList.add('active');
+        }
+
+        function openEditDeviceModal(deviceIndex) {
+            const dev = globalData.devices[deviceIndex];
+            if (!dev) return;
+            deviceModalMode = 'edit';
+            deviceModalId = dev.DeviceID || dev.deviceId || dev.id;
+            document.getElementById('deviceModalTitle').textContent = '✏️ 编辑设备';
+            document.getElementById('deviceSubmitBtn').textContent = '保存';
+            document.getElementById('d-name').value = dev.name || '';
+            document.getElementById('d-ip').value = dev.ip || '';
+            document.getElementById('deviceModal').classList.add('active');
+        }
+
+        function closeDeviceModal() {
+            document.getElementById('deviceModal').classList.remove('active');
+        }
+
+        async function submitDeviceForm() {
+            const name = document.getElementById('d-name').value.trim();
+            const ip = document.getElementById('d-ip').value.trim();
+            if (!name || !ip) { showToast('设备名称和IP不能为空'); return; }
+
+            const btn = document.getElementById('deviceSubmitBtn');
+            btn.disabled = true;
+            try {
+                let url, method, body;
+                if (deviceModalMode === 'add') {
+                    url = '/api/stun/device/add';
+                    method = 'POST';
+                    body = { name, ip };
+                } else {
+                    url = '/api/stun/device/update';
+                    method = 'PUT';
+                    body = { deviceId: deviceModalId, name, ip };
+                }
+                const resp = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const result = await resp.json();
+                if (result.code === 0) {
+                    showToast(deviceModalMode === 'add' ? '设备添加成功' : '设备保存成功');
+                    closeDeviceModal();
+                    await initDashboard();
+                } else {
+                    showToast('操作失败: ' + (result.msg || '未知错误'));
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // ================= 删除设备 =================
+        async function deleteDevice(deviceIndex) {
+            const dev = globalData.devices[deviceIndex];
+            if (!dev) return;
+            if (!confirm(`确认删除设备「${dev.name}」？该设备下所有服务也将被删除，此操作不可撤销。`)) return;
+
+            const deviceId = dev.DeviceID || dev.deviceId || dev.id;
+            try {
+                const resp = await fetch('/api/stun/device/delete', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ deviceId }),
+                });
+                const result = await resp.json();
+                if (result.code === 0) {
+                    showToast('设备删除成功');
+                    await initDashboard();
+                } else {
+                    showToast('删除失败: ' + (result.msg || '未知错误'));
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message);
+            }
+        }
+
+        document.getElementById('deviceModal').addEventListener('click', function(e) {
+            if (e.target === this) closeDeviceModal();
+        });
+
+        // ================= 模态框控制 =================
+        function openAddModal(deviceIndex) {
+            modalMode = 'add';
+            modalDeviceIndex = deviceIndex;
+            modalServiceId = null;
+            document.getElementById('modalTitle').textContent = '➕ 添加服务';
+            document.getElementById('f-name').value = '';
+            document.getElementById('f-internalPort').value = '';
+            document.getElementById('f-protocol').value = 'TCP';
+            document.getElementById('f-upnpMappedPort').value = '0';
+            document.getElementById('f-useUpnp').checked = true;
+            document.getElementById('f-tls').checked = false;
+            document.getElementById('f-enabled').checked = true;
+            document.getElementById('f-description').value = '';
+            document.getElementById('modalSubmitBtn').textContent = '添加';
+            document.getElementById('serviceModal').classList.add('active');
+        }
+
+        function openEditModal(deviceIndex, serviceId) {
+            const device = globalData.devices[deviceIndex];
+            const svc = device.services.find(s => s.id === serviceId);
+            if (!svc) return;
+            modalMode = 'edit';
+            modalDeviceIndex = deviceIndex;
+            modalServiceId = serviceId;
+            document.getElementById('modalTitle').textContent = '✏️ 编辑服务';
+            document.getElementById('f-name').value = svc.name || '';
+            document.getElementById('f-internalPort').value = svc.internalPort || '';
+            document.getElementById('f-protocol').value = svc.protocol || 'TCP';
+            document.getElementById('f-upnpMappedPort').value = svc.upnpMappedPort || 0;
+            document.getElementById('f-useUpnp').checked = !!svc.useUpnp;
+            document.getElementById('f-tls').checked = !!svc.tls;
+            document.getElementById('f-enabled').checked = svc.enabled !== false;
+            document.getElementById('f-description').value = svc.description || '';
+            document.getElementById('modalSubmitBtn').textContent = '保存';
+            document.getElementById('serviceModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('serviceModal').classList.remove('active');
+        }
+
+        async function submitServiceForm() {
+            const name = document.getElementById('f-name').value.trim();
+            const internalPort = parseInt(document.getElementById('f-internalPort').value);
+            if (!name) { showToast('请填写服务名称'); return; }
+            if (!internalPort || internalPort < 1 || internalPort > 65535) { showToast('请填写有效的内网端口(1-65535)'); return; }
+
+            const device = globalData.devices[modalDeviceIndex];
+            const btn = document.getElementById('modalSubmitBtn');
+            btn.disabled = true;
+
+            const body = {
+                deviceId: device.DeviceID || device.deviceId || device.id,
+                name,
+                internalPort,
+                protocol: document.getElementById('f-protocol').value,
+                upnpMappedPort: parseInt(document.getElementById('f-upnpMappedPort').value) || 0,
+                useUpnp: document.getElementById('f-useUpnp').checked,
+                tls: document.getElementById('f-tls').checked,
+                enabled: document.getElementById('f-enabled').checked,
+                description: document.getElementById('f-description').value.trim(),
+            };
+
+            try {
+                let url, method;
+                if (modalMode === 'add') {
+                    url = '/api/stun/service/add';
+                    method = 'POST';
+                } else {
+                    url = '/api/stun/service/update';
+                    method = 'PUT';
+                    body.serviceId = modalServiceId;
+                }
+
+                const resp = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const result = await resp.json();
+                if (result.code === 0) {
+                    showToast(modalMode === 'add' ? '添加成功' : '保存成功');
+                    closeModal();
+                    await initDashboard();
+                } else {
+                    showToast('操作失败: ' + (result.msg || '未知错误'));
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 点击遮罩层关闭
+        document.getElementById('serviceModal').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
+        });
+
+        // ================= 删除服务 =================
+        async function deleteService(deviceIndex, serviceId, serviceName) {
+            if (!confirm(`确认删除服务「${serviceName}」？此操作不可撤销。`)) return;
+
+            const device = globalData.devices[deviceIndex];
+            try {
+                const resp = await fetch('/api/stun/service/delete', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        deviceId: device.DeviceID || device.deviceId || device.id,
+                        serviceId,
+                    }),
+                });
+                const result = await resp.json();
+                if (result.code === 0) {
+                    showToast('删除成功');
+                    await initDashboard();
+                } else {
+                    showToast('删除失败: ' + (result.msg || '未知错误'));
+                }
+            } catch (e) {
+                showToast('请求失败: ' + e.message);
+            }
+        }
+
+        // ================= 1. 交互与工具函数 =================
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.textContent = msg;
+            toast.style.opacity = 1;
+            setTimeout(() => { toast.style.opacity = 0; }, 2000);
+        }
+
+        function copyAddress(address) {
+            if (!navigator.clipboard) {
+                const input = document.createElement('input');
+                input.value = address;
+                document.body.appendChild(input);
+                input.select();
+                document.execCommand('copy');
+                document.body.removeChild(input);
+                showToast(`已复制: ${address}`);
+                return;
+            }
+            navigator.clipboard.writeText(address).then(() => {
+                showToast(`已复制: ${address}`);
+            }).catch(err => {
+                showToast(`复制失败: ${err}`);
+            });
+        }
+
+        function openAddress(protocol, address) {
+            if (!address) return;
+            protocol = (protocol || '').toLowerCase();
+            if (protocol === 'ssh') {
+                const parts = address.split(':');
+                const sshCmd = `ssh root@${parts[0]} -p ${parts[1] || '22'}`;
+                copyAddress(sshCmd);
+                setTimeout(() => alert(`由于是 SSH 协议，已为您复制终端连接命令：\n\n${sshCmd}\n\n请在您的终端(Terminal)中粘贴执行。`), 100);
+            } else {
+                window.open(`http://${address}`, '_blank');
+            }
+        }
+
+        // ================= SSE 实时状态 =================
+        function initSSE() {
+            const es = new EventSource('/api/stun/status/events');
+            es.onmessage = function(e) {
+                try {
+                    const event = JSON.parse(e.data);
+                    statusMap[event.key] = event;
+                    if (activeLogKey === event.key) {
+                        renderLogModal();
+                    }
+                    if (!globalData || !globalData.devices) return;
+                    const device = globalData.devices[selectedDeviceIndex];
+                    if (!device) return;
+                    if (event.key.startsWith(String(device.id) + '-')) {
+                        renderServices(selectedDeviceIndex);
+                    }
+                } catch(err) {
+                    console.error('SSE parse error', err);
+                }
+            };
+        }
+
+        function openLogModal(key) {
+            activeLogKey = key;
+            renderLogModal();
+            document.getElementById('logModal').classList.add('active');
+        }
+
+        function closeLogModal() {
+            activeLogKey = null;
+            document.getElementById('logModal').classList.remove('active');
+        }
+
+        function renderLogModal() {
+            if (!activeLogKey) return;
+            const status = statusMap[activeLogKey];
+            const titleEl = document.getElementById('logModalTitle');
+            const metaEl = document.getElementById('logModalMeta');
+            const bodyEl = document.getElementById('logModalBody');
+
+            if (!status) {
+                titleEl.textContent = '📋 服务日志';
+                metaEl.textContent = '';
+                bodyEl.innerHTML = '<div style="color:var(--text-desc);text-align:center;padding:20px;">暂无运行时数据</div>';
+                return;
+            }
+
+            titleEl.textContent = `📋 ${status.deviceName || ''} / ${status.serviceName || ''} - 服务日志`;
+            metaEl.innerHTML = `当前阶段: <strong>${status.phaseStr}</strong> · 重启次数: <strong>${status.restartCount ?? 0}</strong> · 共 ${(status.logs || []).length} 条日志`;
+
+            const logs = status.logs || [];
+            if (logs.length === 0) {
+                bodyEl.innerHTML = '<div style="color:var(--text-desc);text-align:center;padding:20px;">暂无日志</div>';
+                return;
+            }
+
+            const wasNearBottom = bodyEl.scrollHeight - bodyEl.scrollTop - bodyEl.clientHeight < 40;
+            bodyEl.innerHTML = logs.map(log => {
+                const t = new Date(log.createdAt).toLocaleString();
+                return `<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border-color);font-size:13px;">
+                    <span style="color:var(--text-desc);white-space:nowrap;font-family:monospace;font-size:12px;">${t}</span>
+                    <span class="svc-badge" style="flex-shrink:0;">${log.phaseStr}</span>
+                    <span style="color:var(--text-main);word-break:break-all;flex:1;">${log.message}</span>
+                </div>`;
+            }).join('');
+            if (wasNearBottom) bodyEl.scrollTop = bodyEl.scrollHeight;
+        }
+
+        document.getElementById('logModal').addEventListener('click', function(e) {
+            if (e.target === this) closeLogModal();
+        });
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && activeLogKey) closeLogModal();
+        });
+
+        // ================= 2. 数据请求与渲染 =================
+        async function fetchConfig() {
+            try {
+                const response = await fetch('/api/stun/config');
+                if (!response.ok) throw new Error(`HTTP 请求错误，状态码: ${response.status}`);
+                const result = await response.json();
+                if (result.code === 0 && result.data) return result.data;
+                throw new Error(result.msg || "接口返回了未知的错误状态");
+            } catch (err) {
+                // 如果后端不在线，这里造个你提供的假数据用于前端测试预览
+                // 实际使用时将这部分假数据移除即可
+                console.warn("请求失败，为了预览效果，使用模拟数据: ", err.message);
+                document.getElementById('dashboard').innerHTML = `
+                    <div class="status-message error">
+                        <h3>❌ 数据加载失败</h3>
+                        <p style="margin-top: 8px; font-size: 14px;">${err.message}</p>
+                    </div>`;
+                return null;
+            }
+        }
+
+        // 渲染网络拓扑结构
+        function renderTopology(data) {
+            let html = `<div class="topo-node local">💻 本机 IP<span>${data.localIP || '--'}</span></div>`;
+
+            if (data.natRouterList && data.natRouterList.length > 0) {
+                // 确保按照 natLevel 排序 (从本机向外)
+                const sortedList = [...data.natRouterList].sort((a, b) => a.natLevel - b.natLevel);
+                sortedList.forEach(router => {
+                    html += `<div class="topo-arrow">➔</div>`;
+                    html += `<div class="topo-node router">🛜 路由 NAT ${router.natLevel}<span>${router.lanIP}</span></div>`;
+                });
+            }
+
+            html += `<div class="topo-arrow">➔</div>`;
+            html += `<div class="topo-node internet">🌐 公网 IP<span>${data.publicIP || '--'}</span></div>`;
+
+            return html;
+        }
+
+        // 渲染右侧服务大卡片
+        window.renderServices = function (index) {
+            selectedDeviceIndex = index;
+            // 更新左侧高亮
+            document.querySelectorAll('.device-item').forEach((el, idx) => {
+                if (idx === index) el.classList.add('active');
+                else el.classList.remove('active');
+            });
+
+            const device = globalData.devices[index];
+            const container = document.getElementById('services-grid-container');
+            const addBtn = document.getElementById('add-service-btn');
+            if (addBtn) {
+                addBtn.onclick = () => openAddModal(index);
+            }
+
+            if (!device || !device.services || device.services.length === 0) {
+                container.innerHTML = '<div style="grid-column: 1/-1; text-align: center; color: var(--text-desc); padding: 40px; background: var(--bg-module); border-radius: var(--radius-md);">该设备暂无服务配置，点击右上角"添加服务"开始配置</div>';
+                return;
+            }
+
+            const publicIP = globalData.publicIP || '';
+
+            container.innerHTML = device.services.map(srv => {
+                const key = `${device.id}-${srv.id}`;
+                const status = statusMap[key];
+                const phaseStr = status?.phaseStr || 'STOPPED';
+                const isPunchSuccess = phaseStr === 'RUNNING';
+                const statusDot = isPunchSuccess ? 'status-on' : 'status-off';
+                const phaseLabel = { PROBING: '探测中', RUNNING: '穿透成功', RESTARTING: '重启中', FAILED: '探测失败', STOPPED: '已停止' }[phaseStr] || phaseStr;
+                const statusText = isPunchSuccess
+                    ? '<span style="color:var(--success); font-weight:600;">✅ 穿透成功</span>'
+                    : `<span style="color:var(--danger); font-weight:600;">❌ ${phaseLabel}</span>`;
+
+                const protocol = (srv.protocol || 'TCP').toUpperCase();
+                const upnpTag = srv.useUpnp ? `<span class="svc-badge" style="background:#fef08a;color:#854d0e;">UPnP</span>` : '';
+
+                const externalPort = status?.externalPort ?? 0;
+                let extAddrHtml = '<div class="ext-addr empty">尚未获取外部地址</div>';
+                let actionBtns = `
+                    <button class="btn-action" disabled>📋 复制地址</button>
+                    <button class="btn-action direct" disabled>🚀 一键直达</button>
+                `;
+
+                if (externalPort > 0 && publicIP) {
+                    const fullAddr = `${publicIP}:${externalPort}`;
+                    extAddrHtml = `
+                        <div style="font-size:12px; color:var(--text-desc); margin-top:8px;">外部连接地址</div>
+                        <div class="ext-addr">${fullAddr}</div>
+                    `;
+                    actionBtns = `
+                        <button class="btn-action" onclick="copyAddress('${fullAddr}')">📋 复制地址</button>
+                        <button class="btn-action direct" onclick="openAddress('${srv.protocol}', '${fullAddr}')">🚀 一键直达</button>
+                    `;
+                }
+
+                const lastError = status?.lastError || '';
+                const restartCount = status?.restartCount ?? 0;
+                const errorHtml = lastError ? `
+                    <div style="background:#fef2f2; border:1px solid #fca5a5; padding:8px; border-radius:6px; color:#ef4444; font-size:12px; margin-top:8px; margin-bottom:8px;">
+                        ⚠️ <strong>错误:</strong> ${lastError}${restartCount > 0 ? ` (已重启 ${restartCount} 次)` : ''}
+                    </div>
+                ` : '';
+
+                const logCount = (status?.logs || []).length;
+                const logsHtml = `
+                    <div style="border-top:1px solid var(--border-color);margin-top:12px;padding-top:10px;text-align:center;">
+                        <button onclick="openLogModal('${key}')" style="background:none;border:1px solid var(--border-color);cursor:pointer;font-size:13px;color:var(--text-main);padding:6px 14px;border-radius:6px;transition:all 0.2s;">
+                            📋 查看日志 (${logCount})
+                        </button>
+                    </div>
+                `;
+
+                return `
+                    <div class="service-card">
+                        <div class="card-header">
+                            <i class="status-dot ${statusDot}"></i>
+                            <span class="card-title">📦 ${srv.name || '未命名服务'}</span>
+                            <button class="btn-action edit" style="flex:none;padding:4px 10px;font-size:12px;margin-left:auto;" onclick="openEditModal(${index}, ${srv.id})">✏️ 编辑</button>
+                            <button class="btn-action danger" style="flex:none;padding:4px 10px;font-size:12px;" onclick="deleteService(${index}, ${srv.id}, '${srv.name.replace(/'/g, "\\'")}')">🗑️ 删除</button>
+                        </div>
+
+                        <div class="info-line">
+                            <span class="label">协议类型</span>
+                            <span class="value" style="display:flex;gap:6px;"><span class="svc-badge">${protocol}</span> ${upnpTag}</span>
+                        </div>
+                        <div class="info-line">
+                            <span class="label">内部端口</span>
+                            <span class="value">${srv.internalPort}</span>
+                        </div>
+                        <div class="info-line">
+                            <span class="label">穿透状态</span>
+                            <span class="value">${statusText}</span>
+                        </div>
+
+                        ${errorHtml}
+                        ${extAddrHtml}
+
+                        <div class="svc-actions">
+                            ${actionBtns}
+                        </div>
+
+                        ${logsHtml}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function initDashboard() {
+            const dashboard = document.getElementById('dashboard');
+            dashboard.innerHTML = '<div class="status-message loading">正在请求数据，请稍候...</div>';
+
+            // 记住当前选中的设备ID，刷新后恢复
+            const prevDeviceId = globalData && globalData.devices && globalData.devices[selectedDeviceIndex]
+                ? (globalData.devices[selectedDeviceIndex].DeviceID || globalData.devices[selectedDeviceIndex].deviceId)
+                : null;
+
+            globalData = await fetchConfig();
+            if (!globalData) return;
+
+            // 1. 顶部：网络参数与拓扑图卡片
+            const networkCard = `
+                <div class="module-card">
+                    <div class="info-line" style="margin-bottom:16px; border-bottom:1px solid var(--border-color); padding-bottom:12px;">
+                        <span style="font-size:16px; font-weight:600;">🌐 基础网络与路由拓扑</span>
+                        <span style="font-size:13px; color:var(--primary); font-family:monospace;">最优 STUN: ${globalData.bestStun || '--'}</span>
+                    </div>
+                    
+                    <div style="font-size:14px; font-weight:500; color:var(--text-desc); margin-bottom: 8px;">网络映射路径分析 (NAT Topology)</div>
+                    <div class="topology-container">
+                        ${renderTopology(globalData)}
+                    </div>
+                </div>
+            `;
+
+            // 2. 左侧：设备列表
+            let devicesHtml = '<div style="color:#999; text-align:center; padding:20px;">暂无设备接入</div>';
+            if (globalData.devices && globalData.devices.length > 0) {
+                devicesHtml = globalData.devices.map((dev, index) => `
+                    <div class="device-item" onclick="renderServices(${index})">
+                        <div class="device-item-name">💻 ${dev.name || '未知设备'}</div>
+                        <div class="device-item-ip">${dev.ip || '--'}</div>
+                        <div class="device-item-actions" onclick="event.stopPropagation()">
+                            <button class="btn-action edit" style="flex:1;padding:3px 8px;font-size:12px;" onclick="openEditDeviceModal(${index})">✏️ 编辑</button>
+                            <button class="btn-action danger" style="flex:1;padding:3px 8px;font-size:12px;" onclick="deleteDevice(${index})">🗑️ 删除</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            // 拼装整个面板
+            dashboard.innerHTML = `
+                <div>${networkCard}</div>
+                
+                <div style="margin-top: 8px;">
+                    <div class="section-title">设备管理与服务状态</div>
+                    <div class="device-layout">
+                        <div class="device-list-container">
+                            <div style="font-size: 13px; color: var(--text-desc); padding: 4px 8px 8px 8px; border-bottom: 1px dashed var(--border-color); margin-bottom: 8px; display:flex; justify-content:space-between; align-items:center;">
+                                <span>设备列表</span>
+                                <button class="btn-main" style="font-size:12px;padding:4px 10px;" onclick="openDeviceModal()">➕ 添加设备</button>
+                            </div>
+                            <div id="devices-list-inner">${devicesHtml}</div>
+                        </div>
+
+                        <div>
+                            <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
+                                <button class="btn-main" id="add-service-btn">➕ 添加服务</button>
+                            </div>
+                            <div class="services-grid" id="services-grid-container"></div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // 刷新后恢复之前选中的设备，找不到则默认第一个
+            if (globalData.devices && globalData.devices.length > 0) {
+                let restoreIndex = 0;
+                if (prevDeviceId !== null) {
+                    const found = globalData.devices.findIndex(d =>
+                        (d.DeviceID || d.deviceId) === prevDeviceId
+                    );
+                    if (found !== -1) restoreIndex = found;
+                }
+                modalDeviceIndex = restoreIndex;
+                renderServices(restoreIndex);
+            }
+        }
+
+        // 静默刷新：不重建页面，只更新数据和当前视图
+        async function refreshData() {
+            const prevDeviceId = globalData && globalData.devices && globalData.devices[selectedDeviceIndex]
+                ? (globalData.devices[selectedDeviceIndex].DeviceID || globalData.devices[selectedDeviceIndex].deviceId)
+                : null;
+
+            const newData = await fetchConfig();
+            if (!newData) return;
+            globalData = newData;
+
+            if (globalData.devices && globalData.devices.length > 0) {
+                let restoreIndex = 0;
+                if (prevDeviceId !== null) {
+                    const found = globalData.devices.findIndex(d =>
+                        (d.DeviceID || d.deviceId) === prevDeviceId
+                    );
+                    if (found !== -1) restoreIndex = found;
+                }
+                // 只重新渲染左侧设备列表和右侧服务卡片，不重建整个页面
+                const devicesListEl = document.getElementById('devices-list-inner');
+                if (devicesListEl) {
+                    devicesListEl.innerHTML = globalData.devices.map((dev, index) => `
+                        <div class="device-item" onclick="renderServices(${index})">
+                            <div class="device-item-name">💻 ${dev.name || '未知设备'}</div>
+                            <div class="device-item-ip">${dev.ip || '--'}</div>
+                            <div class="device-item-actions" onclick="event.stopPropagation()">
+                                <button class="btn-action edit" style="flex:1;padding:3px 8px;font-size:12px;" onclick="openEditDeviceModal(${index})">✏️ 编辑</button>
+                                <button class="btn-action danger" style="flex:1;padding:3px 8px;font-size:12px;" onclick="deleteDevice(${index})">🗑️ 删除</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                renderServices(restoreIndex);
+            }
+        }
+
+        window.onload = () => {
+            initDashboard();
+            initSSE();
+            setInterval(refreshData, 30000);
+        };
+    </script>
+</body>
+
+</html>

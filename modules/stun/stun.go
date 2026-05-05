@@ -98,28 +98,30 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 
 	}
 
-	// UPNP启动 映射 网关的localPort->localip:localPort
-	if req.UseUPnP {
-		upnpCtx, upnpCancel := context.WithTimeout(ctx, 20*time.Second)
-		err := AddPortMappingByQueueWithLocalIP(
-			upnpCtx,
-			localPort,
-			localPort,
-			strings.ToUpper(protocol),
-			fmt.Sprintf("EasyLink-%s", req.ServiceName),
-			localIP,
-		)
-		if err != nil {
+	// UPNP启动 映射 网关的localPort->localip:localPort UDP 不需要upnp
+	if protocol == "tcp" {
+		if req.UseUPnP {
+			upnpCtx, upnpCancel := context.WithTimeout(ctx, 20*time.Second)
+			err := AddPortMappingByQueueWithLocalIP(
+				upnpCtx,
+				localPort,
+				localPort,
+				strings.ToUpper(protocol),
+				fmt.Sprintf("EasyLink-%s", req.ServiceName),
+				localIP,
+			)
+			if err != nil {
+				upnpCancel()
+				return err
+			}
+			// 释放资源
 			upnpCancel()
-			return err
+			defer func() {
+				go DeletePortMapping(localPort, strings.ToUpper(protocol))
+			}()
 		}
-		// 释放资源
-		upnpCancel()
-		defer func() {
-			go DeletePortMapping(localPort, strings.ToUpper(protocol))
-		}()
+		onState(STUNState{State: STUNLog, Log: fmt.Sprintf("UPNP启动成功：路由:%d->%s:%d", localPort, localIP, localPort)})
 	}
-	onState(STUNState{State: STUNLog, Log: fmt.Sprintf("UPNP启动成功：路由:%d->%s:%d", localPort, localIP, localPort)})
 
 	// 把端口传出去
 	if onState != nil {

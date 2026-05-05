@@ -21,7 +21,7 @@ type stunResult struct {
 }
 
 func TestReuseportUDPWrite(t *testing.T) {
-	srv := "stun.miwifi.com:3478"
+	srv := "stun.finsterwalder.com:3478"
 	localIP := "0.0.0.0"
 	localAddr := fmt.Sprintf("%s:0", localIP)
 
