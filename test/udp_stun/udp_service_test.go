@@ -15,7 +15,7 @@ import (
 //     (Windows PowerShell: $env:PUBLIC_ADDR='公网IP:Port'; go test -v -run TestUDPService)
 //  3. 回到终端A 看是否打印 "收到 from ..."
 const (
-	targetAddr   = "14.19.47.34:51447" // 从 main 输出复制
+	targetAddr   = "14.19.47.34:51745" // 从 main 输出复制
 	sendInterval = 3 * time.Second     // 发送间隔
 	testDuration = 10 * time.Second    // 持续发多久
 )
