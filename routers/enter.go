@@ -26,6 +26,7 @@ func Run(webFS fs.FS) {
 	// API 路由
 	g := r.Group("api")
 	StunRouters(g)
+	HomeRouters(g)
 
 	// 剥掉 web/dist 前缀
 	webFS, _ = fs.Sub(webFS, "web/dist")

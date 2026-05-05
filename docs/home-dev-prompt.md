@@ -47,7 +47,7 @@ LinkStar 是一个 Go 编写的 NAT 穿透工具，后端已实现 STUN/UPnP 内
 - 图标下方显示服务名称
 - 图标来源优先级：
   1. 用户手动上传的图标（存 `/data/icons/`）
-  2. 自动抓取 favicon：`https://icon.horse/icon/{域名}`
+  2. 自动抓取 favicon：`https://icon.horse/icon/{域名}`  这个可用后端写api抓？也放到打他/icos
   3. 降级：取服务名首字母，生成彩色字母头像
 - 点击图标：默认在小窗（iframe）内打开，可在设置中改为新标签页
 
