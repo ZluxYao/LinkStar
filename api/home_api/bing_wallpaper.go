@@ -11,7 +11,8 @@ import (
 
 type bingWallpaperResponse struct {
 	Images []struct {
-		URL string `json:"url"`
+		URL     string `json:"url"`
+		URLBase string `json:"urlbase"`
 	} `json:"images"`
 }
 
@@ -30,11 +31,19 @@ func (HomeApi) BingWallpaperView(c *gin.Context) {
 		return
 	}
 
+	resolution := strings.ToLower(c.DefaultQuery("resolution", "uhd"))
 	imageURL := data.Images[0].URL
-	if strings.HasPrefix(imageURL, "/") {
-		imageURL = "https://www.bing.com" + imageURL
+	if data.Images[0].URLBase != "" {
+		imageURL = data.Images[0].URLBase + "_UHD.jpg"
+	} else {
+		imageURL = strings.Replace(imageURL, "1920x1080", "UHD", 1)
 	}
-	imageURL = strings.Replace(imageURL, "1920x1080", "UHD", 1)
+	if resolution == "1080" || resolution == "1920x1080" {
+		imageURL = strings.Replace(imageURL, "UHD", "1920x1080", 1)
+	}
+	if strings.HasPrefix(imageURL, "/") {
+		imageURL = "https://bing.com" + imageURL
+	}
 
 	c.Header("Cache-Control", "public, max-age=3600")
 	c.JSON(http.StatusOK, gin.H{"url": imageURL})

@@ -58,8 +58,33 @@ type BingWallpaperResponse = {
   url: string
 }
 
+type WallpaperMode = 'default' | 'bing'
+type WallpaperResolution = '1080' | 'uhd'
+
+type HomeSettings = {
+  wallpaperMode: WallpaperMode
+  wallpaperResolution: WallpaperResolution
+  wallpaperBlur: number
+}
+
 const bingWallpaperUrl = '/api/home/bing-wallpaper'
 const wallpaperStorageKey = 'linkstar.wallpaperUrl'
+const homeSettingsStorageKey = 'linkstar.homeSettings'
+
+const defaultHomeSettings: HomeSettings = {
+  wallpaperMode: 'bing',
+  wallpaperResolution: 'uhd',
+  wallpaperBlur: 0,
+}
+
+function loadHomeSettings() {
+  try {
+    const value = localStorage.getItem(homeSettingsStorageKey)
+    return value ? { ...defaultHomeSettings, ...JSON.parse(value) } : defaultHomeSettings
+  } catch {
+    return defaultHomeSettings
+  }
+}
 
 const demoApps: AppItem[] = [
   { id: 'nas', name: 'NAS 管理', url: '#', color: 'from-sky-400 to-blue-600', icon: HardDrive, status: 'online' },
@@ -142,8 +167,12 @@ function App() {
   const [query, setQuery] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(() => localStorage.getItem(wallpaperStorageKey))
-  const [wallpaperLoaded, setWallpaperLoaded] = useState(() => Boolean(localStorage.getItem(wallpaperStorageKey)))
+  const [showSettings, setShowSettings] = useState(false)
+  const [homeSettings, setHomeSettings] = useState<HomeSettings>(() => loadHomeSettings())
+  const [showDefaultWallpaper, setShowDefaultWallpaper] = useState(() => loadHomeSettings().wallpaperMode === 'default')
+  const [backgroundReady, setBackgroundReady] = useState(() => loadHomeSettings().wallpaperMode === 'default')
+  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null)
+  const [wallpaperLoaded, setWallpaperLoaded] = useState(false)
   const wallpaperFallbackTimer = useRef<number | null>(null)
 
   const clearWallpaperFallbackTimer = () => {
@@ -156,12 +185,36 @@ function App() {
   const engine = useMemo(() => searchEngines.find((item) => item.id === engineId) ?? searchEngines[0], [engineId])
 
   useEffect(() => {
+    localStorage.setItem(homeSettingsStorageKey, JSON.stringify(homeSettings))
+  }, [homeSettings])
+
+  useEffect(() => {
     let canceled = false
+    clearWallpaperFallbackTimer()
+
+    if (homeSettings.wallpaperMode === 'default') {
+      setShowDefaultWallpaper(true)
+      setBackgroundReady(true)
+      setWallpaperLoaded(false)
+      setWallpaperUrl(null)
+      localStorage.removeItem(wallpaperStorageKey)
+      return
+    }
+
+    setShowDefaultWallpaper(false)
+    setBackgroundReady(false)
+    setWallpaperLoaded(false)
     wallpaperFallbackTimer.current = window.setTimeout(() => {
+      if (canceled) return
+      canceled = true
+      setWallpaperLoaded(false)
+      setWallpaperUrl(null)
+      setShowDefaultWallpaper(true)
+      setBackgroundReady(true)
       clearWallpaperFallbackTimer()
     }, 3000)
 
-    fetch(`${bingWallpaperUrl}?t=${Date.now()}`)
+    fetch(`${bingWallpaperUrl}?resolution=${homeSettings.wallpaperResolution}&t=${Date.now()}`)
       .then((response) => {
         if (!response.ok) {
           throw new Error('Failed to load wallpaper URL')
@@ -169,26 +222,40 @@ function App() {
         return response.json() as Promise<BingWallpaperResponse>
       })
       .then((data) => {
-        if (!data.url) return
+        if (!data.url || canceled) return
 
         const image = new Image()
         image.onload = () => {
           if (canceled) return
           clearWallpaperFallbackTimer()
           localStorage.setItem(wallpaperStorageKey, data.url)
+          setShowDefaultWallpaper(false)
           setWallpaperUrl(data.url)
           setWallpaperLoaded(true)
+          setBackgroundReady(true)
         }
-        image.onerror = clearWallpaperFallbackTimer
+        image.onerror = () => {
+          if (!canceled) {
+            setShowDefaultWallpaper(true)
+            setBackgroundReady(true)
+          }
+          clearWallpaperFallbackTimer()
+        }
         image.src = data.url
       })
-      .catch(clearWallpaperFallbackTimer)
+      .catch(() => {
+        if (!canceled) {
+          setShowDefaultWallpaper(true)
+          setBackgroundReady(true)
+        }
+        clearWallpaperFallbackTimer()
+      })
 
     return () => {
       canceled = true
       clearWallpaperFallbackTimer()
     }
-  }, [])
+  }, [homeSettings.wallpaperMode, homeSettings.wallpaperResolution])
 
   const openWithWhiteLoading = (url: string) => {
     const page = window.open('', '_blank')
@@ -219,7 +286,7 @@ function App() {
   }
 
   return (
-    <main className="default-wallpaper relative min-h-screen overflow-hidden text-white">
+    <main className={`${showDefaultWallpaper ? 'default-wallpaper' : 'bg-transparent'} relative min-h-screen overflow-hidden text-white`}>
       {wallpaperUrl && (
         <img
           src={wallpaperUrl}
@@ -234,12 +301,16 @@ function App() {
             localStorage.removeItem(wallpaperStorageKey)
             setWallpaperUrl(null)
           }}
-          className={`absolute inset-0 h-full w-full scale-105 object-cover blur-[2px] transition-opacity duration-700 ${wallpaperLoaded ? 'opacity-100' : 'opacity-0'}`}
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-700 ${wallpaperLoaded ? 'opacity-100' : 'opacity-0'}`}
+          style={{
+            filter: `blur(${homeSettings.wallpaperBlur}px)`,
+            transform: homeSettings.wallpaperBlur > 0 ? 'scale(1.04)' : 'scale(1)',
+          }}
         />
       )}
       {wallpaperLoaded && <div className="absolute inset-0 bg-black/10" />}
 
-      <section className="relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14">
+      <section className={`relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'}`}>
         <Clock />
 
         <div className="relative mx-auto mt-10 w-full max-w-3xl rounded-[1.75rem] bg-white px-5 py-4 text-slate-700 shadow-2xl">
@@ -360,13 +431,83 @@ function App() {
         </div>
       </section>
 
+      {showSettings && (
+        <div className="fixed bottom-24 right-7 z-30 w-80 rounded-3xl bg-white/95 p-5 text-slate-700 shadow-2xl ring-1 ring-white/60 backdrop-blur-xl">
+          <div className="mb-5">
+            <div className="text-lg font-bold text-slate-800">Home 设置</div>
+            <div className="mt-1 text-sm text-slate-500">调整当前主页背景显示</div>
+          </div>
+
+          <div className="space-y-5">
+            <div>
+              <div className="mb-2 text-sm font-semibold text-slate-600">背景</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'bing' }))}
+                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'bing' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Bing 壁纸
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'default' }))}
+                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'default' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  默认背景
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-sm font-semibold text-slate-600">清晰度</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: '1080' }))}
+                  disabled={homeSettings.wallpaperMode === 'default'}
+                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === '1080' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  1080P
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: 'uhd' }))}
+                  disabled={homeSettings.wallpaperMode === 'default'}
+                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === 'uhd' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  4K / UHD
+                </button>
+              </div>
+            </div>
+
+            <label className="block">
+              <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
+                <span>模糊度</span>
+                <span className="text-slate-400">{homeSettings.wallpaperBlur}px</span>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="12"
+                step="1"
+                value={homeSettings.wallpaperBlur}
+                disabled={homeSettings.wallpaperMode === 'default'}
+                onChange={(event) => setHomeSettings((value) => ({ ...value, wallpaperBlur: Number(event.target.value) }))}
+                className="w-full accent-blue-500 disabled:opacity-45"
+              />
+            </label>
+          </div>
+        </div>
+      )}
+
       <div className="fixed bottom-7 right-7 z-20 flex flex-col gap-3">
-        <button className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="公网 / 内网切换">
+        <button type="button" className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="公网 / 内网切换">
           <Home className="h-5 w-5" />
         </button>
-        <a href="/admin" className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="后台控制">
+        <button type="button" onClick={() => setShowSettings((value) => !value)} className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="Home 设置">
           <Settings className="h-5 w-5" />
-        </a>
+        </button>
         <a href="/admin" className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="打开后台">
           <ExternalLink className="h-5 w-5" />
         </a>
