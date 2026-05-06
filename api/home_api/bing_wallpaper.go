@@ -2,8 +2,6 @@ package home_api
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -19,7 +17,7 @@ type bingWallpaperResponse struct {
 
 func (HomeApi) BingWallpaperView(c *gin.Context) {
 	client := http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN")
+	resp, err := client.Get("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US")
 	if err != nil {
 		c.Status(http.StatusBadGateway)
 		return
@@ -38,28 +36,6 @@ func (HomeApi) BingWallpaperView(c *gin.Context) {
 	}
 	imageURL = strings.Replace(imageURL, "1920x1080", "UHD", 1)
 
-	imageResp, err := client.Get(imageURL)
-	if err != nil {
-		c.Status(http.StatusBadGateway)
-		return
-	}
-	defer imageResp.Body.Close()
-
-	if imageResp.StatusCode < 200 || imageResp.StatusCode >= 300 {
-		c.Status(http.StatusBadGateway)
-		return
-	}
-
-	contentType := imageResp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "image/jpeg"
-	}
-
 	c.Header("Cache-Control", "public, max-age=3600")
-	c.Header("Content-Type", contentType)
-	c.Header("X-Bing-Wallpaper-URL", imageURL)
-	c.Status(http.StatusOK)
-	if _, err := io.Copy(c.Writer, imageResp.Body); err != nil {
-		fmt.Println(err)
-	}
+	c.JSON(http.StatusOK, gin.H{"url": imageURL})
 }

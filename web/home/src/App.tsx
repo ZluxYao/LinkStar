@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BriefcaseBusiness,
   CalendarDays,
@@ -54,7 +54,12 @@ const searchEngines: SearchEngine[] = [
 
 const searchHistory = ['LinkStar DDNS 配置', 'Cloudflare API Token', 'NAS 反向代理', 'STUN UDP 穿透', 'React Tailwind dashboard']
 
+type BingWallpaperResponse = {
+  url: string
+}
+
 const bingWallpaperUrl = '/api/home/bing-wallpaper'
+const wallpaperStorageKey = 'linkstar.wallpaperUrl'
 
 const demoApps: AppItem[] = [
   { id: 'nas', name: 'NAS 管理', url: '#', color: 'from-sky-400 to-blue-600', icon: HardDrive, status: 'online' },
@@ -137,14 +142,52 @@ function App() {
   const [query, setQuery] = useState('')
   const [showHistory, setShowHistory] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null)
-  const [wallpaperLoaded, setWallpaperLoaded] = useState(false)
+  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(() => localStorage.getItem(wallpaperStorageKey))
+  const [wallpaperLoaded, setWallpaperLoaded] = useState(() => Boolean(localStorage.getItem(wallpaperStorageKey)))
+  const wallpaperFallbackTimer = useRef<number | null>(null)
+
+  const clearWallpaperFallbackTimer = () => {
+    if (wallpaperFallbackTimer.current !== null) {
+      window.clearTimeout(wallpaperFallbackTimer.current)
+      wallpaperFallbackTimer.current = null
+    }
+  }
 
   const engine = useMemo(() => searchEngines.find((item) => item.id === engineId) ?? searchEngines[0], [engineId])
 
   useEffect(() => {
-    setWallpaperLoaded(false)
-    setWallpaperUrl(`${bingWallpaperUrl}?t=${Date.now()}`)
+    let canceled = false
+    wallpaperFallbackTimer.current = window.setTimeout(() => {
+      clearWallpaperFallbackTimer()
+    }, 3000)
+
+    fetch(`${bingWallpaperUrl}?t=${Date.now()}`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Failed to load wallpaper URL')
+        }
+        return response.json() as Promise<BingWallpaperResponse>
+      })
+      .then((data) => {
+        if (!data.url) return
+
+        const image = new Image()
+        image.onload = () => {
+          if (canceled) return
+          clearWallpaperFallbackTimer()
+          localStorage.setItem(wallpaperStorageKey, data.url)
+          setWallpaperUrl(data.url)
+          setWallpaperLoaded(true)
+        }
+        image.onerror = clearWallpaperFallbackTimer
+        image.src = data.url
+      })
+      .catch(clearWallpaperFallbackTimer)
+
+    return () => {
+      canceled = true
+      clearWallpaperFallbackTimer()
+    }
   }, [])
 
   const openWithWhiteLoading = (url: string) => {
@@ -176,14 +219,19 @@ function App() {
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-white text-white">
+    <main className="default-wallpaper relative min-h-screen overflow-hidden text-white">
       {wallpaperUrl && (
         <img
           src={wallpaperUrl}
           alt=""
-          onLoad={() => setWallpaperLoaded(true)}
+          onLoad={() => {
+            clearWallpaperFallbackTimer()
+            setWallpaperLoaded(true)
+          }}
           onError={() => {
+            clearWallpaperFallbackTimer()
             setWallpaperLoaded(false)
+            localStorage.removeItem(wallpaperStorageKey)
             setWallpaperUrl(null)
           }}
           className={`absolute inset-0 h-full w-full scale-105 object-cover blur-[2px] transition-opacity duration-700 ${wallpaperLoaded ? 'opacity-100' : 'opacity-0'}`}

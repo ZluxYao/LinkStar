@@ -1,0 +1,6 @@
+.default-wallpaper {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.35), transparent 28rem),
+    radial-gradient(circle at 80% 10%, rgba(14, 165, 233, 0.28), transparent 24rem),
+    linear-gradient(135deg, #0f172a 0%, #1e3a8a 48%, #0f766e 100%);
+}
