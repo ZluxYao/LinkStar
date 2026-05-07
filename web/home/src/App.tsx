@@ -49,7 +49,6 @@ const searchEngines: SearchEngine[] = [
   { id: 'github-search', name: 'GitHub', shortName: 'GH', url: 'https://github.com/search?q=', color: 'from-zinc-700 to-black', icon: '/icons/github.com.svg' },
   { id: 'zhihu', name: '知乎', shortName: '知', url: 'https://www.zhihu.com/search?q=', color: 'from-blue-500 to-sky-600', icon: '/icons/zhihu.com.ico' },
   { id: 'bilibili', name: 'B站', shortName: 'B', url: 'https://search.bilibili.com/all?keyword=', color: 'from-sky-300 to-blue-500', icon: '/icons/bilibili.com.ico' },
-  { id: 'yahoo', name: 'Yahoo', shortName: 'Y', url: 'https://search.yahoo.com/search?p=', color: 'from-purple-500 to-violet-800' },
 ]
 
 const searchHistory = ['LinkStar DDNS 配置', 'Cloudflare API Token', 'NAS 反向代理', 'STUN UDP 穿透', 'React Tailwind dashboard']
@@ -394,7 +393,13 @@ function App() {
                     }}
                   />
                 ))}
-  
+                <button type="button" className="group flex w-16 flex-col items-center gap-1.5 outline-none">
+                  <div className="grid h-14 w-14 place-items-center rounded-xl bg-slate-100 text-slate-500 transition duration-200 group-hover:-translate-y-1 group-hover:bg-slate-200">
+                    <Plus className="h-6 w-6" />
+                  </div>
+                  <span className="text-xs text-slate-600">添加</span>
+                </button>
+
               </div>
             </div>
           )}
