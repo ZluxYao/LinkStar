@@ -125,17 +125,17 @@ function AppIcon({ app }: { app: AppItem }) {
 
 function SearchEngineIcon({ engine, active, onClick }: { engine: SearchEngine; active: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="group flex w-20 flex-col items-center gap-2 outline-none">
-      <div className={`grid h-16 w-16 place-items-center rounded-2xl bg-slate-100 text-white shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg ${active ? 'ring-4 ring-blue-200' : 'ring-1 ring-slate-200'}`}>
+    <button type="button" onClick={onClick} className="group flex w-16 flex-col items-center gap-1.5 outline-none">
+      <div className={`grid h-14 w-14 place-items-center rounded-xl bg-slate-100 text-white shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg ${active ? 'ring-4 ring-blue-200' : 'ring-1 ring-slate-200'}`}>
         {engine.icon ? (
-          <img src={engine.icon} alt="" className="h-11 w-11 object-contain" />
+          <img src={engine.icon} alt="" className="h-8 w-8 object-contain" />
         ) : (
-          <div className={`grid h-full w-full place-items-center rounded-2xl bg-gradient-to-br ${engine.color}`}>
-            <span className="text-xl font-black tracking-tight">{engine.shortName}</span>
+          <div className={`grid h-full w-full place-items-center rounded-xl bg-gradient-to-br ${engine.color}`}>
+            <span className="text-lg font-black tracking-tight">{engine.shortName}</span>
           </div>
         )}
       </div>
-      <span className={`max-w-20 truncate text-sm ${active ? 'font-semibold text-blue-600' : 'text-slate-600'}`}>{engine.name}</span>
+      <span className={`max-w-16 truncate text-xs ${active ? 'font-semibold text-blue-600' : 'text-slate-600'}`}>{engine.name}</span>
     </button>
   )
 }
@@ -382,19 +382,7 @@ function App() {
               className="absolute left-0 right-0 top-[4.75rem] z-40 rounded-[2rem] bg-white px-8 py-7 shadow-2xl ring-1 ring-slate-200"
               onMouseDown={(event) => event.preventDefault()}
             >
-              <div className="mb-7 flex items-center gap-3 text-2xl font-medium text-slate-500">
-                <div className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100">
-                  {engine.icon ? (
-                    <img src={engine.icon} alt="" className="h-6 w-6 object-contain" />
-                  ) : (
-                    <div className={`grid h-full w-full place-items-center rounded-lg bg-gradient-to-br ${engine.color} text-white`}>
-                      <span className="text-xs font-black">{engine.shortName}</span>
-                    </div>
-                  )}
-                </div>
-                {engine.name} 搜索
-              </div>
-              <div className="grid grid-cols-4 gap-x-8 gap-y-7 md:grid-cols-6 lg:grid-cols-8">
+              <div className="grid grid-cols-4 gap-x-5 gap-y-5 md:grid-cols-6 lg:grid-cols-8">
                 {searchEngines.map((item) => (
                   <SearchEngineIcon
                     key={item.id}
@@ -406,12 +394,7 @@ function App() {
                     }}
                   />
                 ))}
-                <button type="button" className="group flex w-20 flex-col items-center gap-2 outline-none">
-                  <div className="grid h-16 w-16 place-items-center rounded-2xl bg-slate-100 text-slate-500 transition duration-200 group-hover:-translate-y-1 group-hover:bg-slate-200">
-                    <Plus className="h-8 w-8" />
-                  </div>
-                  <span className="text-sm text-slate-600">添加</span>
-                </button>
+  
               </div>
             </div>
           )}
