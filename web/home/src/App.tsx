@@ -173,6 +173,7 @@ function App() {
   const [backgroundReady, setBackgroundReady] = useState(() => loadHomeSettings().wallpaperMode === 'default')
   const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null)
   const [wallpaperLoaded, setWallpaperLoaded] = useState(false)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const wallpaperFallbackTimer = useRef<number | null>(null)
 
   const clearWallpaperFallbackTimer = () => {
@@ -313,8 +314,24 @@ function App() {
       <section className={`relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'}`}>
         <Clock />
 
-        <div className="relative mx-auto mt-10 w-full max-w-3xl rounded-[1.75rem] bg-white px-5 py-4 text-slate-700 shadow-2xl">
-          <div className="relative flex items-center gap-4">
+        <div
+          className="relative mx-auto mt-10 h-16 w-full max-w-3xl cursor-text rounded-[1.75rem] bg-white px-5 text-slate-700 shadow-2xl"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              event.preventDefault()
+              searchInputRef.current?.focus()
+            }
+          }}
+        >
+          <div
+            className="relative flex h-full items-center gap-4"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) {
+                event.preventDefault()
+                searchInputRef.current?.focus()
+              }
+            }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -322,7 +339,7 @@ function App() {
                 setShowHistory(false)
               }}
               onBlur={() => window.setTimeout(() => setShowEngines(false), 140)}
-              className="grid aspect-square h-[2.25em] shrink-0 place-items-center rounded-xl bg-transparent outline-none transition hover:bg-slate-100/70"
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-transparent outline-none transition hover:bg-slate-100/70"
               title="切换搜索引擎"
             >
               {engine.icon ? (
@@ -334,6 +351,9 @@ function App() {
               )}
             </button>
             <input
+              id="home-search-input"
+              name="q"
+              ref={searchInputRef}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onFocus={() => {
@@ -344,13 +364,13 @@ function App() {
               onKeyDown={(event) => {
                 if (event.key === 'Enter') submitSearch()
               }}
-              className="w-full bg-transparent text-xl text-slate-600 outline-none placeholder:text-slate-400"
+              className="h-full w-full bg-transparent text-[1.25rem] leading-none text-slate-600 outline-none placeholder:text-slate-400"
               placeholder={`${engine.name} 搜索`}
             />
             <button
               type="button"
               onClick={() => submitSearch()}
-              className="grid aspect-square h-[2.25em] shrink-0 place-items-center rounded-xl bg-transparent text-slate-400 outline-none transition hover:bg-slate-100/70 hover:text-slate-600"
+              className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-transparent text-slate-400 outline-none transition hover:bg-slate-100/70 hover:text-slate-600"
               title="搜索"
             >
               <Search className="h-[58%] w-[58%]" />
