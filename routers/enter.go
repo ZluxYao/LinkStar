@@ -28,8 +28,10 @@ func Run(webFS fs.FS) {
 	StunRouters(g)
 	HomeRouters(g)
 
-	// 剥掉 web/dist 前缀
-	webFS, _ = fs.Sub(webFS, "web/dist")
+	// 剥掉 路径 前缀
+	adminFS, _ := fs.Sub(webFS, "web/dist")
+	homeFS, _ := fs.Sub(webFS, "web/home/dist")
+
 	// 所有非 API 请求：先找静态文件，找不到就返回 index.html（Vue Router 兜底）
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
@@ -39,14 +41,34 @@ func Run(webFS fs.FS) {
 			return
 		}
 
-		filePath := strings.TrimPrefix(path, "/")
-		if _, err := fs.Stat(webFS, filePath); err == nil {
-			c.FileFromFS(filePath, http.FS(webFS))
+		if path == "/linkstar" {
+			c.Redirect(http.StatusMovedPermanently, "/linkstar/")
 			return
 		}
 
-		// 兜底：返回 index.html
-		data, _ := fs.ReadFile(webFS, "index.html")
+		if strings.HasPrefix(path, "/linkstar/") {
+			filePath := strings.TrimPrefix(path, "/linkstar/")
+			if filePath != "" {
+				if _, err := fs.Stat(adminFS, filePath); err == nil {
+					c.FileFromFS(filePath, http.FS(adminFS))
+					return
+				}
+			}
+
+			data, _ := fs.ReadFile(adminFS, "index.html")
+			c.Data(200, "text/html; charset=utf-8", data)
+			return
+		}
+
+		filePath := strings.TrimPrefix(path, "/")
+		if filePath != "" {
+			if _, err := fs.Stat(homeFS, filePath); err == nil {
+				c.FileFromFS(filePath, http.FS(homeFS))
+				return
+			}
+		}
+
+		data, _ := fs.ReadFile(homeFS, "index.html")
 		c.Data(200, "text/html; charset=utf-8", data)
 	})
 

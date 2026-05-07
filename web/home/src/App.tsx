@@ -73,7 +73,7 @@ const homeSettingsStorageKey = 'linkstar.homeSettings'
 
 const defaultHomeSettings: HomeSettings = {
   wallpaperMode: 'bing',
-  wallpaperResolution: 'uhd',
+  wallpaperResolution: '1080',
   wallpaperBlur: 0,
 }
 
