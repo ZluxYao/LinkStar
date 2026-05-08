@@ -9,6 +9,7 @@ import {
   Globe2,
   HardDrive,
   Home,
+  Image as ImageIcon,
   Languages,
   MessageCircle,
   MonitorCog,
@@ -20,6 +21,7 @@ import {
   Shield,
   Terminal,
   Wifi,
+  X,
 } from 'lucide-react'
 import './App.css'
 
@@ -52,7 +54,7 @@ const searchEngines: SearchEngine[] = [
 ]
 
 const searchHistoryStorageKey = 'linkstar.searchHistory'
-const searchHistoryMax = 8
+const searchHistoryMax = 6
 
 function loadSearchHistory(): string[] {
   try {
@@ -176,9 +178,11 @@ function Clock() {
 function App() {
   const [engineId, setEngineId] = useState('bing')
   const [query, setQuery] = useState('')
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory())
   const [showHistory, setShowHistory] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<'appearance' | 'search'>('appearance')
   const [homeSettings, setHomeSettings] = useState<HomeSettings>(() => loadHomeSettings())
   const [showDefaultWallpaper, setShowDefaultWallpaper] = useState(() => loadHomeSettings().wallpaperMode === 'default')
   const [backgroundReady, setBackgroundReady] = useState(() => loadHomeSettings().wallpaperMode === 'default')
@@ -293,8 +297,26 @@ function App() {
       return
     }
 
+    setSearchHistory((prev) => {
+      const next = [keyword, ...prev.filter((item) => item !== keyword)].slice(0, searchHistoryMax)
+      try {
+        localStorage.setItem(searchHistoryStorageKey, JSON.stringify(next))
+      } catch {
+        // ignore
+      }
+      return next
+    })
     openWithWhiteLoading(`${engine.url}${encodeURIComponent(keyword)}`)
     setShowHistory(false)
+  }
+
+  const clearSearchHistory = () => {
+    setSearchHistory([])
+    try {
+      localStorage.removeItem(searchHistoryStorageKey)
+    } catch {
+      // ignore
+    }
   }
 
   return (
@@ -365,6 +387,10 @@ function App() {
               id="home-search-input"
               name="q"
               ref={searchInputRef}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onFocus={() => {
@@ -416,9 +442,19 @@ function App() {
             </div>
           )}
 
-          {showHistory && (
+          {showHistory && searchHistory.length > 0 && (
             <div className="absolute left-8 right-8 top-24 z-30 overflow-hidden rounded-2xl bg-white p-2 shadow-xl ring-1 ring-slate-200">
-              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">历史搜索</div>
+              <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <span>历史搜索</span>
+                <button
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={clearSearchHistory}
+                  className="rounded-md px-2 py-1 text-[11px] font-medium normal-case tracking-normal text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                >
+                  清空
+                </button>
+              </div>
               {searchHistory.map((item) => (
                 <button
                   key={item}
@@ -452,71 +488,161 @@ function App() {
       </section>
 
       {showSettings && (
-        <div className="fixed bottom-24 right-7 z-30 w-80 rounded-3xl bg-white/95 p-5 text-slate-700 shadow-2xl ring-1 ring-white/60 backdrop-blur-xl">
-          <div className="mb-5">
-            <div className="text-lg font-bold text-slate-800">Home 设置</div>
-            <div className="mt-1 text-sm text-slate-500">调整当前主页背景显示</div>
-          </div>
+        <div
+          className="fixed inset-0 z-40 grid place-items-center bg-black/40 px-4 py-6 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setShowSettings(false)
+          }}
+        >
+          <div className="flex h-[32rem] w-full max-w-3xl overflow-hidden rounded-3xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200">
+            <aside className="flex w-48 shrink-0 flex-col gap-1 border-r border-slate-100 bg-slate-50/80 p-4">
+              <div className="mb-3 px-2 text-base font-bold text-slate-800">Home 设置</div>
+              {[
+                { id: 'appearance' as const, name: '外观', icon: ImageIcon },
+                { id: 'search' as const, name: '搜索', icon: Search },
+              ].map((tab) => {
+                const Icon = tab.icon
+                const active = settingsTab === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSettingsTab(tab.id)}
+                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {tab.name}
+                  </button>
+                )
+              })}
+            </aside>
 
-          <div className="space-y-5">
-            <div>
-              <div className="mb-2 text-sm font-semibold text-slate-600">背景</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'bing' }))}
-                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'bing' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  Bing 壁纸
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'default' }))}
-                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'default' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  默认背景
-                </button>
-              </div>
+            <div className="relative flex-1 overflow-y-auto p-6">
+              <button
+                type="button"
+                onClick={() => setShowSettings(false)}
+                className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="关闭"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              {settingsTab === 'appearance' && (
+                <div className="space-y-6">
+                  <div>
+                    <div className="text-base font-bold text-slate-800">外观</div>
+                    <div className="mt-1 text-sm text-slate-500">调整主页背景</div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-sm font-semibold text-slate-600">背景</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'bing' }))}
+                        className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'bing' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        Bing 壁纸
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHomeSettings((value) => ({ ...value, wallpaperMode: 'default' }))}
+                        className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${homeSettings.wallpaperMode === 'default' ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        默认背景
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-sm font-semibold text-slate-600">清晰度</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: '1080' }))}
+                        disabled={homeSettings.wallpaperMode === 'default'}
+                        className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === '1080' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        1080P
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: 'uhd' }))}
+                        disabled={homeSettings.wallpaperMode === 'default'}
+                        className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === 'uhd' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      >
+                        4K / UHD
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="block">
+                    <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
+                      <span>模糊度</span>
+                      <span className="text-slate-400">{homeSettings.wallpaperBlur}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="12"
+                      step="1"
+                      value={homeSettings.wallpaperBlur}
+                      disabled={homeSettings.wallpaperMode === 'default'}
+                      onChange={(event) => setHomeSettings((value) => ({ ...value, wallpaperBlur: Number(event.target.value) }))}
+                      className="w-full accent-blue-500 disabled:opacity-45"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {settingsTab === 'search' && (
+                <div className="space-y-6">
+                  <div>
+                    <div className="text-base font-bold text-slate-800">搜索</div>
+                    <div className="mt-1 text-sm text-slate-500">管理搜索历史与默认引擎</div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 text-sm font-semibold text-slate-600">默认搜索引擎</div>
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {searchEngines.map((item) => {
+                        const active = item.id === engineId
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setEngineId(item.id)}
+                            className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                          >
+                            {item.icon ? (
+                              <img src={item.icon} alt="" className="h-4 w-4 object-contain" />
+                            ) : (
+                              <span className="text-xs font-black">{item.shortName}</span>
+                            )}
+                            <span className="truncate">{item.name}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
+                      <span>搜索历史</span>
+                      <span className="text-xs font-normal text-slate-400">已保存 {searchHistory.length} 条</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearSearchHistory}
+                      disabled={searchHistory.length === 0}
+                      className="rounded-2xl bg-slate-100 px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-rose-100 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-slate-100 disabled:hover:text-slate-600"
+                    >
+                      清空搜索历史
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-
-            <div>
-              <div className="mb-2 text-sm font-semibold text-slate-600">清晰度</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: '1080' }))}
-                  disabled={homeSettings.wallpaperMode === 'default'}
-                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === '1080' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  1080P
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHomeSettings((value) => ({ ...value, wallpaperResolution: 'uhd' }))}
-                  disabled={homeSettings.wallpaperMode === 'default'}
-                  className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${homeSettings.wallpaperResolution === 'uhd' ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >
-                  4K / UHD
-                </button>
-              </div>
-            </div>
-
-            <label className="block">
-              <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
-                <span>模糊度</span>
-                <span className="text-slate-400">{homeSettings.wallpaperBlur}px</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="12"
-                step="1"
-                value={homeSettings.wallpaperBlur}
-                disabled={homeSettings.wallpaperMode === 'default'}
-                onChange={(event) => setHomeSettings((value) => ({ ...value, wallpaperBlur: Number(event.target.value) }))}
-                className="w-full accent-blue-500 disabled:opacity-45"
-              />
-            </label>
           </div>
         </div>
       )}
