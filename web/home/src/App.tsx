@@ -20,7 +20,6 @@ import {
   Settings,
   Shield,
   Terminal,
-  Wifi,
   X,
 } from 'lucide-react'
 import './App.css'
@@ -178,6 +177,7 @@ function Clock() {
 function App() {
   const [engineId, setEngineId] = useState('bing')
   const [query, setQuery] = useState('')
+  const [appPage, setAppPage] = useState(0)
   const [searchHistory, setSearchHistory] = useState<string[]>(() => loadSearchHistory())
   const [showHistory, setShowHistory] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
@@ -190,6 +190,135 @@ function App() {
   const [wallpaperLoaded, setWallpaperLoaded] = useState(false)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const wallpaperFallbackTimer = useRef<number | null>(null)
+  const appsPagerRef = useRef<HTMLDivElement>(null)
+  const animatingRef = useRef(false)
+  const slideTimeoutRef = useRef<number | null>(null)
+  const touchStartXRef = useRef<number | null>(null)
+  const touchStartYRef = useRef<number | null>(null)
+  const dragStartXRef = useRef<number | null>(null)
+  const dragStartYRef = useRef<number | null>(null)
+
+  type AppSlide = { from: number; axis: 'x' | 'y'; dir: 1 | -1 }
+  const [appSlide, setAppSlide] = useState<AppSlide | null>(null)
+
+  const appsPerPage = 8
+  const appPages = useMemo(() => {
+    const pages: AppItem[][] = []
+    for (let i = 0; i < demoApps.length; i += appsPerPage) {
+      pages.push(demoApps.slice(i, i + appsPerPage))
+    }
+    return pages.length > 0 ? pages : [[]]
+  }, [])
+
+  const goToAppPage = (target: number, axis: 'x' | 'y') => {
+    if (animatingRef.current) return
+    setAppPage((curr) => {
+      if (target === curr || target < 0 || target >= appPages.length) return curr
+      animatingRef.current = true
+      setAppSlide({ from: curr, axis, dir: target > curr ? 1 : -1 })
+      if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
+      slideTimeoutRef.current = window.setTimeout(() => {
+        setAppSlide(null)
+        animatingRef.current = false
+      }, 360)
+      return target
+    })
+  }
+
+  useEffect(() => {
+    if (appPage > appPages.length - 1) setAppPage(appPages.length - 1)
+  }, [appPages.length, appPage])
+
+  useEffect(() => {
+    const el = appsPagerRef.current
+    if (!el) return
+    const onWheel = (event: WheelEvent) => {
+      const absX = Math.abs(event.deltaX)
+      const absY = Math.abs(event.deltaY)
+      if (Math.max(absX, absY) < 8) return
+      event.preventDefault()
+      if (animatingRef.current) return
+      const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
+      const delta = axis === 'x' ? event.deltaX : event.deltaY
+      setAppPage((curr) => {
+        const next = curr + (delta > 0 ? 1 : -1)
+        if (next === curr || next < 0 || next >= appPages.length) return curr
+        animatingRef.current = true
+        setAppSlide({ from: curr, axis, dir: next > curr ? 1 : -1 })
+        if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
+        slideTimeoutRef.current = window.setTimeout(() => {
+          setAppSlide(null)
+          animatingRef.current = false
+        }, 360)
+        return next
+      })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [appPages.length])
+
+  const handleAppsTouchStart = (event: React.TouchEvent) => {
+    touchStartXRef.current = event.touches[0].clientX
+    touchStartYRef.current = event.touches[0].clientY
+  }
+  const handleAppsTouchEnd = (event: React.TouchEvent) => {
+    if (touchStartXRef.current === null || touchStartYRef.current === null) return
+    const dx = touchStartXRef.current - event.changedTouches[0].clientX
+    const dy = touchStartYRef.current - event.changedTouches[0].clientY
+    touchStartXRef.current = null
+    touchStartYRef.current = null
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    if (Math.max(absX, absY) < 40) return
+    const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
+    const delta = axis === 'x' ? dx : dy
+    goToAppPage(appPage + (delta > 0 ? 1 : -1), axis)
+  }
+
+  useEffect(() => {
+    const onMouseUp = (event: MouseEvent) => {
+      if (dragStartXRef.current === null || dragStartYRef.current === null) return
+      const dx = dragStartXRef.current - event.clientX
+      const dy = dragStartYRef.current - event.clientY
+      dragStartXRef.current = null
+      dragStartYRef.current = null
+      const absX = Math.abs(dx)
+      const absY = Math.abs(dy)
+      if (Math.max(absX, absY) < 40) return
+      const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
+      const delta = axis === 'x' ? dx : dy
+      setAppPage((curr) => {
+        const next = curr + (delta > 0 ? 1 : -1)
+        if (next === curr || next < 0 || next >= appPages.length) return curr
+        if (animatingRef.current) return curr
+        animatingRef.current = true
+        setAppSlide({ from: curr, axis, dir: next > curr ? 1 : -1 })
+        if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
+        slideTimeoutRef.current = window.setTimeout(() => {
+          setAppSlide(null)
+          animatingRef.current = false
+        }, 360)
+        return next
+      })
+    }
+    window.addEventListener('mouseup', onMouseUp)
+    return () => window.removeEventListener('mouseup', onMouseUp)
+  }, [appPages.length])
+
+  const handleAppsMouseDown = (event: React.MouseEvent) => {
+    if (event.button !== 0) return
+    dragStartXRef.current = event.clientX
+    dragStartYRef.current = event.clientY
+  }
+
+  const getSlideInClass = (axis: 'x' | 'y', dir: 1 | -1) => {
+    if (axis === 'x') return dir === 1 ? 'app-slide-in-from-right' : 'app-slide-in-from-left'
+    return dir === 1 ? 'app-slide-in-from-bottom' : 'app-slide-in-from-top'
+  }
+  const getSlideOutClass = (axis: 'x' | 'y', dir: 1 | -1) => {
+    if (axis === 'x') return dir === 1 ? 'app-slide-out-to-left' : 'app-slide-out-to-right'
+    return dir === 1 ? 'app-slide-out-to-top' : 'app-slide-out-to-bottom'
+  }
 
   const clearWallpaperFallbackTimer = () => {
     if (wallpaperFallbackTimer.current !== null) {
@@ -474,18 +603,57 @@ function App() {
           )}
         </div>
 
-        <div className="mx-auto mt-10 w-full max-w-5xl">
-          <div className="mb-5 flex items-center gap-2 text-sm font-semibold text-white/85 drop-shadow">
-            <Wifi className="h-4 w-4" />
-            我的服务
-          </div>
-          <div className="grid grid-cols-4 justify-items-center gap-x-6 gap-y-7 sm:grid-cols-6 lg:grid-cols-8">
-            {demoApps.map((app) => (
-              <AppIcon key={app.id} app={app} />
-            ))}
+      </section>
+
+      <div
+        className={`fixed inset-x-0 top-[17rem] bottom-24 z-20 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'}`}
+      >
+        <div
+          ref={appsPagerRef}
+          onTouchStart={handleAppsTouchStart}
+          onTouchEnd={handleAppsTouchEnd}
+          onMouseDown={handleAppsMouseDown}
+          className="relative mx-auto h-full w-full max-w-5xl overflow-hidden px-6 select-none"
+        >
+          {appSlide && (
+            <div
+              key={`out-${appSlide.from}-${appSlide.axis}-${appSlide.dir}`}
+              className={`absolute inset-x-6 inset-y-0 ${getSlideOutClass(appSlide.axis, appSlide.dir)}`}
+            >
+              <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2 pt-6 pb-4">
+                {appPages[appSlide.from]?.map((app) => (
+                  <AppIcon key={app.id} app={app} />
+                ))}
+              </div>
+            </div>
+          )}
+          <div
+            key={`in-${appPage}-${appSlide?.axis ?? 'static'}-${appSlide?.dir ?? 0}`}
+            className={`absolute inset-x-6 inset-y-0 ${appSlide ? getSlideInClass(appSlide.axis, appSlide.dir) : ''}`}
+          >
+            <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2 pt-6 pb-4">
+              {appPages[appPage]?.map((app) => (
+                <AppIcon key={app.id} app={app} />
+              ))}
+            </div>
           </div>
         </div>
-      </section>
+      </div>
+
+      <div className="fixed left-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2.5">
+        {appPages.map((_, index) => {
+          const active = index === appPage
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={() => goToAppPage(index, 'y')}
+              className={`w-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${active ? 'h-6 bg-white' : 'h-2'}`}
+              title={`第 ${index + 1} 页`}
+            />
+          )
+        })}
+      </div>
 
       {showSettings && (
         <div
