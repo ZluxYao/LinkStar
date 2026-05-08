@@ -471,7 +471,7 @@ function App() {
       )}
       {wallpaperLoaded && <div className="absolute inset-0 bg-black/10" />}
 
-      <section className={`relative z-10 mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'}`}>
+      <section className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'}`}>
         <Clock />
 
         <div
@@ -810,7 +810,7 @@ function App() {
         </div>
       )}
 
-      <div className="fixed bottom-7 right-7 z-20 flex flex-col gap-3">
+      <div className="fixed bottom-7 right-7 z-30 flex flex-col gap-3">
         <button type="button" className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25" title="公网 / 内网切换">
           <Home className="h-5 w-5" />
         </button>
