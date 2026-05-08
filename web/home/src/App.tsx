@@ -210,6 +210,22 @@ function App() {
     return pages.length > 0 ? pages : [[]]
   }, [])
 
+  const movePage = (delta: number, axis: 'x' | 'y') => {
+    if (animatingRef.current) return
+    setAppPage((curr) => {
+      const next = curr + delta
+      if (next === curr || next < 0 || next >= appPages.length) return curr
+      animatingRef.current = true
+      setAppSlide({ from: curr, axis, dir: delta > 0 ? 1 : -1 })
+      if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
+      slideTimeoutRef.current = window.setTimeout(() => {
+        setAppSlide(null)
+        animatingRef.current = false
+      }, 360)
+      return next
+    })
+  }
+
   const goToAppPage = (target: number, axis: 'x' | 'y') => {
     if (animatingRef.current) return
     setAppPage((curr) => {
@@ -230,52 +246,41 @@ function App() {
   }, [appPages.length, appPage])
 
   useEffect(() => {
-    const el = appsPagerRef.current
-    if (!el) return
+    if (showSettings) return
+
     const onWheel = (event: WheelEvent) => {
       const absX = Math.abs(event.deltaX)
       const absY = Math.abs(event.deltaY)
       if (Math.max(absX, absY) < 8) return
       event.preventDefault()
-      if (animatingRef.current) return
       const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
       const delta = axis === 'x' ? event.deltaX : event.deltaY
-      setAppPage((curr) => {
-        const next = curr + (delta > 0 ? 1 : -1)
-        if (next === curr || next < 0 || next >= appPages.length) return curr
-        animatingRef.current = true
-        setAppSlide({ from: curr, axis, dir: next > curr ? 1 : -1 })
-        if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
-        slideTimeoutRef.current = window.setTimeout(() => {
-          setAppSlide(null)
-          animatingRef.current = false
-        }, 360)
-        return next
-      })
+      movePage(delta > 0 ? 1 : -1, axis)
     }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [appPages.length])
-
-  const handleAppsTouchStart = (event: React.TouchEvent) => {
-    touchStartXRef.current = event.touches[0].clientX
-    touchStartYRef.current = event.touches[0].clientY
-  }
-  const handleAppsTouchEnd = (event: React.TouchEvent) => {
-    if (touchStartXRef.current === null || touchStartYRef.current === null) return
-    const dx = touchStartXRef.current - event.changedTouches[0].clientX
-    const dy = touchStartYRef.current - event.changedTouches[0].clientY
-    touchStartXRef.current = null
-    touchStartYRef.current = null
-    const absX = Math.abs(dx)
-    const absY = Math.abs(dy)
-    if (Math.max(absX, absY) < 40) return
-    const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
-    const delta = axis === 'x' ? dx : dy
-    goToAppPage(appPage + (delta > 0 ? 1 : -1), axis)
-  }
-
-  useEffect(() => {
+    const onTouchStart = (event: TouchEvent) => {
+      touchStartXRef.current = event.touches[0].clientX
+      touchStartYRef.current = event.touches[0].clientY
+    }
+    const onTouchEnd = (event: TouchEvent) => {
+      if (touchStartXRef.current === null || touchStartYRef.current === null) return
+      const dx = touchStartXRef.current - event.changedTouches[0].clientX
+      const dy = touchStartYRef.current - event.changedTouches[0].clientY
+      touchStartXRef.current = null
+      touchStartYRef.current = null
+      const absX = Math.abs(dx)
+      const absY = Math.abs(dy)
+      if (Math.max(absX, absY) < 40) return
+      const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
+      const delta = axis === 'x' ? dx : dy
+      movePage(delta > 0 ? 1 : -1, axis)
+    }
+    const onMouseDown = (event: MouseEvent) => {
+      if (event.button !== 0) return
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, button, a')) return
+      dragStartXRef.current = event.clientX
+      dragStartYRef.current = event.clientY
+    }
     const onMouseUp = (event: MouseEvent) => {
       if (dragStartXRef.current === null || dragStartYRef.current === null) return
       const dx = dragStartXRef.current - event.clientX
@@ -287,29 +292,22 @@ function App() {
       if (Math.max(absX, absY) < 40) return
       const axis: 'x' | 'y' = absX > absY ? 'x' : 'y'
       const delta = axis === 'x' ? dx : dy
-      setAppPage((curr) => {
-        const next = curr + (delta > 0 ? 1 : -1)
-        if (next === curr || next < 0 || next >= appPages.length) return curr
-        if (animatingRef.current) return curr
-        animatingRef.current = true
-        setAppSlide({ from: curr, axis, dir: next > curr ? 1 : -1 })
-        if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
-        slideTimeoutRef.current = window.setTimeout(() => {
-          setAppSlide(null)
-          animatingRef.current = false
-        }, 360)
-        return next
-      })
+      movePage(delta > 0 ? 1 : -1, axis)
     }
-    window.addEventListener('mouseup', onMouseUp)
-    return () => window.removeEventListener('mouseup', onMouseUp)
-  }, [appPages.length])
 
-  const handleAppsMouseDown = (event: React.MouseEvent) => {
-    if (event.button !== 0) return
-    dragStartXRef.current = event.clientX
-    dragStartYRef.current = event.clientY
-  }
+    window.addEventListener('wheel', onWheel, { passive: false })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [appPages.length, showSettings])
 
   const getSlideInClass = (axis: 'x' | 'y', dir: 1 | -1) => {
     if (axis === 'x') return dir === 1 ? 'app-slide-in-from-right' : 'app-slide-in-from-left'
@@ -610,9 +608,6 @@ function App() {
       >
         <div
           ref={appsPagerRef}
-          onTouchStart={handleAppsTouchStart}
-          onTouchEnd={handleAppsTouchEnd}
-          onMouseDown={handleAppsMouseDown}
           className="relative mx-auto h-full w-full max-w-5xl overflow-hidden px-6 select-none"
         >
           {appSlide && (
