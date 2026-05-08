@@ -51,7 +51,19 @@ const searchEngines: SearchEngine[] = [
   { id: 'bilibili', name: 'B站', shortName: 'B', url: 'https://search.bilibili.com/all?keyword=', color: 'from-sky-300 to-blue-500', icon: '/icons/bilibili.com.ico' },
 ]
 
-const searchHistory = ['LinkStar DDNS 配置', 'Cloudflare API Token', 'NAS 反向代理', 'STUN UDP 穿透', 'React Tailwind dashboard']
+const searchHistoryStorageKey = 'linkstar.searchHistory'
+const searchHistoryMax = 8
+
+function loadSearchHistory(): string[] {
+  try {
+    const value = localStorage.getItem(searchHistoryStorageKey)
+    if (!value) return []
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 type BingWallpaperResponse = {
   url: string
