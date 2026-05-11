@@ -9,10 +9,11 @@ type Config struct {
 	// 背景
 	Wallpaper Wallpaper `json:"wallpaper"`
 
-	// 布局 & 网络偏好
-	LayoutMode  string `json:"layoutMode"`  // paged-horizontal/paged-vertical/paged-free/scroll
-	NetworkMode string `json:"networkMode"` // wan / lan
-	WANPrefer   string `json:"wanPrefer"`   // ipv4 / ipv6
+	// 布局
+	LayoutMode string `json:"layoutMode"` // paged-horizontal/paged-vertical/paged-free/scroll
+
+	// 网络入口偏好
+	NetworkPrefer string `json:"networkPrefer"` // wanV4 / wanV6 / lan
 
 	// 搜索
 	DefaultSearchEngineID string         `json:"defaultSearchEngineId"`
@@ -79,7 +80,7 @@ type App struct {
 
 // AppAddresses 应用的访问入口
 type AppAddresses struct {
-	WAN  string `json:"wan"`  //WAN:  公网地址 / 网址,如 https://github.com 或 http://1.2.3.4:8080
-	LAN  string `json:"lan"`  //LAN:  内网 IPv4 入口(可选,本地服务才填)
-	IPv6 string `json:"ipv6"` //- IPv6: IPv6 全球地址(可选,无需打洞)
+	WANv4 string `json:"wanV4"` // 公网 IPv4 入口 / URL
+	WANv6 string `json:"wanV6"` // 公网 IPv6 入口
+	LAN   string `json:"lan"`   // 内网 IPv4 入口
 }
