@@ -8,7 +8,9 @@
       "Bash(python3 -c \":*)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(npx vite *)"
+      "Bash(npx vite *)",
+      "Bash(echo \"go exit=$?\")",
+      "Bash(npm run *)"
     ]
   }
 }

@@ -60,5 +60,8 @@ func (StunApi) StunServiceDeleteView(c *gin.Context) {
 		return
 	}
 
+	// 通知订阅方（home 模块借此级联清掉对应卡片）
+	stun.EmitServiceDeleted(cr.DeviceID, cr.ServiceID)
+
 	res.OkWithMsg("删除成功", c)
 }

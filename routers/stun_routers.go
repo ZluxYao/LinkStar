@@ -71,4 +71,11 @@ func StunRouters(g *gin.RouterGroup) {
 		app.StunDeviceUpdateView,
 	)
 
+	// 切换某个 service 是否在 home 显示（与 home 模块联动）
+	g.PUT(
+		"stun/service/show-on-home",
+		middleware.BindJsonMiddleware[stun_api.StunServiceShowOnHomeRequest],
+		app.StunServiceShowOnHomeView,
+	)
+
 }

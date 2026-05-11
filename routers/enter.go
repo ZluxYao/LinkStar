@@ -28,6 +28,9 @@ func Run(webFS fs.FS) {
 	StunRouters(g)
 	HomeRouters(g)
 
+	// 用户上传的图标静态目录
+	r.Static("/data/icon", "data/icon")
+
 	// 剥掉 路径 前缀
 	adminFS, _ := fs.Sub(webFS, "web/dist")
 	homeFS, _ := fs.Sub(webFS, "web/home/dist")

@@ -30,8 +30,10 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 
 	// 停止该设备下所有服务的 STUN 穿透
 	// 修复：原版调用已删除的全局函数 stun.StopService，改为调度器实例方法
+	deletedServiceIDs := make([]uint, 0, len(stun.Runtime.Config.Devices[deviceIndex].Services))
 	for _, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
 		stun.Runtime.Scheduler.StopService(cr.DeviceID, svc.ID)
+		deletedServiceIDs = append(deletedServiceIDs, svc.ID)
 	}
 
 	// 从切片中删除该设备
@@ -45,6 +47,11 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
+	}
+
+	// 通知订阅方（home 模块借此级联清掉对应卡片）
+	for _, sid := range deletedServiceIDs {
+		stun.EmitServiceDeleted(cr.DeviceID, sid)
 	}
 
 	res.OkWithMsg("删除成功", c)

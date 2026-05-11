@@ -2,6 +2,8 @@ package home
 
 import "time"
 
+const SearchHistoryMax = 24
+
 type Config struct {
 	Title    string `json:"title"`
 	ShowTime bool   `json:"showTime"`

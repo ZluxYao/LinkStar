@@ -612,6 +612,10 @@
                     <input type="checkbox" id="f-enabled" checked>
                     <label for="f-enabled">启用服务</label>
                 </div>
+                <div class="form-check">
+                    <input type="checkbox" id="f-showOnHome">
+                    <label for="f-showOnHome">在主页显示</label>
+                </div>
             </div>
             <div class="form-group">
                 <label>描述（可选）</label>
@@ -642,6 +646,7 @@
         // 全局状态管理
         let globalData = null;
         let statusMap = {}; // key: "deviceID-serviceID" → StateEvent
+        let homeServiceSet = new Set(); // 在 home 显示的 stun service key 集合: "deviceID-serviceID"
         let activeLogKey = null; // 当前打开日志弹窗的服务 key
         let selectedDeviceIndex = 0; // 当前选中的设备索引
         let modalMode = 'add';       // 'add' | 'edit'
@@ -649,6 +654,48 @@
         let modalServiceId = null;   // 编辑时的服务ID
         let deviceModalMode = 'add'; // 'add' | 'edit'
         let deviceModalId = null;    // 编辑时的设备ID
+
+        // 从 home 配置里抽出所有 stun 类型 app 的 device-service key
+        async function fetchHomeStunSet() {
+            try {
+                const resp = await fetch('/api/home/config');
+                const result = await resp.json();
+                if (result.code !== 0 || !result.data) return new Set();
+                const apps = result.data.apps || [];
+                const set = new Set();
+                for (const app of apps) {
+                    if (app.type === 'stun') {
+                        // AppView 暂未暴露 stunDeviceId,从 id 反推: "stun-{deviceId}-{serviceId}"
+                        const m = /^stun-(\d+)-(\d+)$/.exec(app.id || '');
+                        if (m) set.add(`${m[1]}-${m[2]}`);
+                    }
+                }
+                return set;
+            } catch (_) {
+                return new Set();
+            }
+        }
+
+        async function toggleShowOnHome(deviceId, serviceId, show) {
+            const resp = await fetch('/api/stun/service/show-on-home', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ deviceId, serviceId, show }),
+            });
+            const result = await resp.json();
+            if (result.code !== 0) throw new Error(result.msg || '操作失败');
+        }
+
+        async function onCardToggleHome(deviceId, serviceId, currentlyShown) {
+            try {
+                await toggleShowOnHome(deviceId, serviceId, !currentlyShown);
+                showToast(currentlyShown ? '已从主页移除' : '已添加到主页');
+                homeServiceSet = await fetchHomeStunSet();
+                selectDevice(selectedDeviceIndex);
+            } catch (e) {
+                showToast('操作失败: ' + e.message);
+            }
+        }
 
         // ================= 添加/编辑设备 =================
         function openDeviceModal() {
@@ -757,6 +804,7 @@
             document.getElementById('f-useUpnp').checked = true;
             document.getElementById('f-tls').checked = false;
             document.getElementById('f-enabled').checked = true;
+            document.getElementById('f-showOnHome').checked = false;
             document.getElementById('f-description').value = '';
             document.getElementById('modalSubmitBtn').textContent = '添加';
             document.getElementById('serviceModal').classList.add('active');
@@ -769,6 +817,7 @@
             modalMode = 'edit';
             modalDeviceIndex = deviceIndex;
             modalServiceId = serviceId;
+            const deviceId = device.DeviceID || device.deviceId || device.id;
             document.getElementById('modalTitle').textContent = '✏️ 编辑服务';
             document.getElementById('f-name').value = svc.name || '';
             document.getElementById('f-internalPort').value = svc.internalPort || '';
@@ -777,6 +826,7 @@
             document.getElementById('f-useUpnp').checked = !!svc.useUpnp;
             document.getElementById('f-tls').checked = !!svc.tls;
             document.getElementById('f-enabled').checked = svc.enabled !== false;
+            document.getElementById('f-showOnHome').checked = homeServiceSet.has(`${deviceId}-${serviceId}`);
             document.getElementById('f-description').value = svc.description || '';
             document.getElementById('modalSubmitBtn').textContent = '保存';
             document.getElementById('serviceModal').classList.add('active');
@@ -808,6 +858,8 @@
                 description: document.getElementById('f-description').value.trim(),
             };
 
+            const wantShowOnHome = document.getElementById('f-showOnHome').checked;
+
             try {
                 let url, method;
                 if (modalMode === 'add') {
@@ -825,13 +877,26 @@
                     body: JSON.stringify(body),
                 });
                 const result = await resp.json();
-                if (result.code === 0) {
-                    showToast(modalMode === 'add' ? '添加成功' : '保存成功');
-                    closeModal();
-                    await initDashboard();
-                } else {
+                if (result.code !== 0) {
                     showToast('操作失败: ' + (result.msg || '未知错误'));
+                    return;
                 }
+
+                // 拿到 serviceId,新增时从 result.data 取,编辑时用现有的
+                const serviceId = modalMode === 'add' ? result.data?.id : modalServiceId;
+                const deviceId = body.deviceId;
+                const currentlyShown = homeServiceSet.has(`${deviceId}-${serviceId}`);
+                if (serviceId && wantShowOnHome !== currentlyShown) {
+                    try {
+                        await toggleShowOnHome(deviceId, serviceId, wantShowOnHome);
+                    } catch (e) {
+                        showToast('主页同步失败: ' + e.message);
+                    }
+                }
+
+                showToast(modalMode === 'add' ? '添加成功' : '保存成功');
+                closeModal();
+                await initDashboard();
             } catch (e) {
                 showToast('请求失败: ' + e.message);
             } finally {
@@ -1097,12 +1162,19 @@
                     </div>
                 `;
 
+                const deviceId = device.DeviceID || device.deviceId || device.id;
+                const inHome = homeServiceSet.has(`${deviceId}-${srv.id}`);
+                const homeBtnStyle = inHome
+                    ? 'background:#dbeafe;color:#1d4ed8;border-color:#93c5fd;'
+                    : 'background:#f8fafc;color:#64748b;';
+
                 return `
                     <div class="service-card">
                         <div class="card-header">
                             <i class="status-dot ${statusDot}"></i>
                             <span class="card-title">📦 ${srv.name || '未命名服务'}</span>
-                            <button class="btn-action edit" style="flex:none;padding:4px 10px;font-size:12px;margin-left:auto;" onclick="openEditModal(${index}, ${srv.id})">✏️ 编辑</button>
+                            <button class="btn-action" style="flex:none;padding:4px 10px;font-size:12px;margin-left:auto;${homeBtnStyle}" onclick="onCardToggleHome(${deviceId}, ${srv.id}, ${inHome})" title="${inHome ? '从主页移除' : '添加到主页'}">${inHome ? '🏠 已在主页' : '🏠 加到主页'}</button>
+                            <button class="btn-action edit" style="flex:none;padding:4px 10px;font-size:12px;" onclick="openEditModal(${index}, ${srv.id})">✏️ 编辑</button>
                             <button class="btn-action danger" style="flex:none;padding:4px 10px;font-size:12px;" onclick="deleteService(${index}, ${srv.id}, '${srv.name.replace(/'/g, "\\'")}')">🗑️ 删除</button>
                         </div>
 
@@ -1143,6 +1215,9 @@
 
             globalData = await fetchConfig();
             if (!globalData) return;
+
+            // 同步获取 home 注册的 stun service 列表,用于卡片/弹窗回显
+            homeServiceSet = await fetchHomeStunSet();
 
             // 1. 顶部：网络参数与拓扑图卡片
             const networkCard = `

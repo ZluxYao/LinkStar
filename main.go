@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"linkstar/core"
+	"linkstar/modules/home"
 	"linkstar/modules/stun"
 	"linkstar/routers"
 	"os"
@@ -20,6 +21,9 @@ func main() {
 	logrus.Info("LinkStar Run")
 
 	stun.InitSTUN()
+	if err := home.InitHome(); err != nil {
+		logrus.Error("Home 模块初始化失败：", err)
+	}
 
 	routers.Run(webFS)
 
