@@ -141,6 +141,9 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 				publicPort,
 				localPort,
 				localIP,
+				req.UseUPnP,
+				protocol,
+				req.ServiceName,
 				func() {
 					if onState != nil {
 						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
@@ -267,6 +270,9 @@ func tcpStunHealthKeepAlive(
 	publicPort int,
 	localPort uint16,
 	localIP string,
+	useUPnP bool,
+	protocol string,
+	serviceName string,
 	onAlive func(),
 ) error {
 
@@ -287,10 +293,54 @@ func tcpStunHealthKeepAlive(
 	healthTicker := time.NewTicker(25 * time.Second)
 	defer healthTicker.Stop()
 
+	// UPnP 1min 检测 + 3h 续约 (useUPnP=false 时 channel 为 nil, select 永远不选中)
+	var upnpCheckCh, upnpRenewCh <-chan time.Time
+	upperProto := strings.ToUpper(protocol)
+	upnpDesc := fmt.Sprintf("EasyLink-%s", serviceName)
+	if useUPnP {
+		upnpCheckTicker := time.NewTicker(1 * time.Minute)
+		defer upnpCheckTicker.Stop()
+		upnpCheckCh = upnpCheckTicker.C
+
+		upnpRenewTicker := time.NewTicker(3 * time.Hour)
+		defer upnpRenewTicker.Stop()
+		upnpRenewCh = upnpRenewTicker.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+
+		case <-upnpCheckCh:
+			checkCtx, checkCancel := context.WithTimeout(ctx, 10*time.Second)
+			exists, err := CheckPortMappingByQueue(checkCtx, localPort, upperProto)
+			checkCancel()
+			if err != nil {
+				logrus.Warnf("UPnP 端口映射检测失败 %d: %v", localPort, err)
+				continue
+			}
+			if exists {
+				continue
+			}
+			logrus.Warnf("UPnP 端口映射丢失，尝试重建: %d", localPort)
+			rebuildCtx, rebuildCancel := context.WithTimeout(ctx, 20*time.Second)
+			err = AddPortMappingByQueueWithLocalIP(rebuildCtx, localPort, localPort, upperProto, upnpDesc, localIP)
+			rebuildCancel()
+			if err != nil {
+				return fmt.Errorf("UPnP 端口映射重建失败: %w", err)
+			}
+			logrus.Infof("UPnP 端口映射重建成功: %d", localPort)
+
+		case <-upnpRenewCh:
+			renewCtx, renewCancel := context.WithTimeout(ctx, 20*time.Second)
+			err := AddPortMappingByQueueWithLocalIP(renewCtx, localPort, localPort, upperProto, upnpDesc, localIP)
+			renewCancel()
+			if err != nil {
+				return fmt.Errorf("UPnP 端口映射续约失败: %w", err)
+			}
+			logrus.Infof("UPnP 端口映射续约成功: %d", localPort)
+
 		case <-healthTicker.C:
 
 			// 梯度健康检查

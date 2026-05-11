@@ -244,6 +244,17 @@ func DeletePortMappingQueue(ctx context.Context, externalPort uint16, protocol s
 	})
 }
 
+// 检测Upnp端口映射是否存在 走队列
+func CheckPortMappingByQueue(ctx context.Context, externalPort uint16, protocol string) (bool, error) {
+	var exists bool
+	err := upnpQueue.submit(ctx, func() error {
+		var e error
+		exists, e = CheckPortMapping(externalPort, protocol)
+		return e
+	})
+	return exists, err
+}
+
 // 添加UPNP端口映射具体实现 默认本地ip
 func AddPortMapping(localIP string, externalPort, internalPort uint16, protocol, description string) error {
 	if localIP == "" {
@@ -389,3 +400,48 @@ func DeletePortMapping(externalPort uint16, protocol string) error {
 // 		}
 // 	}
 // }
+
+// 检测UPnP端口映射是否存在
+func CheckPortMapping(externalPort uint16, protocol string) (bool, error) {
+	gw := Runtime.UpnpGateway
+	if gw.DefaultGateway == "" {
+		return false, fmt.Errorf("未初始化网关")
+	}
+
+	protocol = strings.ToUpper(strings.TrimSpace(protocol))
+
+	var (
+		internalClient string
+		internalPort   uint16
+		enabled        bool
+		err            error
+	)
+
+	switch gw.DefaultGateway {
+	case "IGDv2":
+		internalPort, internalClient, enabled, _, _, err =
+			gw.DefaultV2.GetSpecificPortMappingEntry("", externalPort, protocol)
+	case "IGDv1":
+		internalPort, internalClient, enabled, _, _, err =
+			gw.DefaultV1.GetSpecificPortMappingEntry("", externalPort, protocol)
+	case "IGDv2ppp":
+		internalPort, internalClient, enabled, _, _, err =
+			gw.DefaultV2ppp.GetSpecificPortMappingEntry("", externalPort, protocol)
+	case "IGDv1ppp":
+		internalPort, internalClient, enabled, _, _, err =
+			gw.DefaultV1ppp.GetSpecificPortMappingEntry("", externalPort, protocol)
+	default:
+		return false, fmt.Errorf("没有可用的默认UPnP网关")
+	}
+
+	if err != nil {
+		if strings.Contains(err.Error(), "714") || strings.Contains(err.Error(), "NoSuchEntryInArray") {
+			return false, nil
+		}
+		return false, fmt.Errorf("查询端口映射失败 [%s]: %w", gw.DefaultGateway, err)
+	}
+
+	logrus.Infof("端口映射存在: 外部:%d -> 内部:%s:%d (%s) enabled=%v",
+		externalPort, internalClient, internalPort, protocol, enabled)
+	return true, nil
+}
