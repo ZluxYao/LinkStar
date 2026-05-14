@@ -2002,9 +2002,9 @@ function App() {
             if (e.target === e.currentTarget) setShowSettings(false)
           }}
         >
-          <div className="flex h-[32rem] w-full max-w-3xl overflow-hidden rounded-3xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200">
-            <aside className="flex w-48 shrink-0 flex-col gap-1 border-r border-slate-100 bg-slate-50/80 p-4">
-              <div className="mb-3 px-2 text-base font-bold text-slate-800">Home 设置</div>
+          <div className="flex h-[32rem] w-full max-w-3xl overflow-hidden rounded-3xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200 min-[2000px]:h-[44rem] min-[2000px]:max-w-5xl min-[2000px]:text-lg">
+            <aside className="flex w-48 shrink-0 flex-col gap-1 border-r border-slate-100 bg-slate-50/80 p-4 min-[2000px]:w-64 min-[2000px]:p-5">
+              <div className="mb-3 px-2 text-base font-bold text-slate-800 min-[2000px]:text-lg">Home 设置</div>
               {(
                 [
                   { id: 'appearance' as const, name: '外观', icon: ImageIcon },
@@ -2020,10 +2020,10 @@ function App() {
                     key={tab.id}
                     type="button"
                     onClick={() => setSettingsTab(tab.id)}
-                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
+                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition min-[2000px]:gap-3 min-[2000px]:px-4 min-[2000px]:py-2.5 min-[2000px]:text-base ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
                       }`}
                   >
-                    <Icon className="h-4 w-4" />
+                    <Icon className="h-4 w-4 min-[2000px]:h-5 min-[2000px]:w-5" />
                     {tab.name}
                   </button>
                 )
@@ -2235,16 +2235,15 @@ function App() {
                                     e.dataTransfer.setData('text/app-id', app.id)
                                     e.dataTransfer.effectAllowed = 'move'
                                   }}
-                                  className="flex cursor-grab items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md active:cursor-grabbing"
+                                  className="flex cursor-grab items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md active:cursor-grabbing min-[2000px]:gap-2.5 min-[2000px]:px-4 min-[2000px]:py-2.5 min-[2000px]:text-base"
                                 >
                                   <span
-                                    className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'
-                                      } text-white`}
+                                    className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md min-[2000px]:h-9 min-[2000px]:w-9 min-[2000px]:rounded-lg ${app.icon ? '' : `bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'} text-white`}`}
                                   >
                                     {app.icon ? (
-                                      <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain" />
+                                      <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain min-[2000px]:scale-110" />
                                     ) : (
-                                      <span className="text-[10px] font-black">{app.name.charAt(0)}</span>
+                                      <span className="text-[10px] font-black min-[2000px]:text-sm">{app.name.charAt(0)}</span>
                                     )}
                                   </span>
                                   {app.name}
@@ -2290,13 +2289,12 @@ function App() {
                               className="flex cursor-grab items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md active:cursor-grabbing"
                             >
                               <span
-                                className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'
-                                  } text-white`}
+                                className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md min-[2000px]:h-9 min-[2000px]:w-9 min-[2000px]:rounded-lg ${app.icon ? '' : `bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'} text-white`}`}
                               >
                                 {app.icon ? (
-                                  <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain" />
+                                  <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain min-[2000px]:scale-110" />
                                 ) : (
-                                  <span className="text-[10px] font-black">{app.name.charAt(0)}</span>
+                                  <span className="text-[10px] font-black min-[2000px]:text-sm">{app.name.charAt(0)}</span>
                                 )}
                               </span>
                               {app.name}
@@ -2335,7 +2333,7 @@ function App() {
                             key={item.id}
                             className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2"
                           >
-                            <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200">
+                            <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200 min-[2000px]:h-12 min-[2000px]:w-12">
                               {item.icon ? (
                                 <img src={iconSrc(item.icon)} alt="" className="h-7 w-7 object-contain" />
                               ) : (
