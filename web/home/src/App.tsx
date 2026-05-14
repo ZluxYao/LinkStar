@@ -63,18 +63,9 @@ function resolveOpenUrl(app: AppView, prefer: NetworkPrefer): string | null {
 }
 
 function openWithWhiteLoading(url: string) {
-  const page = window.open('', '_blank')
-  if (!page) {
-    window.open(url, '_blank')
-    return
-  }
-  page.document.write(
-    `<!doctype html><html><head><title>Loading...</title><style>html,body{margin:0;width:100%;height:100%;background:#fff;color:#64748b;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}body{display:grid;place-items:center;}</style></head><body></body></html>`,
-  )
-  page.document.close()
-  window.setTimeout(() => {
-    page.location.href = url
-  }, 50)
+  // 直接打开,不再走 about:blank + document.write + 50ms 等待那套,
+  // 浏览器自己的"新标签页加载中"已经足够;noopener/noreferrer 让新页与本页脱钩,GC 也更快。
+  window.open(url, '_blank', 'noopener,noreferrer')
 }
 
 function sortByPagedOrder(apps: AppView[]): AppView[] {
