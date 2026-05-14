@@ -131,7 +131,14 @@ function IconPreview({
   className?: string
 }) {
   if (icon) {
-    return <img src={iconSrc(icon)} alt="" className={`object-contain ${className ?? ''}`} />
+    return (
+      <img
+        src={iconSrc(icon)}
+        alt=""
+        draggable={false}
+        className={`pointer-events-none object-contain ${className ?? ''}`}
+      />
+    )
   }
   return (
     <div className={`grid place-items-center bg-gradient-to-br ${color || 'from-slate-400 to-slate-600'} text-white ${className ?? ''}`}>
@@ -209,7 +216,7 @@ function AppIcon({
       style={onPointerDown ? { touchAction: 'none' } : undefined}
       className={`group flex w-24 flex-col items-center gap-2 text-white outline-none transition-opacity ${ghostClass}`}
     >
-      <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
+      <div className="relative grid h-18 w-18 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-19 min-[2000px]:w-19">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
         {app.online === true && (
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
@@ -817,8 +824,6 @@ function App() {
   const slideTimeoutRef = useRef<number | null>(null)
   const touchStartXRef = useRef<number | null>(null)
   const touchStartYRef = useRef<number | null>(null)
-  const dragStartXRef = useRef<number | null>(null)
-  const dragStartYRef = useRef<number | null>(null)
 
   type AppSlide = { from: number; axis: 'x' | 'y'; dir: 1 | -1 }
   const [appSlide, setAppSlide] = useState<AppSlide | null>(null)
@@ -1051,6 +1056,8 @@ function App() {
 
   useEffect(() => {
     if (showSettings || isScrollMode || !config) return
+    const pager = appsPagerRef.current
+    if (!pager) return
 
     const resolveAxis = (absX: number, absY: number): 'x' | 'y' | null => {
       if (allowHorizontal && allowVertical) return absX > absY ? 'x' : 'y'
@@ -1062,7 +1069,8 @@ function App() {
     const onWheel = (event: WheelEvent) => {
       const absX = Math.abs(event.deltaX)
       const absY = Math.abs(event.deltaY)
-      if (Math.max(absX, absY) < 8) return
+      // 阈值提高到 30,避免触摸板细微滑动误触
+      if (Math.max(absX, absY) < 30) return
       const axis = resolveAxis(absX, absY)
       if (!axis) return
       event.preventDefault()
@@ -1097,39 +1105,17 @@ function App() {
       const delta = axis === 'x' ? dx : dy
       movePage(delta > 0 ? 1 : -1, axis)
     }
-    const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 0) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, button, a')) return
-      dragStartXRef.current = event.clientX
-      dragStartYRef.current = event.clientY
-    }
-    const onMouseUp = (event: MouseEvent) => {
-      if (dragStartXRef.current === null || dragStartYRef.current === null) return
-      const dx = dragStartXRef.current - event.clientX
-      const dy = dragStartYRef.current - event.clientY
-      dragStartXRef.current = null
-      dragStartYRef.current = null
-      const absX = Math.abs(dx)
-      const absY = Math.abs(dy)
-      if (Math.max(absX, absY) < 40) return
-      const axis = resolveAxis(absX, absY)
-      if (!axis) return
-      const delta = axis === 'x' ? dx : dy
-      movePage(delta > 0 ? 1 : -1, axis)
-    }
 
-    window.addEventListener('wheel', onWheel, { passive: false })
-    window.addEventListener('touchstart', onTouchStart, { passive: true })
-    window.addEventListener('touchend', onTouchEnd, { passive: true })
-    window.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('mouseup', onMouseUp)
+    // 监听挂在 pager 上而不是 window:
+    //  - 鼠标/触摸板的 wheel 事件,只在用户真的在 app 网格区域内才会翻页
+    //  - 触摸 swipe 同理
+    pager.addEventListener('wheel', onWheel, { passive: false })
+    pager.addEventListener('touchstart', onTouchStart, { passive: true })
+    pager.addEventListener('touchend', onTouchEnd, { passive: true })
     return () => {
-      window.removeEventListener('wheel', onWheel)
-      window.removeEventListener('touchstart', onTouchStart)
-      window.removeEventListener('touchend', onTouchEnd)
-      window.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('mouseup', onMouseUp)
+      pager.removeEventListener('wheel', onWheel)
+      pager.removeEventListener('touchstart', onTouchStart)
+      pager.removeEventListener('touchend', onTouchEnd)
     }
   }, [appPages.length, showSettings, isScrollMode, allowHorizontal, allowVertical, config])
 
@@ -1489,7 +1475,7 @@ function App() {
       if (!info.moved) {
         const dx = ev.clientX - info.startX
         const dy = ev.clientY - info.startY
-        if (Math.hypot(dx, dy) < 6) return
+        if (Math.hypot(dx, dy) < 10) return
         info.moved = true
         suppressIconClickRef.current = true
         setPagedDragSource({ id: info.appId, sourceSlot: info.sourceSlot })
@@ -1616,7 +1602,7 @@ function App() {
       {wallpaperLoaded && <div className="fixed inset-0 bg-black/10" />}
 
       <section
-        className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'
+        className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-12 transition-opacity duration-500 min-[2000px]:pt-16 ${backgroundReady ? 'opacity-100' : 'opacity-0'
           }`}
       >
         <Clock showTime={config.showTime} title={config.title} />
@@ -1829,7 +1815,7 @@ function App() {
       {/* 翻页模式应用层 */}
       {!isScrollMode && (
         <div
-          className={`fixed inset-x-0 top-[17rem] bottom-24 z-20 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'
+          className={`fixed inset-x-0 top-[14rem] bottom-24 z-20 transition-opacity duration-500 min-[2000px]:top-[19rem] ${backgroundReady ? 'opacity-100' : 'opacity-0'
             }`}
           onContextMenu={(e) => {
             e.preventDefault()
@@ -1900,7 +1886,7 @@ function App() {
               className="flex w-24 flex-col items-center gap-2 text-white"
               style={{ transform: 'translate(-50%, -50%) scale(1.12)', transformOrigin: 'center' }}
             >
-              <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-2xl ring-2 ring-white/50 min-[2000px]:h-18 min-[2000px]:w-18">
+              <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
                 <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
               </div>
               <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{app.name}</span>
