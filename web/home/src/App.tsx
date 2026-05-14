@@ -1826,7 +1826,8 @@ function App() {
                 networkPrefer={networkPrefer}
                 onContextMenu={(e, a) => {
                   e.preventDefault()
-                  setContextMenu({ x: e.clientX, y: e.clientY, app: a })
+                  e.stopPropagation()
+                  setContextMenu({ kind: 'app', x: e.clientX, y: e.clientY, app: a })
                 }}
                 onIconPointerDown={handleIconPointerDown}
                 suppressClickRef={suppressIconClickRef}
