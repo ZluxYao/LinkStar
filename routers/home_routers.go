@@ -60,6 +60,8 @@ func HomeRouters(g *gin.RouterGroup) {
 		middleware.BindJsonMiddleware[home_api.AppDeleteRequest], app.AppDeleteView)
 	g.PUT("home/app/reorder",
 		middleware.BindJsonMiddleware[home_api.AppReorderRequest], app.AppReorderView)
+	g.PUT("home/app/position",
+		middleware.BindJsonMiddleware[home_api.AppPositionsRequest], app.AppPositionView)
 	g.PUT("home/app/category",
 		middleware.BindJsonMiddleware[home_api.AppCategoryRequest], app.AppCategoryView)
 

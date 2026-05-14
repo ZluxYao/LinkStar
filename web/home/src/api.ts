@@ -84,6 +84,8 @@ export interface AddAppRequest {
   color?: string
   categoryId?: string
   addresses: AppAddresses
+  // 翻页布局下的绝对槽位 (1-indexed)
+  pagedOrder?: number
 }
 export interface UpdateAppRequest {
   id: string
@@ -93,12 +95,18 @@ export interface UpdateAppRequest {
   categoryId?: string
   addresses?: AppAddresses
 }
+export interface AppPositionItem {
+  id: string
+  pagedOrder: number
+}
 
 export const addApp = (body: AddAppRequest) => send<AppView>('POST', '/home/app/add', body)
 export const updateApp = (body: UpdateAppRequest) => send<unknown>('PUT', '/home/app/update', body)
 export const deleteApp = (id: string) => send<unknown>('DELETE', '/home/app/delete', { id })
 export const reorderApps = (mode: 'paged' | 'scroll', ids: string[], categoryId?: string) =>
   send<unknown>('PUT', '/home/app/reorder', { mode, ids, categoryId })
+export const setAppPositions = (positions: AppPositionItem[]) =>
+  send<unknown>('PUT', '/home/app/position', { positions })
 export const setAppCategory = (id: string, categoryId: string) =>
   send<unknown>('PUT', '/home/app/category', { id, categoryId })
 

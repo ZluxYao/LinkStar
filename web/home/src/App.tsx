@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ExternalLink,
   Globe2,
@@ -34,7 +34,9 @@ const networkPreferLabel: Record<NetworkPrefer, string> = {
   wanV6: '公网 v6',
   lan: '内网',
 }
-const appsPerPage = 8
+const pageCols = 8
+const pageRows = 5
+const pageSize = pageCols * pageRows
 const searchHistoryMax = 24
 const wallpaperFallbackMs = 3000
 
@@ -73,12 +75,6 @@ function openWithWhiteLoading(url: string) {
   window.setTimeout(() => {
     page.location.href = url
   }, 50)
-}
-
-function paginate<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
-  return out.length > 0 ? out : [[]]
 }
 
 function sortByPagedOrder(apps: AppView[]): AppView[] {
@@ -148,22 +144,70 @@ function AppIcon({
   app,
   prefer,
   onContextMenu,
+  draggable,
+  isDragging,
+  dragGhost,
+  onDragStart,
+  onDragEnter,
+  onDragEnd,
+  onPointerDown,
+  suppressClickRef,
 }: {
   app: AppView
   prefer: NetworkPrefer
   onContextMenu: (e: React.MouseEvent, app: AppView) => void
+  draggable?: boolean
+  isDragging?: boolean
+  dragGhost?: 'fade' | 'hidden'
+  onDragStart?: (e: React.DragEvent<HTMLButtonElement>, app: AppView) => void
+  onDragEnter?: (e: React.DragEvent<HTMLButtonElement>, app: AppView) => void
+  onDragEnd?: () => void
+  onPointerDown?: (e: React.PointerEvent<HTMLButtonElement>, app: AppView) => void
+  suppressClickRef?: { current: boolean }
 }) {
   const handleClick = () => {
+    if (suppressClickRef?.current) {
+      suppressClickRef.current = false
+      return
+    }
     const url = resolveOpenUrl(app, prefer)
     if (!url) return
     openWithWhiteLoading(url)
   }
+  const ghostClass = isDragging
+    ? dragGhost === 'hidden'
+      ? 'opacity-0'
+      : 'opacity-40'
+    : ''
   return (
     <button
       type="button"
+      draggable={draggable}
+      onDragStart={(e) => {
+        if (suppressClickRef) suppressClickRef.current = true
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move'
+          try {
+            e.dataTransfer.setData('text/plain', app.id)
+          } catch {
+            // ignore
+          }
+        }
+        onDragStart?.(e, app)
+      }}
+      onDragEnter={(e) => onDragEnter?.(e, app)}
+      onDragOver={(e) => {
+        if (draggable) {
+          e.preventDefault()
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+        }
+      }}
+      onDragEnd={() => onDragEnd?.()}
+      onPointerDown={(e) => onPointerDown?.(e, app)}
       onClick={handleClick}
       onContextMenu={(e) => onContextMenu(e, app)}
-      className="group flex w-24 flex-col items-center gap-2 text-white outline-none"
+      style={onPointerDown ? { touchAction: 'none' } : undefined}
+      className={`group flex w-24 flex-col items-center gap-2 text-white outline-none transition-opacity ${ghostClass}`}
     >
       <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-2xl shadow-lg ring-1 ring-white/30 transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
@@ -179,18 +223,72 @@ function AppIcon({
   )
 }
 
-function AddPlaceholder({ onClick }: { onClick: () => void }) {
+function PagedGrid({
+  page,
+  pageIndex,
+  interactive,
+  draggingAppId,
+  hoverSlot,
+  networkPrefer,
+  onContextMenu,
+  onEmptyContextMenu,
+  onIconPointerDown,
+  suppressClickRef,
+}: {
+  page: (AppView | null)[]
+  pageIndex: number
+  interactive: boolean
+  draggingAppId: string | null
+  hoverSlot: number | null
+  networkPrefer: NetworkPrefer
+  onContextMenu: (e: React.MouseEvent, app: AppView) => void
+  onEmptyContextMenu?: (e: React.MouseEvent, absPagedOrder: number) => void
+  onIconPointerDown?: (e: React.PointerEvent<HTMLButtonElement>, app: AppView) => void
+  suppressClickRef?: { current: boolean }
+}) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-24 flex-col items-center gap-2 text-white outline-none"
+    <div
+      className="grid h-full w-full content-start justify-items-center gap-x-3 gap-y-4 px-2 pb-4 pt-4"
+      style={{
+        gridTemplateColumns: `repeat(${pageCols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${pageRows}, minmax(0, auto))`,
+      }}
     >
-      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-white/15 ring-1 ring-white/30 backdrop-blur-md transition duration-200 group-hover:-translate-y-1 group-hover:bg-white/25">
-        <Plus className="h-8 w-8 drop-shadow" />
-      </div>
-      <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">添加</span>
-    </button>
+      {page.map((slot, slotIdx) => {
+        const absPO = pageIndex * pageSize + slotIdx + 1
+        const isHover =
+          interactive && draggingAppId !== null && hoverSlot === absPO && slot?.id !== draggingAppId
+        return (
+          <div
+            key={slotIdx}
+            data-slot={absPO}
+            onContextMenu={
+              !slot && interactive && onEmptyContextMenu
+                ? (e) => {
+                    e.preventDefault()
+                    onEmptyContextMenu(e, absPO)
+                  }
+                : undefined
+            }
+            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${
+              isHover ? 'bg-white/15 ring-2 ring-white/40' : ''
+            }`}
+          >
+            {slot ? (
+              <AppIcon
+                app={slot}
+                prefer={networkPrefer}
+                isDragging={draggingAppId === slot.id}
+                dragGhost="hidden"
+                onPointerDown={interactive ? onIconPointerDown : undefined}
+                suppressClickRef={suppressClickRef}
+                onContextMenu={onContextMenu}
+              />
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -321,19 +419,21 @@ const colorPresets = [
 
 function AppFormModal({
   initial,
+  defaultCategoryId,
   categories,
   isStun,
   onCancel,
   onSubmit,
 }: {
   initial?: AppView
+  defaultCategoryId?: string
   categories: Category[]
   isStun: boolean
   onCancel: () => void
   onSubmit: (form: AppFormState) => Promise<void>
 }) {
   const [form, setForm] = useState<AppFormState>(() => {
-    if (!initial) return emptyForm
+    if (!initial) return { ...emptyForm, categoryId: defaultCategoryId ?? '' }
     return {
       name: initial.name,
       icon: initial.icon,
@@ -645,9 +745,12 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'appearance' | 'layout' | 'categories' | 'search'>('appearance')
 
   // 模态
-  const [appForm, setAppForm] = useState<{ open: boolean; initial?: AppView }>({ open: false })
+  const [appForm, setAppForm] = useState<{ open: boolean; initial?: AppView; defaultCategoryId?: string }>({ open: false })
   const [engineForm, setEngineForm] = useState<{ open: boolean; initial?: SearchEngine }>({ open: false })
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; app: AppView } | null>(null)
+  type CtxMenu =
+    | { kind: 'app'; x: number; y: number; app: AppView }
+    | { kind: 'add'; x: number; y: number; pagedOrder?: number; categoryId?: string }
+  const [contextMenu, setContextMenu] = useState<CtxMenu | null>(null)
 
   // 壁纸状态
   const [showDefaultWallpaper, setShowDefaultWallpaper] = useState(false)
@@ -673,6 +776,34 @@ function App() {
   const [dragOverCategoryId, setDragOverCategoryId] = useState<string | null>(null)
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
+
+  // 图标拖拽布局
+  const [draggingAppId, setDraggingAppId] = useState<string | null>(null)
+  const dragContextRef = useRef<{ kind: 'scroll'; categoryId: string; sourceId: string } | null>(null)
+  const dragDirtyRef = useRef(false)
+
+  // paged 模式自由布局 (pointer events)
+  const [pagedDragSource, setPagedDragSource] = useState<{ id: string; sourceSlot: number } | null>(null)
+  const [pagedHoverSlot, setPagedHoverSlot] = useState<number | null>(null)
+  const pagedDragInfoRef = useRef<{
+    appId: string
+    sourceSlot: number
+    pointerId: number
+    offsetX: number
+    offsetY: number
+    startX: number
+    startY: number
+    lastX: number
+    lastY: number
+    moved: boolean
+  } | null>(null)
+  const floatingIconRef = useRef<HTMLDivElement | null>(null)
+  const suppressIconClickRef = useRef(false)
+  const pendingAddSlotRef = useRef<number | null>(null)
+  const edgeFlipTimerRef = useRef<number | null>(null)
+  const dotHoverTimerRef = useRef<number | null>(null)
+  const edgeDirectionRef = useRef<1 | -1 | null>(null)
+  const hoveredDotRef = useRef<number | null>(null)
 
   /* ============ 初始加载 + 定期刷新 ============ */
 
@@ -708,7 +839,34 @@ function App() {
   )
 
   const pagedApps = useMemo(() => (config ? sortByPagedOrder(config.apps) : []), [config])
-  const appPages = useMemo(() => paginate(pagedApps, appsPerPage), [pagedApps])
+  const [desiredPageTotal, setDesiredPageTotal] = useState(0)
+  const autoPageCount = useMemo(() => {
+    let maxPO = 0
+    for (const app of pagedApps) {
+      const po = app.pagedOrder || 1
+      if (po > maxPO) maxPO = po
+    }
+    return maxPO > 0 ? Math.ceil(maxPO / pageSize) : 0
+  }, [pagedApps])
+  // 槽位型分页:每页 pageSize 个格子,空格为 null。pagedOrder = page*pageSize+slot+1
+  const appPages = useMemo<(AppView | null)[][]>(() => {
+    const slotMap = new Map<number, AppView>()
+    for (const app of pagedApps) {
+      const po = app.pagedOrder || 1
+      slotMap.set(po, app)
+    }
+    const total = Math.max(autoPageCount, desiredPageTotal, 1)
+    const pages: (AppView | null)[][] = []
+    for (let p = 0; p < total; p++) {
+      const slots: (AppView | null)[] = []
+      for (let s = 0; s < pageSize; s++) {
+        slots.push(slotMap.get(p * pageSize + s + 1) ?? null)
+      }
+      pages.push(slots)
+    }
+    return pages
+  }, [pagedApps, autoPageCount, desiredPageTotal])
+  const pendingNavigatePageRef = useRef<number | null>(null)
 
   const grouped = useMemo(
     () => (config ? groupByCategory(config.apps, config.categories) : { groups: [], uncategorized: [] }),
@@ -824,6 +982,23 @@ function App() {
   }, [appPages.length, appPage])
 
   useEffect(() => {
+    const pending = pendingNavigatePageRef.current
+    if (pending !== null && pending < appPages.length) {
+      pendingNavigatePageRef.current = null
+      goToAppPage(pending, allowHorizontal ? 'x' : 'y')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appPages.length])
+
+  const addNewPage = () => {
+    setDesiredPageTotal((prev) => {
+      const next = Math.max(prev, autoPageCount) + 1
+      pendingNavigatePageRef.current = next - 1
+      return next
+    })
+  }
+
+  useEffect(() => {
     if (showSettings || isScrollMode || !config) return
 
     const resolveAxis = (absX: number, absY: number): 'x' | 'y' | null => {
@@ -841,7 +1016,17 @@ function App() {
       if (!axis) return
       event.preventDefault()
       const delta = axis === 'x' ? event.deltaX : event.deltaY
-      movePage(delta > 0 ? 1 : -1, axis)
+      const dir: 1 | -1 = delta > 0 ? 1 : -1
+      // 拖拽中: 不走滑动动画,直接换页;避免源元素被卸载导致跟手中断
+      if (pagedDragInfoRef.current?.moved) {
+        setAppPage((curr) => {
+          const next = curr + dir
+          if (next < 0 || next >= appPages.length) return curr
+          return next
+        })
+        return
+      }
+      movePage(dir, axis)
     }
     const onTouchStart = (event: TouchEvent) => {
       touchStartXRef.current = event.touches[0].clientX
@@ -1071,17 +1256,258 @@ function App() {
       }
       await api.updateApp(body)
     } else {
+      const pagedOrder = pendingAddSlotRef.current ?? undefined
+      pendingAddSlotRef.current = null
       await api.addApp({
         name: form.name.trim(),
         icon: form.icon,
         color: form.color,
         categoryId: form.categoryId,
         addresses: { wanV4: form.wanV4, wanV6: form.wanV6, lan: form.lan },
+        pagedOrder,
       })
     }
     await reload()
     setAppForm({ open: false })
   }
+
+  const startAppDrag = (
+    e: React.DragEvent<HTMLButtonElement>,
+    app: AppView,
+    categoryId: string,
+  ) => {
+    setDraggingAppId(app.id)
+    dragContextRef.current = { kind: 'scroll', categoryId, sourceId: app.id }
+    dragDirtyRef.current = false
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move'
+    }
+  }
+
+  const onDragEnterApp = (_e: React.DragEvent<HTMLButtonElement>, target: AppView) => {
+    const ctx = dragContextRef.current
+    if (!ctx || ctx.sourceId === target.id) return
+    if ((target.categoryId || '') !== ctx.categoryId) return
+
+    setConfig((prev) => {
+      if (!prev) return prev
+      const arr = prev.apps
+        .filter((a) => (a.categoryId || '') === ctx.categoryId)
+        .sort((a, b) => a.scrollOrder - b.scrollOrder)
+      const fromIdx = arr.findIndex((a) => a.id === ctx.sourceId)
+      const toIdx = arr.findIndex((a) => a.id === target.id)
+      if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return prev
+      const [moved] = arr.splice(fromIdx, 1)
+      arr.splice(toIdx, 0, moved)
+      const orderMap = new Map<string, number>()
+      arr.forEach((a, i) => orderMap.set(a.id, i + 1))
+      dragDirtyRef.current = true
+      return {
+        ...prev,
+        apps: prev.apps.map((a) => {
+          const next = orderMap.get(a.id)
+          if (next === undefined) return a
+          return { ...a, scrollOrder: next }
+        }),
+      }
+    })
+  }
+
+  const endAppDrag = () => {
+    const ctx = dragContextRef.current
+    const dirty = dragDirtyRef.current
+    setDraggingAppId(null)
+    dragContextRef.current = null
+    dragDirtyRef.current = false
+    if (!ctx || !dirty) return
+
+    setConfig((prev) => {
+      if (!prev) return prev
+      const ids = prev.apps
+        .filter((a) => (a.categoryId || '') === ctx.categoryId)
+        .sort((a, b) => a.scrollOrder - b.scrollOrder)
+        .map((a) => a.id)
+      api.reorderApps('scroll', ids, ctx.categoryId).catch(() => reload())
+      return prev
+    })
+  }
+
+  // ===== Paged 模式自由布局 (pointer events) =====
+  const cancelEdgeFlip = () => {
+    if (edgeFlipTimerRef.current !== null) {
+      window.clearTimeout(edgeFlipTimerRef.current)
+      edgeFlipTimerRef.current = null
+    }
+    edgeDirectionRef.current = null
+  }
+  const cancelDotHover = () => {
+    if (dotHoverTimerRef.current !== null) {
+      window.clearTimeout(dotHoverTimerRef.current)
+      dotHoverTimerRef.current = null
+    }
+    hoveredDotRef.current = null
+  }
+
+  const scheduleEdgeFlip = (delta: 1 | -1) => {
+    if (edgeFlipTimerRef.current !== null) return
+    edgeFlipTimerRef.current = window.setTimeout(() => {
+      edgeFlipTimerRef.current = null
+      edgeDirectionRef.current = null // 允许进入后再次触发
+      setAppPage((curr) => {
+        const next = curr + delta
+        if (next < 0 || next >= appPages.length) return curr
+        return next
+      })
+    }, 500)
+  }
+
+  const detectEdgeDuringDrag = (x: number, y: number) => {
+    const pager = appsPagerRef.current
+    if (!pager) return
+    const rect = pager.getBoundingClientRect()
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      if (edgeDirectionRef.current !== null) cancelEdgeFlip()
+      return
+    }
+    const localX = x - rect.left
+    const localY = y - rect.top
+    const edge = 60
+    let dir: 1 | -1 | null = null
+    if (allowHorizontal) {
+      if (localX < edge) dir = -1
+      else if (localX > rect.width - edge) dir = 1
+    }
+    if (dir === null && allowVertical) {
+      if (localY < edge) dir = -1
+      else if (localY > rect.height - edge) dir = 1
+    }
+    if (dir === null) {
+      if (edgeDirectionRef.current !== null) cancelEdgeFlip()
+      return
+    }
+    if (edgeDirectionRef.current !== dir) {
+      cancelEdgeFlip()
+      edgeDirectionRef.current = dir
+      scheduleEdgeFlip(dir)
+    }
+  }
+
+  const detectDotHoverDuringDrag = (target: HTMLElement | null) => {
+    const dotEl = target?.closest('[data-dot-index]') as HTMLElement | null
+    if (!dotEl) {
+      if (hoveredDotRef.current !== null) cancelDotHover()
+      return
+    }
+    const idx = Number(dotEl.dataset.dotIndex)
+    if (Number.isNaN(idx) || idx === appPage) {
+      if (hoveredDotRef.current !== null) cancelDotHover()
+      return
+    }
+    if (hoveredDotRef.current === idx) return
+    cancelDotHover()
+    hoveredDotRef.current = idx
+    dotHoverTimerRef.current = window.setTimeout(() => {
+      dotHoverTimerRef.current = null
+      hoveredDotRef.current = null
+      setAppPage(idx)
+    }, 220)
+  }
+
+  const handleIconPointerDown = (e: React.PointerEvent<HTMLButtonElement>, app: AppView) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return
+    const target = e.currentTarget as HTMLButtonElement
+    const rect = target.getBoundingClientRect()
+    const info = {
+      appId: app.id,
+      sourceSlot: app.pagedOrder || 1,
+      pointerId: e.pointerId,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      moved: false,
+    }
+    pagedDragInfoRef.current = info
+
+    const onMove = (ev: PointerEvent) => {
+      if (ev.pointerId !== info.pointerId) return
+      info.lastX = ev.clientX
+      info.lastY = ev.clientY
+      if (!info.moved) {
+        const dx = ev.clientX - info.startX
+        const dy = ev.clientY - info.startY
+        if (Math.hypot(dx, dy) < 6) return
+        info.moved = true
+        suppressIconClickRef.current = true
+        setPagedDragSource({ id: info.appId, sourceSlot: info.sourceSlot })
+      }
+      // 浮动图标跟手 (直接改 transform,跳过 React)
+      const node = floatingIconRef.current
+      if (node) {
+        node.style.transform = `translate3d(${ev.clientX}px, ${ev.clientY}px, 0)`
+      }
+      // 命中目标格 + 小圆点
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null
+      const slotEl = el?.closest('[data-slot]') as HTMLElement | null
+      const slot = slotEl ? Number(slotEl.dataset.slot) : null
+      setPagedHoverSlot((prev) => (prev !== slot ? slot : prev))
+      detectDotHoverDuringDrag(el)
+      detectEdgeDuringDrag(ev.clientX, ev.clientY)
+    }
+
+    const onUp = (ev: PointerEvent) => {
+      if (ev.type !== 'pointercancel' && ev.pointerId !== info.pointerId) return
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+      pagedDragInfoRef.current = null
+      cancelEdgeFlip()
+      cancelDotHover()
+
+      if (!info.moved) {
+        setPagedDragSource(null)
+        setPagedHoverSlot(null)
+        return // 当成点击,handleClick 会照常打开 URL
+      }
+
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null
+      const slotEl = el?.closest('[data-slot]') as HTMLElement | null
+      const targetSlot = slotEl ? Number(slotEl.dataset.slot) : null
+
+      setPagedDragSource(null)
+      setPagedHoverSlot(null)
+
+      if (targetSlot === null || targetSlot === info.sourceSlot) return
+
+      setConfig((prev) => {
+        if (!prev) return prev
+        const occupant = prev.apps.find((a) => a.id !== info.appId && a.pagedOrder === targetSlot)
+        const newApps = prev.apps.map((a) => {
+          if (a.id === info.appId) return { ...a, pagedOrder: targetSlot }
+          if (occupant && a.id === occupant.id) return { ...a, pagedOrder: info.sourceSlot }
+          return a
+        })
+        const positions = newApps.map((a) => ({ id: a.id, pagedOrder: a.pagedOrder }))
+        api.setAppPositions(positions).catch(() => reload())
+        return { ...prev, apps: newApps }
+      })
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+
+  // 浮动图标初始位置: 第一次出现时,直接放到当前光标位置
+  useLayoutEffect(() => {
+    if (!pagedDragSource) return
+    const info = pagedDragInfoRef.current
+    const node = floatingIconRef.current
+    if (!info || !node) return
+    node.style.transform = `translate3d(${info.lastX}px, ${info.lastY}px, 0)`
+  }, [pagedDragSource?.id])
 
   const removeApp = async (id: string) => {
     if (!window.confirm('从主页移除该应用?')) return
@@ -1287,45 +1713,65 @@ function App() {
         {isScrollMode && (
           <div className="mx-auto mt-10 w-full max-w-5xl px-6 pb-24">
             <div className="space-y-12 pt-6">
-              {grouped.groups.map(({ category, apps }) =>
-                apps.length === 0 ? null : (
-                  <section key={category.id}>
-                    <h3 className="mb-4 px-2 text-sm font-semibold uppercase tracking-wider text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
-                      {category.name}
-                    </h3>
-                    <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
-                      {apps.map((app) => (
-                        <AppIcon
-                          key={app.id}
-                          app={app}
-                          prefer={networkPrefer}
-                          onContextMenu={(e, a) => {
-                            e.preventDefault()
-                            setContextMenu({ x: e.clientX, y: e.clientY, app: a })
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ),
-              )}
-              <section>
+              {grouped.groups.map(({ category, apps }) => (
+                <section
+                  key={category.id}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, categoryId: category.id })
+                  }}
+                >
+                  <h3 className="mb-4 px-2 text-sm font-semibold uppercase tracking-wider text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
+                    {category.name}
+                  </h3>
+                  <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
+                    {apps.map((app) => (
+                      <AppIcon
+                        key={app.id}
+                        app={app}
+                        prefer={networkPrefer}
+                        draggable
+                        isDragging={draggingAppId === app.id}
+                        onDragStart={(e, a) => startAppDrag(e, a, category.id)}
+                        onDragEnter={(e, a) => onDragEnterApp(e, a)}
+                        onDragEnd={endAppDrag}
+                        onContextMenu={(e, a) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setContextMenu({ kind: 'app', x: e.clientX, y: e.clientY, app: a })
+                        }}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+              <section
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, categoryId: '' })
+                }}
+              >
                 <h3 className="mb-4 px-2 text-sm font-semibold uppercase tracking-wider text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
                   未分类
                 </h3>
-                <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
+                <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
                   {grouped.uncategorized.map((app) => (
                     <AppIcon
                       key={app.id}
                       app={app}
                       prefer={networkPrefer}
+                      draggable
+                      isDragging={draggingAppId === app.id}
+                      onDragStart={(e, a) => startAppDrag(e, a, '')}
+                      onDragEnter={(e, a) => onDragEnterApp(e, a)}
+                      onDragEnd={endAppDrag}
                       onContextMenu={(e, a) => {
                         e.preventDefault()
-                        setContextMenu({ x: e.clientX, y: e.clientY, app: a })
+                        e.stopPropagation()
+                        setContextMenu({ kind: 'app', x: e.clientX, y: e.clientY, app: a })
                       }}
                     />
                   ))}
-                  <AddPlaceholder onClick={() => setAppForm({ open: true })} />
                 </div>
               </section>
             </div>
@@ -1346,49 +1792,71 @@ function App() {
                 key={`out-${appSlide.from}-${appSlide.axis}-${appSlide.dir}`}
                 className={`absolute inset-x-6 inset-y-0 ${getSlideOutClass(appSlide.axis, appSlide.dir)}`}
               >
-                <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2 pb-4 pt-6">
-                  {appPages[appSlide.from]?.map((app) => (
-                    <AppIcon
-                      key={app.id}
-                      app={app}
-                      prefer={networkPrefer}
-                      onContextMenu={(e, a) => {
-                        e.preventDefault()
-                        setContextMenu({ x: e.clientX, y: e.clientY, app: a })
-                      }}
-                    />
-                  ))}
-                </div>
+                <PagedGrid
+                  page={appPages[appSlide.from] ?? []}
+                  pageIndex={appSlide.from}
+                  interactive={false}
+                  draggingAppId={null}
+                  hoverSlot={null}
+                  networkPrefer={networkPrefer}
+                  onContextMenu={(e, a) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    setContextMenu({ kind: 'app', x: e.clientX, y: e.clientY, app: a })
+                  }}
+                />
               </div>
             )}
             <div
               key={`in-${appPage}-${appSlide?.axis ?? 'static'}-${appSlide?.dir ?? 0}`}
               className={`absolute inset-x-6 inset-y-0 ${appSlide ? getSlideInClass(appSlide.axis, appSlide.dir) : ''}`}
             >
-              <div className="grid grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2 pb-4 pt-6">
-                {appPages[appPage]?.map((app) => (
-                  <AppIcon
-                    key={app.id}
-                    app={app}
-                    prefer={networkPrefer}
-                    onContextMenu={(e, a) => {
-                      e.preventDefault()
-                      setContextMenu({ x: e.clientX, y: e.clientY, app: a })
-                    }}
-                  />
-                ))}
-                {/* 最后一页末尾追加 "+" */}
-                {appPage === appPages.length - 1 && appPages[appPage].length < appsPerPage && (
-                  <AddPlaceholder onClick={() => setAppForm({ open: true })} />
-                )}
-              </div>
+              <PagedGrid
+                page={appPages[appPage] ?? []}
+                pageIndex={appPage}
+                interactive={!appSlide}
+                draggingAppId={pagedDragSource?.id ?? null}
+                hoverSlot={pagedHoverSlot}
+                networkPrefer={networkPrefer}
+                onContextMenu={(e, a) => {
+                  e.preventDefault()
+                  setContextMenu({ x: e.clientX, y: e.clientY, app: a })
+                }}
+                onIconPointerDown={handleIconPointerDown}
+                suppressClickRef={suppressIconClickRef}
+                onEmptyContextMenu={(e, absPO) =>
+                  setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, pagedOrder: absPO })
+                }
+              />
             </div>
           </div>
         </div>
       )}
 
+      {/* 跟手浮动图标 */}
+      {pagedDragSource && (() => {
+        const app = config.apps.find((a) => a.id === pagedDragSource.id)
+        if (!app) return null
+        return (
+          <div
+            ref={floatingIconRef}
+            className="pointer-events-none fixed left-0 top-0 z-50 will-change-transform"
+          >
+            <div
+              className="flex w-24 flex-col items-center gap-2 text-white"
+              style={{ transform: 'translate(-50%, -50%) scale(1.12)', transformOrigin: 'center' }}
+            >
+              <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-2xl shadow-2xl ring-2 ring-white/50">
+                <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
+              </div>
+              <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{app.name}</span>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* 翻页指示器 */}
-      {!isScrollMode && appPages.length > 1 &&
+      {!isScrollMode &&
         (layoutMode === 'paged-horizontal' ? (
           <div className="fixed bottom-7 left-1/2 z-30 flex -translate-x-1/2 flex-row items-center gap-2.5">
             {appPages.map((_, index) => {
@@ -1397,6 +1865,7 @@ function App() {
                 <button
                   key={index}
                   type="button"
+                  data-dot-index={index}
                   onClick={() => goToAppPage(index, 'x')}
                   className={`h-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${
                     active ? 'w-6 bg-white' : 'w-2'
@@ -1405,6 +1874,14 @@ function App() {
                 />
               )
             })}
+            <button
+              type="button"
+              onClick={addNewPage}
+              className="ml-1 grid h-5 w-5 place-items-center rounded-full bg-white/30 text-white shadow-md ring-1 ring-white/40 backdrop-blur-md transition hover:bg-white/55"
+              title="新建页面"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
           </div>
         ) : (
           <div className="fixed left-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-2.5">
@@ -1414,6 +1891,7 @@ function App() {
                 <button
                   key={index}
                   type="button"
+                  data-dot-index={index}
                   onClick={() => goToAppPage(index, allowVertical ? 'y' : 'x')}
                   className={`w-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${
                     active ? 'h-6 bg-white' : 'h-2'
@@ -1422,6 +1900,14 @@ function App() {
                 />
               )
             })}
+            <button
+              type="button"
+              onClick={addNewPage}
+              className="mt-1 grid h-5 w-5 place-items-center rounded-full bg-white/30 text-white shadow-md ring-1 ring-white/40 backdrop-blur-md transition hover:bg-white/55"
+              title="新建页面"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
           </div>
         ))}
 
@@ -1432,29 +1918,50 @@ function App() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            type="button"
-            onClick={() => {
-              setAppForm({ open: true, initial: contextMenu.app })
-              setContextMenu(null)
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100"
-          >
-            <Pencil className="h-4 w-4 text-slate-400" />
-            编辑
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const app = contextMenu.app
-              setContextMenu(null)
-              removeApp(app.id)
-            }}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-rose-500 transition hover:bg-rose-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            删除
-          </button>
+          {contextMenu.kind === 'app' ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  const app = contextMenu.app
+                  setContextMenu(null)
+                  setAppForm({ open: true, initial: app })
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100"
+              >
+                <Pencil className="h-4 w-4 text-slate-400" />
+                编辑
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const app = contextMenu.app
+                  setContextMenu(null)
+                  removeApp(app.id)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-rose-500 transition hover:bg-rose-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                删除
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (contextMenu.pagedOrder !== undefined) {
+                  pendingAddSlotRef.current = contextMenu.pagedOrder
+                }
+                const defaultCategoryId = contextMenu.categoryId
+                setContextMenu(null)
+                setAppForm({ open: true, defaultCategoryId })
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100"
+            >
+              <Plus className="h-4 w-4 text-slate-400" />
+              添加
+            </button>
+          )}
         </div>
       )}
 
@@ -1904,6 +2411,7 @@ function App() {
       {appForm.open && (
         <AppFormModal
           initial={appForm.initial}
+          defaultCategoryId={appForm.defaultCategoryId}
           categories={config.categories}
           isStun={appForm.initial?.type === 'stun'}
           onCancel={() => setAppForm({ open: false })}

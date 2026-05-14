@@ -13,11 +13,13 @@ import (
 
 // 仅支持 type=static (常用网站)。stun 类型由 stun 模块联动创建
 type AppAddRequest struct {
-	Name       string             `json:"name"`
-	Icon       string             `json:"icon"`
-	Color      string             `json:"color"`
-	CategoryID string             `json:"categoryId"`
-	Addresses  home.AppAddresses  `json:"addresses"`
+	Name       string            `json:"name"`
+	Icon       string            `json:"icon"`
+	Color      string            `json:"color"`
+	CategoryID string            `json:"categoryId"`
+	Addresses  home.AppAddresses `json:"addresses"`
+	// 翻页布局下的绝对槽位 (1-indexed,允许间隔)。0 或未提供时按 max+1 兜底
+	PagedOrder int `json:"pagedOrder,omitempty"`
 }
 
 func (HomeApi) AppAddView(c *gin.Context) {
@@ -59,13 +61,17 @@ func (HomeApi) AppAddView(c *gin.Context) {
 				maxScroll = a.ScrollOrder
 			}
 		}
+		pagedOrder := cr.PagedOrder
+		if pagedOrder <= 0 {
+			pagedOrder = maxPaged + 1
+		}
 		created = home.App{
 			ID:          fmt.Sprintf("app-%d", now.UnixNano()),
 			Name:        cr.Name,
 			Icon:        cr.Icon,
 			Color:       cr.Color,
 			CategoryID:  cr.CategoryID,
-			PagedOrder:  maxPaged + 1,
+			PagedOrder:  pagedOrder,
 			ScrollOrder: maxScroll + 1,
 			Type:        "static",
 			Addresses:   &addrs,

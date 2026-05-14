@@ -36,7 +36,7 @@ func (HomeApi) AppReorderView(c *gin.Context) {
 			if cr.Mode == "paged" {
 				cfg.Apps[i].PagedOrder = order
 			} else {
-				if cr.CategoryID != "" && cfg.Apps[i].CategoryID != cr.CategoryID {
+				if cfg.Apps[i].CategoryID != cr.CategoryID {
 					continue
 				}
 				cfg.Apps[i].ScrollOrder = order
