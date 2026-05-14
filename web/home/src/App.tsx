@@ -312,7 +312,13 @@ function SearchEngineIcon({
           active ? 'ring-4 ring-blue-200' : 'ring-1 ring-slate-200'
         }`}
       >
-        <IconPreview icon={engine.icon ?? ''} fallback={engine.shortName || engine.name} color={engine.color} className="h-full w-full rounded-xl" />
+        {engine.icon ? (
+          <img src={iconSrc(engine.icon)} alt="" className="h-11 w-11 object-contain" />
+        ) : (
+          <div className={`grid h-full w-full place-items-center rounded-xl bg-gradient-to-br ${engine.color || 'from-slate-400 to-slate-600'} text-white`}>
+            <span className="text-lg font-black tracking-tight">{(engine.shortName || engine.name).charAt(0).toUpperCase()}</span>
+          </div>
+        )}
       </div>
       <span className={`max-w-16 truncate text-xs ${active ? 'font-semibold text-blue-600' : 'text-slate-600'}`}>
         {engine.name}
@@ -2315,12 +2321,13 @@ function App() {
                             className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2"
                           >
                             <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200">
-                              <IconPreview
-                                icon={item.icon ?? ''}
-                                fallback={item.shortName || item.name}
-                                color={item.color}
-                                className="h-full w-full rounded-lg"
-                              />
+                              {item.icon ? (
+                                <img src={iconSrc(item.icon)} alt="" className="h-7 w-7 object-contain" />
+                              ) : (
+                                <div className={`grid h-full w-full place-items-center rounded-lg bg-gradient-to-br ${item.color || 'from-slate-400 to-slate-600'} text-white`}>
+                                  <span className="text-sm font-black tracking-tight">{(item.shortName || item.name).charAt(0).toUpperCase()}</span>
+                                </div>
+                              )}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="truncate text-sm font-semibold text-slate-700">{item.name}</div>
