@@ -209,7 +209,7 @@ function AppIcon({
       style={onPointerDown ? { touchAction: 'none' } : undefined}
       className={`group flex w-24 flex-col items-center gap-2 text-white outline-none transition-opacity ${ghostClass}`}
     >
-      <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-2xl shadow-lg ring-1 ring-white/30 transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl">
+      <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-lg ring-1 ring-white/30 transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
         {app.online === true && (
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
@@ -248,7 +248,7 @@ function PagedGrid({
 }) {
   return (
     <div
-      className="grid h-full w-full content-start justify-items-center gap-x-3 gap-y-4 px-2 pb-4 pt-4"
+      className="grid h-full w-full content-start justify-items-center gap-x-14 gap-y-6 px-2 pb-4 pt-4"
       style={{
         gridTemplateColumns: `repeat(${pageCols}, minmax(0, 1fr))`,
         gridTemplateRows: `repeat(${pageRows}, minmax(0, auto))`,
@@ -265,16 +265,15 @@ function PagedGrid({
             onContextMenu={
               interactive
                 ? (e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (slot) onContextMenu(e, slot)
-                    else if (onEmptyContextMenu) onEmptyContextMenu(e, absPO)
-                  }
+                  e.preventDefault()
+                  e.stopPropagation()
+                  if (slot) onContextMenu(e, slot)
+                  else if (onEmptyContextMenu) onEmptyContextMenu(e, absPO)
+                }
                 : undefined
             }
-            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${
-              isHover ? 'bg-white/15 ring-2 ring-white/40' : ''
-            }`}
+            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${isHover ? 'bg-white/15 ring-2 ring-white/40' : ''
+              }`}
           >
             {slot ? (
               <AppIcon
@@ -310,9 +309,8 @@ function SearchEngineIcon({
       className="group flex w-16 flex-col items-center gap-1.5 outline-none"
     >
       <div
-        className={`grid h-14 w-14 place-items-center overflow-hidden rounded-xl bg-slate-100 text-white shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg ${
-          active ? 'ring-4 ring-blue-200' : 'ring-1 ring-slate-200'
-        }`}
+        className={`grid h-14 w-14 place-items-center overflow-hidden rounded-xl bg-slate-100 text-white shadow-sm transition duration-200 group-hover:-translate-y-1 group-hover:shadow-lg ${active ? 'ring-4 ring-blue-200' : 'ring-1 ring-slate-200'
+          }`}
       >
         {engine.icon ? (
           <img src={iconSrc(engine.icon)} alt="" className="h-11 w-11 object-contain" />
@@ -561,9 +559,8 @@ function AppFormModal({
                   key={c}
                   type="button"
                   onClick={() => setForm((p) => ({ ...p, color: c }))}
-                  className={`h-7 w-7 rounded-lg bg-gradient-to-br ${c} ${
-                    form.color === c ? 'ring-2 ring-blue-400 ring-offset-2' : ''
-                  }`}
+                  className={`h-7 w-7 rounded-lg bg-gradient-to-br ${c} ${form.color === c ? 'ring-2 ring-blue-400 ring-offset-2' : ''
+                    }`}
                 />
               ))}
             </div>
@@ -672,13 +669,13 @@ function SearchEngineFormModal({
   const [form, setForm] = useState<SearchEngineFormState>(() =>
     initial
       ? {
-          id: initial.id,
-          name: initial.name,
-          shortName: initial.shortName,
-          url: initial.url,
-          color: initial.color || emptyEngineForm.color,
-          icon: initial.icon ?? '',
-        }
+        id: initial.id,
+        name: initial.name,
+        shortName: initial.shortName,
+        url: initial.url,
+        color: initial.color || emptyEngineForm.color,
+        icon: initial.icon ?? '',
+      }
       : emptyEngineForm,
   )
   const [busy, setBusy] = useState(false)
@@ -753,9 +750,8 @@ function SearchEngineFormModal({
                   key={c}
                   type="button"
                   onClick={() => setForm((p) => ({ ...p, color: c }))}
-                  className={`h-7 w-7 rounded-lg bg-gradient-to-br ${c} ${
-                    form.color === c ? 'ring-2 ring-blue-400 ring-offset-2' : ''
-                  }`}
+                  className={`h-7 w-7 rounded-lg bg-gradient-to-br ${c} ${form.color === c ? 'ring-2 ring-blue-400 ring-offset-2' : ''
+                    }`}
                 />
               ))}
             </div>
@@ -1179,9 +1175,9 @@ function App() {
     setConfig((prev) =>
       prev
         ? {
-            ...prev,
-            searchHistory: [keyword, ...prev.searchHistory.filter((h) => h !== keyword)].slice(0, searchHistoryMax),
-          }
+          ...prev,
+          searchHistory: [keyword, ...prev.searchHistory.filter((h) => h !== keyword)].slice(0, searchHistoryMax),
+        }
         : prev,
     )
   }
@@ -1285,9 +1281,9 @@ function App() {
     setConfig((prev) =>
       prev
         ? {
-            ...prev,
-            apps: prev.apps.map((a) => (a.id === appId ? { ...a, categoryId } : a)),
-          }
+          ...prev,
+          apps: prev.apps.map((a) => (a.id === appId ? { ...a, categoryId } : a)),
+        }
         : prev,
     )
     try {
@@ -1593,9 +1589,8 @@ function App() {
 
   return (
     <main
-      className={`${showDefaultWallpaper ? 'default-wallpaper' : 'bg-transparent'} relative min-h-screen ${
-        isScrollMode ? '' : 'overflow-hidden'
-      } text-white`}
+      className={`${showDefaultWallpaper ? 'default-wallpaper' : 'bg-transparent'} relative min-h-screen ${isScrollMode ? '' : 'overflow-hidden'
+        } text-white`}
     >
       {wallpaperUrl && (
         <img
@@ -1610,9 +1605,8 @@ function App() {
             setWallpaperLoaded(false)
             setWallpaperUrl(null)
           }}
-          className={`fixed inset-0 h-full w-full object-cover transition-opacity duration-700 ${
-            wallpaperLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`fixed inset-0 h-full w-full object-cover transition-opacity duration-700 ${wallpaperLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
           style={{
             filter: `blur(${config.wallpaper.blur}px)`,
             transform: config.wallpaper.blur > 0 ? 'scale(1.04)' : 'scale(1)',
@@ -1622,9 +1616,8 @@ function App() {
       {wallpaperLoaded && <div className="fixed inset-0 bg-black/10" />}
 
       <section
-        className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${
-          backgroundReady ? 'opacity-100' : 'opacity-0'
-        }`}
+        className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-14 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'
+          }`}
       >
         <Clock showTime={config.showTime} title={config.title} />
 
@@ -1661,9 +1654,8 @@ function App() {
                 <img src={iconSrc(engine.icon)} alt="" className="h-[72%] w-[72%] object-contain" />
               ) : (
                 <div
-                  className={`grid h-[72%] w-[72%] place-items-center rounded-lg bg-gradient-to-br ${
-                    engine?.color || 'from-sky-400 to-blue-600'
-                  } text-white`}
+                  className={`grid h-[72%] w-[72%] place-items-center rounded-lg bg-gradient-to-br ${engine?.color || 'from-sky-400 to-blue-600'
+                    } text-white`}
                 >
                   <span className="text-[0.7em] font-black">{engine?.shortName || '?'}</span>
                 </div>
@@ -1837,9 +1829,8 @@ function App() {
       {/* 翻页模式应用层 */}
       {!isScrollMode && (
         <div
-          className={`fixed inset-x-0 top-[17rem] bottom-24 z-20 transition-opacity duration-500 ${
-            backgroundReady ? 'opacity-100' : 'opacity-0'
-          }`}
+          className={`fixed inset-x-0 top-[17rem] bottom-24 z-20 transition-opacity duration-500 ${backgroundReady ? 'opacity-100' : 'opacity-0'
+            }`}
           onContextMenu={(e) => {
             e.preventDefault()
             const page = appPages[appPage] ?? []
@@ -1909,7 +1900,7 @@ function App() {
               className="flex w-24 flex-col items-center gap-2 text-white"
               style={{ transform: 'translate(-50%, -50%) scale(1.12)', transformOrigin: 'center' }}
             >
-              <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-2xl shadow-2xl ring-2 ring-white/50">
+              <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-2xl ring-2 ring-white/50 min-[2000px]:h-18 min-[2000px]:w-18">
                 <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
               </div>
               <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{app.name}</span>
@@ -1930,9 +1921,8 @@ function App() {
                   type="button"
                   data-dot-index={index}
                   onClick={() => goToAppPage(index, 'x')}
-                  className={`h-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${
-                    active ? 'w-6 bg-white' : 'w-2'
-                  }`}
+                  className={`h-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${active ? 'w-6 bg-white' : 'w-2'
+                    }`}
                   title={`第 ${index + 1} 页`}
                 />
               )
@@ -1956,9 +1946,8 @@ function App() {
                   type="button"
                   data-dot-index={index}
                   onClick={() => goToAppPage(index, allowVertical ? 'y' : 'x')}
-                  className={`w-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${
-                    active ? 'h-6 bg-white' : 'h-2'
-                  }`}
+                  className={`w-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${active ? 'h-6 bg-white' : 'h-2'
+                    }`}
                   title={`第 ${index + 1} 页`}
                 />
               )
@@ -2054,9 +2043,8 @@ function App() {
                     key={tab.id}
                     type="button"
                     onClick={() => setSettingsTab(tab.id)}
-                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition ${
-                      active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
-                    }`}
+                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
+                      }`}
                   >
                     <Icon className="h-4 w-4" />
                     {tab.name}
@@ -2090,11 +2078,10 @@ function App() {
                           key={m}
                           type="button"
                           onClick={() => setWallpaperMode(m)}
-                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
-                            config.wallpaper.mode === m
-                              ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
+                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${config.wallpaper.mode === m
+                            ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
                         >
                           {m === 'bing' ? 'Bing 壁纸' : '默认背景'}
                         </button>
@@ -2111,11 +2098,10 @@ function App() {
                           type="button"
                           onClick={() => setWallpaperResolution(r)}
                           disabled={config.wallpaper.mode === 'default'}
-                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                            config.wallpaper.resolution === r
-                              ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
+                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${config.wallpaper.resolution === r
+                            ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
                         >
                           {r === '1080' ? '1080P' : '4K / UHD'}
                         </button>
@@ -2164,9 +2150,8 @@ function App() {
                           key={mode.id}
                           type="button"
                           onClick={() => setLayoutMode(mode.id)}
-                          className={`rounded-2xl px-4 py-3 text-left transition ${
-                            active ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
+                          className={`rounded-2xl px-4 py-3 text-left transition ${active ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
                         >
                           <div className="text-sm font-semibold">{mode.name}</div>
                           <div className={`mt-0.5 text-xs ${active ? 'text-white/85' : 'text-slate-400'}`}>{mode.desc}</div>
@@ -2212,9 +2197,8 @@ function App() {
                             setDragOverCategoryId(null)
                             if (appId) assignAppToCategory(appId, cat.id)
                           }}
-                          className={`rounded-2xl border-2 border-dashed p-3 transition ${
-                            isOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50/60'
-                          }`}
+                          className={`rounded-2xl border-2 border-dashed p-3 transition ${isOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50/60'
+                            }`}
                         >
                           <div className="mb-2 flex items-center justify-between gap-2">
                             {isEditing ? (
@@ -2277,9 +2261,8 @@ function App() {
                                   className="flex cursor-grab items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md active:cursor-grabbing"
                                 >
                                   <span
-                                    className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${
-                                      app.color || 'from-slate-400 to-slate-600'
-                                    } text-white`}
+                                    className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'
+                                      } text-white`}
                                   >
                                     {app.icon ? (
                                       <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain" />
@@ -2308,9 +2291,8 @@ function App() {
                         setDragOverCategoryId(null)
                         if (appId) assignAppToCategory(appId, '')
                       }}
-                      className={`rounded-2xl border-2 border-dashed p-3 transition ${
-                        dragOverCategoryId === '__uncategorized__' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50/60'
-                      }`}
+                      className={`rounded-2xl border-2 border-dashed p-3 transition ${dragOverCategoryId === '__uncategorized__' ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-slate-50/60'
+                        }`}
                     >
                       <div className="mb-2 flex items-center gap-2">
                         <span className="text-sm font-semibold text-slate-700">未分类</span>
@@ -2331,9 +2313,8 @@ function App() {
                               className="flex cursor-grab items-center gap-1.5 rounded-xl bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 transition hover:shadow-md active:cursor-grabbing"
                             >
                               <span
-                                className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${
-                                  app.color || 'from-slate-400 to-slate-600'
-                                } text-white`}
+                                className={`grid h-5 w-5 place-items-center overflow-hidden rounded-md bg-gradient-to-br ${app.color || 'from-slate-400 to-slate-600'
+                                  } text-white`}
                               >
                                 {app.icon ? (
                                   <img src={iconSrc(app.icon)} alt="" className="h-full w-full object-contain" />
@@ -2393,11 +2374,10 @@ function App() {
                             <button
                               type="button"
                               onClick={() => setDefaultEngine(item.id)}
-                              className={`rounded-md px-2 py-1 text-xs font-medium transition ${
-                                isDefault
-                                  ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/20'
-                                  : 'text-slate-500 hover:bg-slate-200'
-                              }`}
+                              className={`rounded-md px-2 py-1 text-xs font-medium transition ${isDefault
+                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/20'
+                                : 'text-slate-500 hover:bg-slate-200'
+                                }`}
                             >
                               {isDefault ? '默认' : '设为默认'}
                             </button>
