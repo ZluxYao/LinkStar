@@ -209,7 +209,7 @@ function AppIcon({
       style={onPointerDown ? { touchAction: 'none' } : undefined}
       className={`group flex w-24 flex-col items-center gap-2 text-white outline-none transition-opacity ${ghostClass}`}
     >
-      <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-lg ring-1 ring-white/30 transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
+      <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
         {app.online === true && (
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
