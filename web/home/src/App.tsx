@@ -263,10 +263,12 @@ function PagedGrid({
             key={slotIdx}
             data-slot={absPO}
             onContextMenu={
-              !slot && interactive && onEmptyContextMenu
+              interactive
                 ? (e) => {
                     e.preventDefault()
-                    onEmptyContextMenu(e, absPO)
+                    e.stopPropagation()
+                    if (slot) onContextMenu(e, slot)
+                    else if (onEmptyContextMenu) onEmptyContextMenu(e, absPO)
                   }
                 : undefined
             }
@@ -1791,6 +1793,13 @@ function App() {
           className={`fixed inset-x-0 top-[17rem] bottom-24 z-20 transition-opacity duration-500 ${
             backgroundReady ? 'opacity-100' : 'opacity-0'
           }`}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            const page = appPages[appPage] ?? []
+            const firstEmpty = page.findIndex((s) => s === null)
+            const pagedOrder = firstEmpty >= 0 ? appPage * pageSize + firstEmpty + 1 : undefined
+            setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, pagedOrder })
+          }}
         >
           <div ref={appsPagerRef} className="relative mx-auto h-full w-full max-w-5xl select-none overflow-hidden px-6">
             {appSlide && (
@@ -2390,6 +2399,14 @@ function App() {
 
       {/* 右下浮动按钮组 */}
       <div className="fixed bottom-7 right-7 z-30 flex flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => setAppForm({ open: true })}
+          className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25"
+          title="添加应用"
+        >
+          <Plus className="h-5 w-5" />
+        </button>
         <button
           type="button"
           onClick={cycleNetworkPrefer}
