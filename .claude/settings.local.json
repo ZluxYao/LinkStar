@@ -10,7 +10,8 @@
       "Bash(npx tsc *)",
       "Bash(npx vite *)",
       "Bash(echo \"go exit=$?\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(go list *)"
     ]
   }
 }

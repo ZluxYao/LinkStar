@@ -67,4 +67,7 @@ func HomeRouters(g *gin.RouterGroup) {
 
 	// 图标上传
 	g.POST("home/icon/upload", app.IconUploadView)
+	// 从地址抓取图标
+	g.POST("home/icon/fetch",
+		middleware.BindJsonMiddleware[home_api.IconFetchRequest], app.IconFetchView)
 }

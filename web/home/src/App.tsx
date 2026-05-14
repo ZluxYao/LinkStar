@@ -329,9 +329,18 @@ function SearchEngineIcon({
   )
 }
 
-function IconUploader({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function IconUploader({
+  value,
+  onChange,
+  fetchUrl,
+}: {
+  value: string
+  onChange: (v: string) => void
+  fetchUrl?: string
+}) {
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
+  const [fetching, setFetching] = useState(false)
   const [err, setErr] = useState('')
 
   const pick = async (file: File | null | undefined) => {
@@ -348,9 +357,27 @@ function IconUploader({ value, onChange }: { value: string; onChange: (v: string
     }
   }
 
+  const fetchFromUrl = async () => {
+    const u = (fetchUrl || '').trim()
+    if (!u) {
+      setErr('请先填写网址')
+      return
+    }
+    setErr('')
+    setFetching(true)
+    try {
+      const path = await api.fetchIconFromURL(u)
+      onChange(path)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '抓取失败')
+    } finally {
+      setFetching(false)
+    }
+  }
+
   return (
     <div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200">
           {value ? (
             <img src={iconSrc(value)} alt="" className="h-full w-full object-contain" />
@@ -361,12 +388,24 @@ function IconUploader({ value, onChange }: { value: string; onChange: (v: string
         <button
           type="button"
           onClick={() => ref.current?.click()}
-          disabled={busy}
+          disabled={busy || fetching}
           className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200 disabled:opacity-50"
         >
           <Upload className="h-4 w-4" />
           {busy ? '上传中...' : value ? '替换' : '上传'}
         </button>
+        {fetchUrl !== undefined && (
+          <button
+            type="button"
+            onClick={fetchFromUrl}
+            disabled={busy || fetching || !fetchUrl?.trim()}
+            className="flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-100 disabled:opacity-50"
+            title="从网址自动获取图标"
+          >
+            <Globe2 className="h-4 w-4" />
+            {fetching ? '抓取中...' : '从地址抓取'}
+          </button>
+        )}
         {value && (
           <button
             type="button"
@@ -507,7 +546,11 @@ function AppFormModal({
 
           <div>
             <div className="mb-1 text-xs font-semibold text-slate-500">图标</div>
-            <IconUploader value={form.icon} onChange={(v) => setForm((p) => ({ ...p, icon: v }))} />
+            <IconUploader
+              value={form.icon}
+              onChange={(v) => setForm((p) => ({ ...p, icon: v }))}
+              fetchUrl={form.wanV4 || form.wanV6 || form.lan}
+            />
           </div>
 
           <div>
@@ -696,7 +739,11 @@ function SearchEngineFormModal({
           />
           <div>
             <div className="mb-1 text-xs font-semibold text-slate-500">图标</div>
-            <IconUploader value={form.icon} onChange={(v) => setForm((p) => ({ ...p, icon: v }))} />
+            <IconUploader
+              value={form.icon}
+              onChange={(v) => setForm((p) => ({ ...p, icon: v }))}
+              fetchUrl={form.url}
+            />
           </div>
           <div>
             <div className="mb-1 text-xs font-semibold text-slate-500">背景</div>

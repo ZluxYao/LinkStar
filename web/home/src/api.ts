@@ -118,6 +118,12 @@ export async function uploadIcon(file: File): Promise<string> {
   return data.path
 }
 
+// ============ 从 URL 抓取图标 ============
+export async function fetchIconFromURL(url: string): Promise<string> {
+  const data = await send<{ path: string }>('POST', '/home/icon/fetch', { url })
+  return data.path
+}
+
 // ============ Bing 壁纸 (沿用) ============
 export interface BingWallpaper { url: string }
 export async function getBingWallpaper(resolution: 'uhd' | '1080'): Promise<BingWallpaper> {
