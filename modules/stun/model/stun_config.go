@@ -29,8 +29,8 @@ type Service struct {
 	StartupSuccess bool   `json:"-"`
 	Name           string `json:"name"`         // 服务名称,如 "SSH" / "Web管理" / "照片库"
 	InternalPort   uint16 `json:"internalPort"` // 内网端口,如 22
-	Protocol string `json:"protocol"` // 传输协议 "TCP"/"UDP" (默认 TCP)
-	TLS            bool   `json:"tls"`          // 证书
+	Protocol       string `json:"protocol"`     // 传输协议 "TCP"/"UDP" (默认 TCP)
+	Https          bool   `json:"https"`        // 是否是https
 
 	// UPnP 相关配置
 	UseUPnP        bool   `json:"useUpnp"`        // 是否启用 UPnP 自动端口映射 (默认 true)

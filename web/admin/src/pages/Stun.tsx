@@ -157,7 +157,7 @@ interface ServiceFormState {
   protocol: 'TCP' | 'UDP'
   upnpMappedPort: string
   useUpnp: boolean
-  tls: boolean
+  https: boolean
   enabled: boolean
   showOnHome: boolean
   description: string
@@ -168,7 +168,7 @@ const emptyService: ServiceFormState = {
   protocol: 'TCP',
   upnpMappedPort: '0',
   useUpnp: true,
-  tls: false,
+  https: false,
   enabled: true,
   showOnHome: false,
   description: '',
@@ -193,7 +193,7 @@ function ServiceModal({
       protocol: (initial.protocol as 'TCP' | 'UDP') || 'TCP',
       upnpMappedPort: String(initial.upnpMappedPort || 0),
       useUpnp: !!initial.useUpnp,
-      tls: !!initial.tls,
+      https: !!initial.https,
       enabled: initial.enabled !== false,
       showOnHome: initialShowOnHome,
       description: initial.description || '',
@@ -290,7 +290,7 @@ function ServiceModal({
           <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               { key: 'useUpnp' as const, label: '启用 UPnP' },
-              { key: 'tls' as const, label: '启用 TLS' },
+              { key: 'https' as const, label: 'HTTPS 服务' },
               { key: 'enabled' as const, label: '启用服务' },
               { key: 'showOnHome' as const, label: '主页显示' },
             ].map((opt) => (
@@ -498,7 +498,7 @@ export function Stun() {
       protocol: form.protocol,
       upnpMappedPort: Number(form.upnpMappedPort) || 0,
       useUpnp: form.useUpnp,
-      tls: form.tls,
+      https: form.https,
       enabled: form.enabled,
       description: form.description.trim(),
     }
@@ -557,16 +557,17 @@ export function Stun() {
       .catch(() => toast('复制失败'))
   }
 
-  const openAddress = (protocol: string, addr: string) => {
+  const openAddress = (svc: StunService, addr: string) => {
     if (!addr) return
-    if ((protocol || '').toLowerCase() === 'ssh') {
+    if ((svc.protocol || '').toLowerCase() === 'ssh') {
       const [host, port] = addr.split(':')
       const cmd = `ssh root@${host} -p ${port || '22'}`
       copy(cmd)
       window.setTimeout(() => alert(`SSH 连接命令已复制：\n\n${cmd}`), 100)
       return
     }
-    window.open(`http://${addr}`, '_blank', 'noopener,noreferrer')
+    const scheme = svc.https ? 'https://' : 'http://'
+    window.open(`${scheme}${addr}`, '_blank', 'noopener,noreferrer')
   }
 
   const logStatus = useMemo(() => (logKey ? statusMap[logKey] ?? null : null), [logKey, statusMap])
@@ -796,6 +797,11 @@ export function Stun() {
                                 UPnP
                               </span>
                             )}
+                            {svc.https && (
+                              <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                                HTTPS
+                              </span>
+                            )}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -833,7 +839,7 @@ export function Stun() {
                               <ClipboardCopy className="h-3 w-3" /> 复制地址
                             </button>
                             <button
-                              onClick={() => openAddress(svc.protocol, fullAddr)}
+                              onClick={() => openAddress(svc, fullAddr)}
                               className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100"
                             >
                               <ExternalLink className="h-3 w-3" /> 一键直达

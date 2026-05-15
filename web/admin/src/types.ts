@@ -16,7 +16,7 @@ export interface StunService {
   protocol: string
   upnpMappedPort: number
   useUpnp: boolean
-  tls: boolean
+  https: boolean
   enabled: boolean
   description: string
 }

@@ -73,7 +73,7 @@ func stunAddresses(app App) (AppAddresses, *bool) {
 	}
 
 	scheme := "http://"
-	if service.TLS {
+	if service.Https {
 		scheme = "https://"
 	}
 

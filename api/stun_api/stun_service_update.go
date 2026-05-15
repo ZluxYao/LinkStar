@@ -15,7 +15,7 @@ type StunServiceUpdateViewRequest struct {
 	Name         string `json:"name"`         // 服务名称
 	InternalPort uint16 `json:"internalPort"` // 内网端口
 	Protocol     string `json:"protocol"`     // 传输协议 "TCP"/"UDP"
-	TLS          bool   `json:"tls"`          // 证书
+	Https        bool   `json:"https"`        // 是否是 https 服务（影响前端跳转 scheme）
 
 	// UPnP 相关配置
 	UseUPnP        bool   `json:"useUpnp"`
@@ -59,7 +59,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.Name = cr.Name
 	svc.InternalPort = cr.InternalPort
 	svc.Protocol = cr.Protocol
-	svc.TLS = cr.TLS
+	svc.Https = cr.Https
 	svc.UseUPnP = cr.UseUPnP
 	svc.UPnPMappedPort = cr.UPnPMappedPort
 	svc.Enabled = cr.Enabled
