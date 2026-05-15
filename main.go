@@ -11,7 +11,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//go:embed web/dist web/home/dist
+//go:embed web/admin/dist web/home/dist
 var webFS embed.FS
 
 func main() {

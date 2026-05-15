@@ -2439,7 +2439,7 @@ function App() {
         <AppFormModal
           initial={appForm.initial}
           defaultCategoryId={appForm.defaultCategoryId}
-          categories={config.categories}
+           categories={config.categories}
           isStun={appForm.initial?.type === 'stun'}
           onCancel={() => setAppForm({ open: false })}
           onSubmit={submitApp}

@@ -32,7 +32,7 @@ func Run(webFS fs.FS) {
 	r.Static("/data/icon", "data/icon")
 
 	// 剥掉 路径 前缀
-	adminFS, _ := fs.Sub(webFS, "web/dist")
+	adminFS, _ := fs.Sub(webFS, "web/admin/dist")
 	homeFS, _ := fs.Sub(webFS, "web/home/dist")
 
 	// 所有非 API 请求：先找静态文件，找不到就返回 index.html（Vue Router 兜底）

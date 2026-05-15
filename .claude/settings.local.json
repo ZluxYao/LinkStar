@@ -11,7 +11,8 @@
       "Bash(npx vite *)",
       "Bash(echo \"go exit=$?\")",
       "Bash(npm run *)",
-      "Bash(go list *)"
+      "Bash(go list *)",
+      "Bash(grep \"^export type\\\\|^export { type\\\\|type LucideIcon\\\\|, type LucideIcon\\\\| LucideIcon,\" /Users/zlux/Project/Active/LinkStart/linkstar/web/home/node_modules/lucide-react/dist/lucide-react.d.ts)"
     ]
   }
 }
