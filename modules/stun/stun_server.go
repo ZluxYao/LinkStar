@@ -109,6 +109,7 @@ func (s *STUNService) UpdateSTUNService() {
 			defer wg.Done()
 			res, err := getSTUNServerDelay(srv)
 			if err != nil {
+				logrus.Info(err)
 				return
 			}
 			logrus.Infof("STUN服务器 %s 延时: %v", res.Server, res.Delay)
@@ -163,7 +164,36 @@ func getSTUNServerDelay(srv string) (*STUNServiceDelay, error) {
 		return nil, fmt.Errorf("%s read failed:", err)
 	}
 
+	// 解析响应，拿到映射地址
+	var response stun.Message
+	response.Raw = buf[:n]
+	if err := response.Decode(); err != nil {
+		return nil, fmt.Errorf("decode STUN failed: %w", err)
+	}
+	var xorAddr stun.XORMappedAddress
+	if err := xorAddr.GetFrom(&response); err != nil {
+		return nil, fmt.Errorf("get mapped address failed: %w", err)
+	}
+
+	// 返回的不是公网IP，视为超时/不可用
+	if isNonPublicIP(xorAddr.IP) {
+		return nil, fmt.Errorf("STUN服务器 %s 返回非公网IP: %s", srv, xorAddr.IP.String())
+	}
+
 	dalay := time.Since(star)
 
 	return &STUNServiceDelay{Server: srv, Delay: dalay}, nil
+}
+
+// 判断是不是不可用作公网的IP（私网/回环/链路本地/CGNAT等）
+func isNonPublicIP(ip net.IP) bool {
+	if ip == nil || ip.IsUnspecified() || ip.IsLoopback() ||
+		ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
+		return true
+	}
+	// CGNAT 100.64.0.0/10，IsPrivate 不覆盖
+	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		return true
+	}
+	return false
 }
