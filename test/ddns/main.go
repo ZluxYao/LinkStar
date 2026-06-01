@@ -59,7 +59,7 @@ func main() {
 		log.Fatalf("❌ 配置无效: %v", err)
 	}
 	fmt.Printf("✅ 配置文件: %s\n", *flagConfig)
-	fmt.Printf("   recordName: %s\n", config.CF.RecordName)
+	fmt.Printf("   recordNames: %v\n", config.CF.Names())
 	if config.CF.ZoneID == "" {
 		fmt.Printf("   zoneID:     (自动反查)\n")
 	} else {
@@ -76,45 +76,50 @@ func main() {
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("   新 IP: %s\n\n", *flagIP)
 
-	result, err := cf.UpdateRecord(config.CF.Token, config.CF.ZoneID, config.CF.RecordName, *flagIP)
-	if err != nil {
-		log.Fatalf("❌ CF 更新失败: %v", err)
-	}
+	for _, recordName := range config.CF.Names() {
+		fmt.Printf("   domain: %s\n", recordName)
 
-	switch result.Action {
-	case cf.ActionSkipped:
-		fmt.Printf("⏭️  跳过（IP 未变化）：%s\n", result.NewIP)
-	case cf.ActionUpdated:
-		fmt.Printf("✅ 更新成功：%s → %s\n", result.PrevIP, result.NewIP)
-	case cf.ActionCreated:
-		fmt.Printf("🆕 新建成功：%s\n", result.NewIP)
-	}
-	fmt.Printf("   record_id: %s\n\n", result.RecordID)
+		result, err := cf.UpdateRecord(config.CF.Token, config.CF.ZoneID, recordName, *flagIP)
+		if err != nil {
+			log.Fatalf("❌ CF 更新失败 (%s): %v", recordName, err)
+		}
 
-	// ━━━━━━━━━━ 步骤 3（可选）：发通知 ━━━━━━━━━━
-	if config.Notify == "" {
-		return
-	}
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("📣 步骤 3: 调 webhook.Do 发通知（演示工具函数用法）")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("   URL: %s\n\n", config.Notify)
+		switch result.Action {
+		case cf.ActionSkipped:
+			fmt.Printf("   ⏭️  跳过（IP 未变化）：%s\n", result.NewIP)
+		case cf.ActionUpdated:
+			fmt.Printf("   ✅ 更新成功：%s → %s\n", result.PrevIP, result.NewIP)
+		case cf.ActionCreated:
+			fmt.Printf("   🆕 新建成功：%s\n", result.NewIP)
+		}
+		fmt.Printf("   record_id: %s\n\n", result.RecordID)
 
-	payload := map[string]any{
-		"domain":  config.CF.RecordName,
-		"ip":      *flagIP,
-		"prev_ip": result.PrevIP,
-		"action":  string(result.Action),
-		"record":  result.RecordID,
+		// ━━━━━━━━━━ 步骤 3（可选）：发通知 ━━━━━━━━━━
+		if config.Notify == "" {
+			continue
+		}
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Println("📣 步骤 3: 调 webhook.Do 发通知（演示工具函数用法）")
+		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		fmt.Printf("   URL: %s\n", config.Notify)
+		fmt.Printf("   domain: %s\n\n", recordName)
+
+		payload := map[string]any{
+			"domain":  recordName,
+			"ip":      *flagIP,
+			"prev_ip": result.PrevIP,
+			"action":  string(result.Action),
+			"record":  result.RecordID,
+		}
+		body, status, err := webhook.Do("POST", config.Notify, nil, payload)
+		if err != nil {
+			log.Printf("⚠️  通知失败 (%s): %v", recordName, err)
+			continue
+		}
+		if status >= 400 {
+			log.Printf("⚠️  通知返回 %d (%s): %s", status, recordName, string(body))
+			continue
+		}
+		fmt.Printf("✅ 通知发送成功 (status=%d)\n\n", status)
 	}
-	body, status, err := webhook.Do("POST", config.Notify, nil, payload)
-	if err != nil {
-		log.Printf("⚠️  通知失败: %v", err)
-		return
-	}
-	if status >= 400 {
-		log.Printf("⚠️  通知返回 %d: %s", status, string(body))
-		return
-	}
-	fmt.Printf("✅ 通知发送成功 (status=%d)\n", status)
 }

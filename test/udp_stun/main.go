@@ -9,7 +9,7 @@ import (
 	"github.com/pion/stun/v2"
 )
 
-const stunServer = "stun.hot-chilli.net:3478"
+const stunServer = "stun.radiojar.com:3478"
 
 // 主函数
 func main() {

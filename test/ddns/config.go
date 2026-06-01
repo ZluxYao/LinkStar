@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -28,9 +29,10 @@ type Config struct {
 
 // CFConfig Cloudflare 相关参数
 type CFConfig struct {
-	Token      string `json:"token"`      // CF API Token
-	ZoneID     string `json:"zoneID"`     // 可选；留空会自动从 recordName 反查
-	RecordName string `json:"recordName"` // 完整域名，如 home.example.com
+	Token       string   `json:"token"`                 // CF API Token
+	ZoneID      string   `json:"zoneID"`                // 可选；留空会自动从 recordName 反查
+	RecordName  string   `json:"recordName,omitempty"`  // 兼容旧配置：单个完整域名
+	RecordNames []string `json:"recordNames,omitempty"` // 多个完整域名，如 home.example.com
 }
 
 // 占位符：用于检测用户有没有改过默认值
@@ -51,9 +53,9 @@ func createDefaultConfig(path string) (Config, error) {
 		CreatedAt: now,
 		UpdatedAt: now,
 		CF: CFConfig{
-			Token:      tokenPlaceholder,
-			ZoneID:     "",
-			RecordName: "home.example.com",
+			Token:       tokenPlaceholder,
+			ZoneID:      "",
+			RecordNames: []string{"home.example.com"},
 		},
 		Notify: "",
 	}
@@ -67,7 +69,7 @@ func createDefaultConfig(path string) (Config, error) {
 		return config, fmt.Errorf("写入默认配置失败: %w", err)
 	}
 	fmt.Printf("🆕 已创建默认配置: %s\n", path)
-	fmt.Println("   请打开它，把 token / recordName 填好后重新运行")
+	fmt.Println("   请打开它，把 token / recordNames 填好后重新运行")
 	return config, nil
 }
 
@@ -76,10 +78,34 @@ func validateConfig(c Config) error {
 	if c.CF.Token == "" || c.CF.Token == tokenPlaceholder {
 		return fmt.Errorf("配置文件里的 cf.token 还是占位符，请先填好真实 Token")
 	}
-	if c.CF.RecordName == "" {
-		return fmt.Errorf("配置文件里的 cf.recordName 不能为空")
+	if len(c.CF.Names()) == 0 {
+		return fmt.Errorf("配置文件里的 cf.recordNames 不能为空")
 	}
 	return nil
+}
+
+// Names returns all configured record names and keeps compatibility with recordName.
+func (c CFConfig) Names() []string {
+	seen := make(map[string]struct{}, len(c.RecordNames)+1)
+	names := make([]string, 0, len(c.RecordNames)+1)
+
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+
+	add(c.RecordName)
+	for _, name := range c.RecordNames {
+		add(name)
+	}
+	return names
 }
 
 // ============ 通用 JSON 读写（抄自 utils/utilsFile/utils_json.go）============
