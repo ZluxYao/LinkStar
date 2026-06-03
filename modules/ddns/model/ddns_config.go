@@ -2,12 +2,14 @@ package model
 
 import "time"
 
-type DDNSProviderType string
+// 定义每个 DNS 服务商
+type DNProviderType string
 
 const (
-	DDNSProviderTypeCloudflare DDNSProviderType = "cloudflare"
+	DNSProviderCloudflare DNProviderType = "cloudflare"
 )
 
+// 定义每个 DNS 记录类型
 type DNSRecordType string
 
 const (
@@ -15,12 +17,17 @@ const (
 	DNSRecordTypeAAAA DNSRecordType = "AAAA"
 )
 
+// 定义DDNS 记录状态
 type DDNSRecordStatus string
 
 const (
+	// 等待执行同步
 	DDNSRecordStatusPending DDNSRecordStatus = "pending"
+	// 同步成功
 	DDNSRecordStatusSuccess DDNSRecordStatus = "success"
-	DDNSRecordStatusFailed  DDNSRecordStatus = "failed"
+	// 同步失败
+	DDNSRecordStatusFailed DDNSRecordStatus = "failed"
+	// 跳过同步
 	DDNSRecordStatusSkipped DDNSRecordStatus = "skipped"
 )
 
