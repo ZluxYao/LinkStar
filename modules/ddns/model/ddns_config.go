@@ -2,23 +2,14 @@ package model
 
 import "time"
 
-<<<<<<< HEAD
 // DDSN提供商类型
-type DDNSProviderType string
-=======
-// 定义每个 DNS 服务商
-type DNProviderType string
->>>>>>> 383bde3bcbe4abb4a2a31be1bbc450ebb8420d16
+type DNSProviderType string
 
 const (
-	DNSProviderCloudflare DNProviderType = "cloudflare"
+	DNSProviderCloudflare DNSProviderType = "cloudflare"
 )
 
-<<<<<<< HEAD
-// DDNS 记录类型
-=======
 // 定义每个 DNS 记录类型
->>>>>>> 383bde3bcbe4abb4a2a31be1bbc450ebb8420d16
 type DNSRecordType string
 
 const (
@@ -26,16 +17,6 @@ const (
 	DNSRecordTypeAAAA DNSRecordType = "AAAA"
 )
 
-<<<<<<< HEAD
-// DDNS记录状态
-type DDNSRecordStatus string
-
-const (
-	DDNSRecordStatusPending DDNSRecordStatus = "pending" // 推送
-	DDNSRecordStatusSuccess DDNSRecordStatus = "success" // 成功
-	DDNSRecordStatusFailed  DDNSRecordStatus = "failed"  // 失败
-	DDNSRecordStatusSkipped DDNSRecordStatus = "skipped" // 跳过
-=======
 // 定义DDNS 记录状态
 type DDNSRecordStatus string
 
@@ -48,7 +29,6 @@ const (
 	DDNSRecordStatusFailed DDNSRecordStatus = "failed"
 	// 跳过同步
 	DDNSRecordStatusSkipped DDNSRecordStatus = "skipped"
->>>>>>> 383bde3bcbe4abb4a2a31be1bbc450ebb8420d16
 )
 
 // DDNS 配置
