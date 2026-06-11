@@ -2,11 +2,11 @@ package model
 
 import "time"
 
-// 定义每个 DNS 服务商
-type DNProviderType string
+// DDSN提供商类型
+type DNSProviderType string
 
 const (
-	DNSProviderCloudflare DNProviderType = "cloudflare"
+	DNSProviderCloudflare DNSProviderType = "cloudflare"
 )
 
 // 定义每个 DNS 记录类型
