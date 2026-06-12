@@ -44,7 +44,7 @@ type CloudflareStatus struct {
 }
 
 // GetZone 获取域名 zone 信息
-func (cf *Cloudflare) GetZone(domain string) (result CloudflareZonesResp, err error) {
+func (cf *Cloudflare) getZones(domain string) (result CloudflareZonesResp, err error) {
 	params := url.Values{}
 	params.Set("name", domain)
 	params.Set("status", "active")

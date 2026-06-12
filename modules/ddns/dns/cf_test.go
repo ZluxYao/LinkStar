@@ -2,6 +2,7 @@ package dns
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -9,15 +10,15 @@ import (
 //
 //	go test ./modules/ddns/dns/ -v -run TestCloudflareGetZone
 func TestCloudflareGetZone(t *testing.T) {
-	token := ""
-	domain := "zlux.top"
+	token := os.Getenv("CF_ApiToken")
+	domain := "ztoken.zlux.top"
 	if token == "" || domain == "" {
 		t.Skip("未设置 token / domain,跳过")
 	}
 
 	cf := NewCloudflare(token)
 
-	resp, err := cf.GetZone(domain)
+	resp, err := cf.getZones(domain)
 	if err != nil {
 		t.Fatalf("GetZone 请求失败: %v", err)
 	}
