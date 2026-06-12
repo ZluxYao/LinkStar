@@ -13,7 +13,7 @@ func TestCloudflareGetZone(t *testing.T) {
 	token := os.Getenv("CF_ApiToken")
 	domain := "ztoken.zlux.top"
 	if token == "" || domain == "" {
-		t.Skip("未设置 token / domain,跳过")
+		t.Skip("未设置 token")
 	}
 
 	cf := NewCloudflare(token)
@@ -34,4 +34,23 @@ func TestCloudflareGetZone(t *testing.T) {
 	t.Logf("zone ID: %s, name: %s, status: %s",
 		resp.Result[0].ID, resp.Result[0].Name, resp.Result[0].Status)
 	fmt.Println(resp)
+}
+
+// go test ./modules/ddns/dns/ -v -run TestCloudflareSetRecord
+func TestCloudflareSetRecord(t *testing.T) {
+	token := os.Getenv("CF_ApiToken")
+	domain := "zlux.top"
+	subDomain := "test"
+	if token == "" {
+		t.Skip("未设置 token")
+	}
+
+	cf := NewCloudflare(token)
+
+	err := cf.SetRecord(domain, subDomain, "A", "5.5.5.5", 0, true)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("更新成功")
 }
