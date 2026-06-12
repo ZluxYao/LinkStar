@@ -5,6 +5,51 @@ import (
 	"os"
 )
 
+// // 读取config 配置文件
+// func ReadConfig[T any](config *T, configPath string, createConfig func() (config T, err error)) (err error) {
+// 	//检测文件是否存在
+// 	if fileInfo, err := os.Stat(configPath); os.IsNotExist(err) || fileInfo.Size() == 0 {
+// 		//不存在创建空配置文件
+// 		*config, err = createConfig()
+// 		return err
+
+// 	} else {
+// 		//文件存在读取配置文件
+// 		*config, err = ReadJsonFile[T](configPath)
+// 		if err != nil {
+// 			logrus.Error("配置文件读取失败：", err)
+// 			return err
+// 		}
+
+// 	}
+// 	return nil
+
+// }
+
+// func CreateConfig[T any](config T, configPath string) (T, error) {
+// 	// 确保 config 目录存在
+// 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+// 		logrus.Error("创建目录失败：", err)
+// 		return config, err
+// 	}
+
+// 	// 写入一个空的配置文件
+// 	if err := WriteJsonFile(configPath, config); err != nil {
+// 		logrus.Error("配置文件写入失败：", err)
+// 		return config, err
+// 	}
+// 	return config, nil
+// }
+
+// // UpdateConfig 更新配置文件
+// func UpdateConfig(config any, configPath string) error {
+// 	if err := WriteJsonFile(configPath, config); err != nil {
+// 		logrus.Error("配置文件写入失败：", err)
+// 		return err
+// 	}
+// 	return nil
+// }
+
 // 读取json配置文件
 func ReadJsonFile[T any](filePath string) (T, error) {
 
