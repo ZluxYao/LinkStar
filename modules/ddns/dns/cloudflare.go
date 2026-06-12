@@ -18,6 +18,23 @@ type Cloudflare struct {
 	httpClient *http.Client
 }
 
+// CloudflareRecordsResp records
+type CloudflareRecordsResp struct {
+	CloudflareStatus
+	Result []CloudflareRecord
+}
+
+// CloudflareRecord 记录实体
+type CloudflareRecord struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Proxied bool   `json:"proxied"`
+	TTL     int    `json:"ttl"`
+	Comment string `json:"comment"`
+}
+
 // NewCloudflare 创建 Cloudflare 客户端
 func NewCloudflare(apiToken string) *Cloudflare {
 	return &Cloudflare{
@@ -43,7 +60,10 @@ type CloudflareStatus struct {
 	Messages []string
 }
 
-// GetZone 获取域名 zone 信息
+// 修改
+func (cf *Cloudflare) modify(result CloudflareRecordsResp, zoneID string, ipAddr string)
+
+// 获取域名 zone 信息
 func (cf *Cloudflare) getZones(domain string) (result CloudflareZonesResp, err error) {
 	params := url.Values{}
 	params.Set("name", domain)
