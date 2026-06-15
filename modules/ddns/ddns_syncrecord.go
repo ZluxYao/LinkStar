@@ -1,11 +1,13 @@
 package ddns
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"linkstar/modules/ddns/dns"
 	"linkstar/modules/ddns/model"
 	"linkstar/modules/stun"
+	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -28,17 +30,23 @@ func (s *webIPSource) score() int64 {
 }
 
 var defaultIPv4Sources = []*webIPSource{
-	{URL: "https://ipv4.icanhazip.com"},
-	{URL: "https://api4.ipify.org"},
+	// {URL: "https://ipinfo.io/ip"},
+
+	{URL: "https://ipv4.getip.cc"},
+	{URL: "https://4.ident.me"},
+
+	{URL: "https://myexternalip.com/raw"},
+	{URL: "https://ifconfig.me/ip"},
+
 	{URL: "https://ipv4.ip.sb"},
 }
 
 var defaultIPv6Sources = []*webIPSource{
-	{URL: "https://ipv6.icanhazip.com"},
 	{URL: "https://api6.ipify.org"},
+	{URL: "https://ipv6.icanhazip.com"},
 	{URL: "https://ipv6.ip.sb"},
+	{URL: "https://6.ident.me"},
 }
-
 var sourceMu sync.Mutex
 
 // SyncRecord 同步记录:解析 IP -> 比对 -> 调服务商 API -> 回写状态
@@ -101,14 +109,19 @@ func resolveIP(r *model.DDNSRecord) (ip string, err error) {
 		// HTTP GET 某网站，返回体即 IP
 		if r.IPSourceArg != "" {
 			// 用户自己配了 URL，直接用，不重试
-			return fetchIPFromWeb(r.IPSourceArg)
+			switch r.RecordType {
+			case model.DNSRecordTypeA:
+				return fetchIPFromWeb(r.IPSourceArg, 4)
+			case model.DNSRecordTypeAAAA:
+				return fetchIPFromWeb(r.IPSourceArg, 6)
+			}
 		}
 		// 用户留空，走内置列表重试
 		switch r.RecordType {
 		case model.DNSRecordTypeA:
-			return fetchIPFromWebList(defaultIPv4Sources)
+			return fetchIPFromWebList(defaultIPv4Sources, 4)
 		case model.DNSRecordTypeAAAA:
-			return fetchIPFromWebList(defaultIPv6Sources)
+			return fetchIPFromWebList(defaultIPv6Sources, 6)
 		}
 	default:
 		return "", fmt.Errorf("暂不支持的 IP 来源: %s", r.IPSourceType)
@@ -119,24 +132,36 @@ func resolveIP(r *model.DDNSRecord) (ip string, err error) {
 }
 
 // 初始化HTTP客户端 方便复用
-var ipHTTPClient = &http.Client{
-	Timeout: 10 * time.Second,
-	Transport: &http.Transport{
-		Proxy: nil, // 不走任何代理
-	},
+
+func newIPClient(network string) *http.Client {
+	return &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Proxy: nil,
+			DialContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+				return (&net.Dialer{
+					Timeout:   5 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext(ctx, network, addr)
+			},
+		},
+	}
 }
+
+var ipv4HTTPClient = newIPClient("tcp4")
+var ipv6HTTPClient = newIPClient("tcp6")
 
 // 初始化 DefaultIPSources 排序
 func initDefaultIPSources() {
 	var wg sync.WaitGroup
 
-	probe := func(sources []*webIPSource) {
+	probe := func(sources []*webIPSource, version int) {
 		for _, s := range sources {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				start := time.Now()
-				_, err := fetchIPFromWeb(s.URL)
+				ip, err := fetchIPFromWeb(s.URL, version)
 				elapsed := time.Since(start)
 
 				sourceMu.Lock()
@@ -145,7 +170,7 @@ func initDefaultIPSources() {
 					logrus.Warnf("IP源探测失败 %s: %v", s.URL, err)
 				} else {
 					s.AvgLatency = elapsed
-					logrus.Debugf("IP源探测成功 %s: %v", s.URL, elapsed)
+					logrus.Infof("IP源探测成功 ip %s %s: %v ", ip, s.URL, elapsed)
 				}
 				sourceMu.Unlock()
 
@@ -153,13 +178,13 @@ func initDefaultIPSources() {
 		}
 	}
 
-	probe(defaultIPv4Sources)
-	probe(defaultIPv6Sources)
+	probe(defaultIPv4Sources, 4)
+	probe(defaultIPv6Sources, 6)
 	wg.Wait()
 }
 
 // fetchIPFromWebList 从默认列表自动尝试
-func fetchIPFromWebList(sources []*webIPSource) (string, error) {
+func fetchIPFromWebList(sources []*webIPSource, version int) (string, error) {
 	sourceMu.Lock()
 	sort.Slice(sources, func(i, j int) bool {
 		return sources[i].score() < sources[j].score()
@@ -171,7 +196,7 @@ func fetchIPFromWebList(sources []*webIPSource) (string, error) {
 	var lastErr error
 	for _, s := range ordered {
 		start := time.Now()
-		ip, err := fetchIPFromWeb(s.URL)
+		ip, err := fetchIPFromWeb(s.URL, version)
 		elapsed := time.Since(start)
 
 		sourceMu.Lock()
@@ -200,11 +225,18 @@ func fetchIPFromWebList(sources []*webIPSource) (string, error) {
 }
 
 // fetchIPFormWeb 从给定URL拉取纯文本ip
-func fetchIPFromWeb(url string) (string, error) {
+func fetchIPFromWeb(url string, version int) (string, error) {
+
+	client := ipv4HTTPClient
+	if version == 6 {
+		client = ipv6HTTPClient
+	}
+
+	// 获取ip
 	if url == "" {
 		return "", fmt.Errorf("web 来源未配置 URL")
 	}
-	resp, err := ipHTTPClient.Get(url)
+	resp, err := client.Get(url)
 	if err != nil {
 		return "", err
 	}

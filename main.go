@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"linkstar/core"
+	"linkstar/modules/ddns"
 	"linkstar/modules/home"
 	"linkstar/modules/stun"
 	"linkstar/routers"
@@ -23,6 +24,11 @@ func main() {
 	stun.InitSTUN()
 	if err := home.InitHome(); err != nil {
 		logrus.Error("Home 模块初始化失败：", err)
+	}
+
+	err := ddns.DDNSInit()
+	if err != nil {
+		logrus.Error("DDNS 模块初始化失败：", err)
 	}
 
 	routers.Run(webFS)

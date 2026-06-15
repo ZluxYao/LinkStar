@@ -46,3 +46,8 @@ func TestResolveIP(t *testing.T) {
 	ipv6, err := resolveIP(&recordIpv6)
 	fmt.Println(ipv6, err)
 }
+
+// go test ./modules/ddns/ -v -run TestDefaultWebIPSources
+func TestDefaultWebIPSources(t *testing.T) {
+	initDefaultIPSources()
+}
