@@ -8,6 +8,7 @@ import (
 	"linkstar/modules/stun"
 	"linkstar/routers"
 	"os"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
@@ -22,14 +23,22 @@ func main() {
 	logrus.Info("LinkStar Run")
 
 	stun.InitSTUN()
-	if err := home.InitHome(); err != nil {
-		logrus.Error("Home 模块初始化失败：", err)
-	}
 
-	err := ddns.DDNSInit()
-	if err != nil {
-		logrus.Error("DDNS 模块初始化失败：", err)
-	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		if err := home.InitHome(); err != nil {
+			logrus.Error("Home 模块初始化失败：", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := ddns.DDNSInit(); err != nil {
+			logrus.Error("DDNS 模块初始化失败：", err)
+		}
+	}()
+	wg.Wait()
 
 	routers.Run(webFS)
 

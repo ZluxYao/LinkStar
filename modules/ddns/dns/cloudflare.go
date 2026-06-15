@@ -39,8 +39,13 @@ type CloudflareRecord struct {
 // NewCloudflare 创建 Cloudflare 客户端
 func NewCloudflare(apiToken string) *Cloudflare {
 	return &Cloudflare{
-		APIToken:   apiToken,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		APIToken: apiToken,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				Proxy: nil,
+			},
+		},
 	}
 }
 
