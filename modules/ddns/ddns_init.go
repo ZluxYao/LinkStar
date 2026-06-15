@@ -1,6 +1,7 @@
 package ddns
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/sirupsen/logrus"
@@ -13,16 +14,13 @@ func DDNSInit() error {
 	// 读取 STUN 配置文件
 	Runtime.Config, err = ReadConfig()
 	if err != nil {
-		return fmt.Errorf("读取 STUN 配置失败: %w", err)
+		return fmt.Errorf("读取 DDNS 配置失败: %w", err)
 	}
-
-	// 初始化调度器
-	// Runtime.Scheduler = NewScheduler(NewSTUNRunner())
 
 	// 监听退出保存配置文件
 	go SetupShutdownHook(func() {
 		if err := UpdateConfig(Runtime.Config); err != nil {
-			logrus.Error("保存DDSN配置失败：", err)
+			logrus.Error("保存 DDNS 配置失败：", err)
 		}
 	})
 
@@ -39,6 +37,16 @@ func DDNSInit() error {
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("初始化 DDNS 运行时失败: %w", err)
 	}
+
+	if !Runtime.Config.Enabled {
+		logrus.Info("DDNS 未启用，跳过调度器启动")
+		return nil
+	}
+
+	ctx := context.Background()
+	Runtime.Scheduler = NewScheduler(ctx, &Runtime.Config)
+	go Runtime.Scheduler.Run(ctx, &Runtime.Config)
+	Runtime.Scheduler.Trigger()
 
 	return nil
 }

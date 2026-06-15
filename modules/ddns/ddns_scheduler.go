@@ -41,8 +41,8 @@ func NewScheduler(ctx context.Context, cfg *model.DDNSConfig) *Scheduler {
 	workers := make(map[uint]*providerWorker)
 	for _, p := range cfg.Providers {
 		client := dns.BuildClient(p)
-		if client != nil {
-			logrus.Warnf("[ddns] 不支持的服务商类型: %s (id=%d)", p.Type, p.ID)
+		if client == nil {
+			logrus.Warnf("[ddns] 不支持或配置无效的服务商: %s (id=%d)", p.Type, p.ID)
 			continue
 		}
 
@@ -59,7 +59,14 @@ func NewScheduler(ctx context.Context, cfg *model.DDNSConfig) *Scheduler {
 
 	return &Scheduler{
 		workers: workers,
-		event:   make(chan struct{}),
+		event:   make(chan struct{}, 1),
+	}
+}
+
+func (s *Scheduler) Trigger() {
+	select {
+	case s.event <- struct{}{}:
+	default:
 	}
 }
 
