@@ -3,6 +3,7 @@ package stun
 import (
 	"context"
 	"fmt"
+	"linkstar/core"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -22,7 +23,7 @@ func InitSTUN() error {
 	Runtime.Scheduler = NewScheduler(NewSTUNRunner())
 
 	// 监听退出保存配置文件
-	go SetupShutdownHook(func() {
+	core.OnShutdown(func() {
 		syncRuntimeConfig()
 		if err := UpdateConfig(Runtime.Config); err != nil {
 			logrus.Error("保存配置失败：", err)

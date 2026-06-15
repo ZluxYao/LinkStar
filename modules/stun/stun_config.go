@@ -4,17 +4,12 @@ import (
 	"linkstar/modules/stun/model"
 	"linkstar/utils/utilsFile"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
 const ConfigPath = "config/stunConfig.json"
-
-// shutdownChan 用于接收退出信号
-var shutdownChan = make(chan struct{})
 
 // 读取stun_config 配置文件
 func ReadConfig() (model.Config, error) {
@@ -94,23 +89,4 @@ func UpdateConfig(config model.Config) error {
 
 	logrus.Info("STUN配置文件已更新")
 	return nil
-}
-
-// setupShutdownHook 监听退出信号，确保配置文件
-func SetupShutdownHook(saveFn func()) {
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGABRT, syscall.SIGALRM)
-
-	go func() {
-		sig := <-signalChan
-		logrus.Infof("收到退出信号：%v ,正在保存配置文件", sig)
-
-		if saveFn != nil {
-			saveFn()
-		}
-
-		logrus.Info("配置保存，程序退出")
-		os.Exit(0)
-	}()
-
 }

@@ -3,6 +3,7 @@ package ddns
 import (
 	"context"
 	"fmt"
+	"linkstar/core"
 
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
@@ -18,7 +19,7 @@ func DDNSInit() error {
 	}
 
 	// 监听退出保存配置文件
-	go SetupShutdownHook(func() {
+	core.OnShutdown(func() {
 		if err := UpdateConfig(Runtime.Config); err != nil {
 			logrus.Error("保存 DDNS 配置失败：", err)
 		}

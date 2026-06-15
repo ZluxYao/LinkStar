@@ -22,6 +22,9 @@ func main() {
 	core.InitLogger()
 	logrus.Info("LinkStar Run")
 
+	// 统一监听退出信号，保存各模块配置
+	core.ListenShutdown()
+
 	stun.InitSTUN()
 
 	var wg sync.WaitGroup
