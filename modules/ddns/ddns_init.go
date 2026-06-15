@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/errgroup"
 )
 
 func DDNSInit() error {
@@ -24,6 +25,20 @@ func DDNSInit() error {
 			logrus.Error("保存DDSN配置失败：", err)
 		}
 	})
+
+	// 并发初始化
+	var g errgroup.Group
+
+	// 1. 初始化WebIpSource
+	g.Go(func() error {
+		initDefaultIPSources()
+		return nil
+	})
+
+	// 等待基础运行时准备完成
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("初始化 DDNS 运行时失败: %w", err)
+	}
 
 	return nil
 }

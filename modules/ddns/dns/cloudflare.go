@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"linkstar/modules/ddns/model"
 	httpUtils "linkstar/utils/http_utils"
 	"net/http"
 	"net/url"
@@ -61,7 +62,7 @@ type CloudflareStatus struct {
 }
 
 // SetRecord 设置一条记录
-func (cf *Cloudflare) SetRecord(domain, subDomain, recordType, ipAddr string, ttl int, proxied bool) error {
+func (cf *Cloudflare) SetRecord(domain string, subDomain string, recordType model.DNSRecordType, ipAddr string, ttl int, proxied bool) error {
 	// 拼接完整域名:子域名为空或者@ 就在主域名本身
 	fullName := subDomain + "." + domain
 	if subDomain == "" || subDomain == "@" {
@@ -84,7 +85,7 @@ func (cf *Cloudflare) SetRecord(domain, subDomain, recordType, ipAddr string, tt
 
 	// 2. 查询这条记录存不存在
 	params := url.Values{}
-	params.Set("type", recordType)
+	params.Set("type", string(recordType))
 	params.Set("name", fullName)
 	params.Set("per_page", "50")
 
@@ -103,7 +104,7 @@ func (cf *Cloudflare) SetRecord(domain, subDomain, recordType, ipAddr string, tt
 	}
 	fmt.Printf("Debug:records:%v \n", records)
 
-	// 3.存在 -> 更新 (ip相同则跳过)
+	// 3.存在 -> 更新 (完全相同则跳过)
 	if len(records.Result) > 0 {
 		return cf.modify(records.Result[0], zoneID, ipAddr, ttl, proxied)
 	}
@@ -112,10 +113,10 @@ func (cf *Cloudflare) SetRecord(domain, subDomain, recordType, ipAddr string, tt
 }
 
 // 新增
-func (cf *Cloudflare) create(zoneID, fullName, recordType, ipAddr string, ttl int, proxied bool) error {
+func (cf *Cloudflare) create(zoneID string, fullName string, recordType model.DNSRecordType, ipAddr string, ttl int, proxied bool) error {
 	record := CloudflareRecord{
 		Name:    fullName,
-		Type:    recordType,
+		Type:    string(recordType),
 		Content: ipAddr,
 		Proxied: proxied,
 		TTL:     ttl,
@@ -138,8 +139,10 @@ func (cf *Cloudflare) create(zoneID, fullName, recordType, ipAddr string, ttl in
 
 // 修改
 func (cf *Cloudflare) modify(record CloudflareRecord, zoneID string, ipAddr string, ttl int, proxied bool) error {
-	if record.Content == ipAddr {
-		// ip 没变无需更新
+	// 完全相同则跳过
+	if record.Content == ipAddr &&
+		record.TTL == ttl &&
+		record.Proxied == proxied {
 		return nil
 	}
 	record.Content = ipAddr

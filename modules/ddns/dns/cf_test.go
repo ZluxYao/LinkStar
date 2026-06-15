@@ -47,7 +47,7 @@ func TestCloudflareSetRecord(t *testing.T) {
 
 	cf := NewCloudflare(token)
 
-	err := cf.SetRecord(domain, subDomain, "A", "5.5.5.5", 0, true)
+	err := cf.SetRecord(domain, subDomain, "A", "1.5.5.5", 300, false)
 	if err != nil {
 		fmt.Println(err)
 	}

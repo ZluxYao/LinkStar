@@ -64,23 +64,23 @@ type DDNSProvider struct {
 
 // DDNS 记录
 type DDNSRecord struct {
-	Enabled      bool   `json:"enabled"`
-	ID           uint   `json:"id"`
-	ProviderID   uint   `json:"providerId"`  // 服务商id
-	Name         string `json:"name"`        // DDNS 记录名字
-	Domain       string `json:"domain"`      // 主域名
-	SubDomain    string `json:"subDomain"`   // 子域名
-	RecordType   string `json:"recordType"`  // 记录类型
-	IPSourceType string `json:"ipSource"`    // ip来源
-	IPSourceArg  string `json:"ipSourceArg"` // web 的 URL / dns 的域名,stun/interface 留空
-	TTL          int    `json:"ttl"`         // ttl
-	Proxied      bool   `json:"proxied"`     // 小云朵代理
+	Enabled      bool          `json:"enabled"`
+	ID           uint          `json:"id"`
+	ProviderID   uint          `json:"providerId"`  // 服务商id
+	Name         string        `json:"name"`        // DDNS 记录名字
+	Domain       string        `json:"domain"`      // 主域名
+	SubDomain    string        `json:"subDomain"`   // 子域名
+	RecordType   DNSRecordType `json:"recordType"`  // 记录类型
+	IPSourceType IPSourceType  `json:"ipSource"`    // ip来源
+	IPSourceArg  string        `json:"ipSourceArg"` // web 的 URL / dns 的域名,stun/interface 留空
+	TTL          int           `json:"ttl"`         // ttl
+	Proxied      bool          `json:"proxied"`     // 小云朵代理
 
-	LastIP      string    `json:"lastIP"`      // 上次成功同步的 IP
-	LastStatus  string    `json:"lastStatus"`  // 上次同步状态,如 success/failed/skipped
-	LastMessage string    `json:"lastMessage"` // 上次同步结果或失败原因
-	LastCheckAt time.Time `json:"lastCheckAt"` // 每次扫到就更新,用于 due 判断
-	LastSyncAt  time.Time `json:"lastSyncAt"`  // 上次同步时间
+	LastIP      string           `json:"lastIP"`      // 上次成功同步的 IP
+	LastStatus  DDNSRecordStatus `json:"lastStatus"`  // 上次同步状态,如 success/failed/skipped
+	LastMessage string           `json:"lastMessage"` // 上次同步结果或失败原因
+	LastCheckAt time.Time        `json:"lastCheckAt"` // 每次扫到就更新,用于 due 判断
+	LastSyncAt  time.Time        `json:"lastSyncAt"`  // 上次同步时间
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
