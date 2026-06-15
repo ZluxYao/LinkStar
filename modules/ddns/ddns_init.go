@@ -1,7 +1,6 @@
 package ddns
 
 import (
-	"context"
 	"fmt"
 	"linkstar/core"
 
@@ -20,7 +19,7 @@ func DDNSInit() error {
 
 	// 监听退出保存配置文件
 	core.OnShutdown(func() {
-		if err := UpdateConfig(Runtime.Config); err != nil {
+		if err := UpdateConfig(Runtime.Snapshot()); err != nil {
 			logrus.Error("保存 DDNS 配置失败：", err)
 		}
 	})
@@ -44,9 +43,8 @@ func DDNSInit() error {
 		return nil
 	}
 
-	ctx := context.Background()
-	Runtime.Scheduler = NewScheduler(ctx, &Runtime.Config)
-	go Runtime.Scheduler.Run(ctx, &Runtime.Config)
+	Runtime.Scheduler = NewScheduler()
+	Runtime.Scheduler.Start()
 	Runtime.Scheduler.Trigger()
 
 	return nil

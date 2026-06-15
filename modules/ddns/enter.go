@@ -1,8 +1,12 @@
 package ddns
 
-import "linkstar/modules/ddns/model"
+import (
+	"linkstar/modules/ddns/model"
+	"sync"
+)
 
 type DDNSRuntime struct {
+	mu        sync.RWMutex
 	Config    model.DDNSConfig
 	Scheduler *Scheduler
 }

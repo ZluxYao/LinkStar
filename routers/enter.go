@@ -27,6 +27,7 @@ func Run(webFS fs.FS) {
 	g := r.Group("api")
 	StunRouters(g)
 	HomeRouters(g)
+	DdnsRouters(g)
 
 	// 用户上传的图标静态目录
 	r.Static("/data/icon", "data/icon")

@@ -1,4 +1,4 @@
-import type { StunConfig } from '../types'
+import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig } from '../types'
 
 interface ApiResponse<T> {
   code: number
@@ -83,3 +83,68 @@ export interface HomeApp {
 
 export const getHomeConfig = () =>
   request<{ apps: HomeApp[] }>('/api/home/config')
+
+// ===================== DDNS =====================
+
+export const getDdnsConfig = () => request<DdnsConfig>('/api/ddns/config')
+
+export const updateDdnsSettings = (body: { enabled: boolean; intervalSec: number }) =>
+  request<unknown>('/api/ddns/settings', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const addDdnsProvider = (body: { name: string; type: string; apiToken: string }) =>
+  request<DdnsProvider>('/api/ddns/provider/add', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateDdnsProvider = (body: { id: number; name: string; apiToken: string }) =>
+  request<unknown>('/api/ddns/provider/update', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const deleteDdnsProvider = (id: number) =>
+  request<unknown>('/api/ddns/provider/delete', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  })
+
+export interface DdnsRecordPayload {
+  enabled: boolean
+  providerId: number
+  name: string
+  domain: string
+  subDomain: string
+  recordType: string
+  ipSource: string
+  ipSourceArg: string
+  ttl: number
+  proxied: boolean
+}
+
+export const addDdnsRecord = (body: DdnsRecordPayload) =>
+  request<DdnsRecord>('/api/ddns/record/add', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateDdnsRecord = (body: DdnsRecordPayload & { id: number }) =>
+  request<unknown>('/api/ddns/record/update', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const deleteDdnsRecord = (id: number) =>
+  request<unknown>('/api/ddns/record/delete', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  })
+
+export const syncDdnsRecord = (id: number) =>
+  request<unknown>('/api/ddns/record/sync', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })

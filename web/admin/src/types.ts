@@ -59,3 +59,43 @@ export interface StunStatusEvent {
   lastError?: string
   logs?: StunStatusLog[]
 }
+
+export type DnsProviderType = 'cloudflare'
+export type DnsRecordType = 'A' | 'AAAA'
+export type DdnsRecordStatus = 'pending' | 'success' | 'failed' | 'skipped'
+export type IpSourceType = 'stun' | 'web' | 'dns' | 'interface'
+
+export interface DdnsProvider {
+  id: number
+  name: string
+  type: DnsProviderType
+  hasCredential: boolean
+}
+
+export interface DdnsRecord {
+  enabled: boolean
+  id: number
+  providerId: number
+  name: string
+  domain: string
+  subDomain: string
+  recordType: DnsRecordType
+  ipSource: IpSourceType
+  ipSourceArg: string
+  ttl: number
+  proxied: boolean
+  lastIP: string
+  lastStatus: DdnsRecordStatus
+  lastMessage: string
+  lastCheckAt: string
+  lastSyncAt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DdnsConfig {
+  enabled: boolean
+  intervalSec: number
+  providers: DdnsProvider[]
+  records: DdnsRecord[]
+}

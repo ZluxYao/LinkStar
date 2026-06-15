@@ -88,6 +88,7 @@ func SyncRecord(client dns.DNSProvider, r *model.DDNSRecord) {
 	r.LastIP = ip
 	r.LastStatus = model.DDNSRecordStatusSuccess
 	r.LastMessage = ""
+	r.LastSyncAt = time.Now()
 	logrus.Infof("[ddns] %s 同步成功: %s -> %s", r.Name, r.RecordType, ip)
 
 }

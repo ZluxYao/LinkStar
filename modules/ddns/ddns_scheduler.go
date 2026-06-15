@@ -4,6 +4,7 @@ import (
 	"context"
 	"linkstar/modules/ddns/dns"
 	"linkstar/modules/ddns/model"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -14,55 +15,66 @@ const scanInterval = 15 * time.Second
 
 type Scheduler struct {
 	workers map[uint]*providerWorker // key = ProviderID
-	event   chan struct{}            // 等事件触发，丢个信号就强制扫,强制同步更新
+	event   chan struct{}            // 事件触发：丢个信号就强制扫一遍（IP 刚变，立即同步）
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	inflightMu sync.Mutex
+	inflight   map[uint]bool // recordID -> 已投递、尚未提交结果，防止重复投递
 }
 
 // providerWorker = 一个服务商实例 + 它专属的一个队列 + 一个常驻 goroutine
 type providerWorker struct {
 	client dns.DNSProvider
-	queue  chan *model.DDNSRecord
+	queue  chan model.DDNSRecord
 }
 
-// run 常驻 goroutine： 队列里面又记录就消费一条
-func (w *providerWorker) run(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case r := <-w.queue:
-			SyncRecord(w.client, r)
-		}
-	}
-}
+// NewScheduler 读取当前 providers 快照，每个服务商建一个实例 + 队列 + worker
+func NewScheduler() *Scheduler {
+	providers := Runtime.Snapshot().Providers
 
-// NewScheduler 启动时遍历 Providers，每个建一个实例 + 队列 + worker
-func NewScheduler(ctx context.Context, cfg *model.DDNSConfig) *Scheduler {
-	// 创建DNS服务商
 	workers := make(map[uint]*providerWorker)
-	for _, p := range cfg.Providers {
+	for _, p := range providers {
 		client := dns.BuildClient(p)
 		if client == nil {
 			logrus.Warnf("[ddns] 不支持或配置无效的服务商: %s (id=%d)", p.Type, p.ID)
 			continue
 		}
-
-		w := &providerWorker{
+		workers[p.ID] = &providerWorker{
 			client: client,
-			queue:  make(chan *model.DDNSRecord, 100),
+			queue:  make(chan model.DDNSRecord, 100),
 		}
-
-		workers[p.ID] = w
-
-		go w.run(ctx) // worker 启动，阻塞在队列上等任务
-
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Scheduler{
-		workers: workers,
-		event:   make(chan struct{}, 1),
+		workers:  workers,
+		event:    make(chan struct{}, 1),
+		ctx:      ctx,
+		cancel:   cancel,
+		inflight: make(map[uint]bool),
 	}
 }
 
+// Start 启动所有 worker goroutine 和扫描循环
+func (s *Scheduler) Start() {
+	for _, w := range s.workers {
+		s.wg.Add(1)
+		go s.runWorker(w)
+	}
+	s.wg.Add(1)
+	go s.loop()
+}
+
+// Stop 取消 ctx 并等待所有 goroutine 退出
+func (s *Scheduler) Stop() {
+	s.cancel()
+	s.wg.Wait()
+}
+
+// Trigger 投递一个事件，强制扫一遍（非阻塞）
 func (s *Scheduler) Trigger() {
 	select {
 	case s.event <- struct{}{}:
@@ -70,37 +82,50 @@ func (s *Scheduler) Trigger() {
 	}
 }
 
-func (s *Scheduler) Run(ctx context.Context, cfg *model.DDNSConfig) {
+// runWorker 常驻 goroutine：队列里有记录就消费一条，同步后写回状态
+func (s *Scheduler) runWorker(w *providerWorker) {
+	defer s.wg.Done()
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case rec := <-w.queue:
+			SyncRecord(w.client, &rec)
+			Runtime.commitRecord(&rec)
+			s.clearInflight(rec.ID)
+		}
+	}
+}
+
+func (s *Scheduler) loop() {
+	defer s.wg.Done()
 	ticker := time.NewTicker(scanInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
-			s.scan(cfg, false) //定时：只同步到期的
+			s.scan(false) // 定时：只同步到期的
 		case <-s.event:
-			s.scan(cfg, true) // 事件：强制扫一遍（IP 刚变，立即同步）
+			s.scan(true) // 事件：强制扫一遍
 		}
-
 	}
 }
 
-// scan 遍历所有记录，把到期的丢进对应服务商的队列
-func (s *Scheduler) scan(cfg *model.DDNSConfig, force bool) {
+// scan 从 Runtime 取配置快照，把到期（或强扫）的记录投递到对应服务商的队列
+func (s *Scheduler) scan(force bool) {
+	cfg := Runtime.Snapshot()
 	now := time.Now()
 
 	for i := range cfg.Records {
+		r := cfg.Records[i] // 副本，worker 改的是副本，结果再 commit 回去
 
-		// 跳过未开启
-		r := &cfg.Records[i]
 		if !r.Enabled {
 			continue
 		}
-
-		// 如果不是强扫或者未到事件跳过
-		if !force && !due(r, cfg.IntervalSec, now) {
+		if !force && !due(&r, cfg.IntervalSec, now) {
 			continue
 		}
 
@@ -109,14 +134,36 @@ func (s *Scheduler) scan(cfg *model.DDNSConfig, force bool) {
 			continue // 记录指向的服务商不存在
 		}
 
-		// 非阻塞投递，满了下一次
+		// 已在途就跳过，避免重复投递同一条
+		if !s.markInflight(r.ID) {
+			continue
+		}
+
+		// 非阻塞投递，满了清掉在途标记，下一轮 due 再投
 		select {
 		case w.queue <- r:
 		default:
-			logrus.Warnf("DDNS 提供商队列满了下次在投递: providerID=%d recordID=%d", r.ProviderID, r.ID)
+			s.clearInflight(r.ID)
+			logrus.Warnf("[ddns] 服务商队列已满，下次再投递: providerID=%d recordID=%d", r.ProviderID, r.ID)
 		}
-
 	}
+}
+
+// markInflight 标记记录在途，返回 false 表示已在途（应跳过）
+func (s *Scheduler) markInflight(id uint) bool {
+	s.inflightMu.Lock()
+	defer s.inflightMu.Unlock()
+	if s.inflight[id] {
+		return false
+	}
+	s.inflight[id] = true
+	return true
+}
+
+func (s *Scheduler) clearInflight(id uint) {
+	s.inflightMu.Lock()
+	delete(s.inflight, id)
+	s.inflightMu.Unlock()
 }
 
 // due 判断这条记录是否到期：now - LastCheckAt >= 间隔
