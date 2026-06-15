@@ -55,7 +55,7 @@ type DDNSConfig struct {
 type DDNSProvider struct {
 	ID         uint                   `json:"id"`
 	Name       string                 `json:"name"` // 自定义名字
-	Type       string                 `json:"type"` // 服务商类型
+	Type       DNSProviderType        `json:"type"` // 服务商类型
 	Credential map[string]interface{} `json:"credential"`
 
 	CreatedAt time.Time `json:"createdAt"`
