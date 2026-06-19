@@ -11,7 +11,7 @@ import (
 //	go test ./modules/ddns/dns/ -v -run TestCloudflareGetZone
 func TestCloudflareGetZone(t *testing.T) {
 	token := os.Getenv("CF_ApiToken")
-	domain := "ztoken.zlux.top"
+	domain := ""
 	if token == "" || domain == "" {
 		t.Skip("未设置 token")
 	}
@@ -39,7 +39,7 @@ func TestCloudflareGetZone(t *testing.T) {
 // go test ./modules/ddns/dns/ -v -run TestCloudflareSetRecord
 func TestCloudflareSetRecord(t *testing.T) {
 	token := os.Getenv("CF_ApiToken")
-	domain := "zlux.top"
+	domain := ""
 	subDomain := "test"
 	if token == "" {
 		t.Skip("未设置 token")

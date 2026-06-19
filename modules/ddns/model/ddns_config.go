@@ -6,7 +6,15 @@ import "time"
 type DNSProviderType string
 
 const (
-	DNSProviderCloudflare DNSProviderType = "cloudflare"
+	DNSProviderCloudflare   DNSProviderType = "cloudflare"
+	DNSProviderAlidns       DNSProviderType = "alidns"
+	DNSProviderTencentCloud DNSProviderType = "tencentcloud"
+	DNSProviderDnspod       DNSProviderType = "dnspod"
+	DNSProviderBaiduCloud   DNSProviderType = "baiducloud"
+	DNSProviderHuaweiCloud  DNSProviderType = "huaweicloud"
+	DNSProviderGoDaddy      DNSProviderType = "godaddy"
+	DNSProviderNameCheap    DNSProviderType = "namecheap"
+	DNSProviderNameSilo     DNSProviderType = "namesilo"
 )
 
 // 定义每个 DNS 记录类型

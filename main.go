@@ -26,7 +26,7 @@ func main() {
 	core.ListenShutdown()
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		stun.InitSTUN()
@@ -43,8 +43,9 @@ func main() {
 			logrus.Error("DDNS 模块初始化失败：", err)
 		}
 	}()
+	go func() {
+		routers.Run(webFS)
+	}()
 	wg.Wait()
-
-	routers.Run(webFS)
 
 }

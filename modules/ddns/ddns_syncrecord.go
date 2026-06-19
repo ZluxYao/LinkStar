@@ -107,11 +107,11 @@ func SyncRecord(client dns.DNSProvider, r *model.DDNSRecord) {
 		return
 	}
 
-	// 2. IP 没变，跳过
-	if ip == r.LastIP {
-		r.LastStatus = model.DDNSRecordStatusSkipped
-		return
-	}
+	// // 2. IP 没变，跳过
+	// if ip == r.LastIP {
+	// 	r.LastStatus = model.DDNSRecordStatusSkipped
+	// 	return
+	// }
 
 	// 3. 调用服务器API
 	ttl := r.TTL
