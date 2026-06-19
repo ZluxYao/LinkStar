@@ -25,10 +25,12 @@ func main() {
 	// 统一监听退出信号，保存各模块配置
 	core.ListenShutdown()
 
-	stun.InitSTUN()
-
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		stun.InitSTUN()
+	}()
 	go func() {
 		defer wg.Done()
 		if err := home.InitHome(); err != nil {

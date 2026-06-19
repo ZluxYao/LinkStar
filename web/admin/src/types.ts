@@ -94,7 +94,6 @@ export interface DdnsRecord {
 }
 
 export interface DdnsConfig {
-  enabled: boolean
   intervalSec: number
   providers: DdnsProvider[]
   records: DdnsRecord[]

@@ -13,6 +13,7 @@ import (
 // 扫描粒度：每 15s 扫一遍所有记录，看谁到期
 const scanInterval = 15 * time.Second
 
+// 调度器主体
 type Scheduler struct {
 	workers map[uint]*providerWorker // key = ProviderID
 	event   chan struct{}            // 事件触发：丢个信号就强制扫一遍（IP 刚变，立即同步）

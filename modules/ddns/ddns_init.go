@@ -19,7 +19,7 @@ func DDNSInit() error {
 
 	// 监听退出保存配置文件
 	core.OnShutdown(func() {
-		if err := UpdateConfig(Runtime.Snapshot()); err != nil {
+		if err := SaveConfig(Runtime.Snapshot()); err != nil {
 			logrus.Error("保存 DDNS 配置失败：", err)
 		}
 	})
@@ -36,11 +36,6 @@ func DDNSInit() error {
 	// 等待基础运行时准备完成
 	if err := g.Wait(); err != nil {
 		return fmt.Errorf("初始化 DDNS 运行时失败: %w", err)
-	}
-
-	if !Runtime.Config.Enabled {
-		logrus.Info("DDNS 未启用，跳过调度器启动")
-		return nil
 	}
 
 	Runtime.Scheduler = NewScheduler()

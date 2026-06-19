@@ -40,7 +40,6 @@ func createConfig() (model.DDNSConfig, error) {
 	config.UpdatedAt = time.Now()
 
 	// 设置初始参数
-	config.Enabled = true
 	config.IntervalSec = 300
 
 	// 确保 config 目录存在
@@ -57,8 +56,8 @@ func createConfig() (model.DDNSConfig, error) {
 	return config, nil
 }
 
-// UpdateConfig 更新stun配置文件
-func UpdateConfig(config model.DDNSConfig) error {
+// SaveConfig 把配置写入磁盘文件（纯存盘，自带更新时间戳）
+func SaveConfig(config model.DDNSConfig) error {
 
 	// 更新时间戳
 	config.UpdatedAt = time.Now()

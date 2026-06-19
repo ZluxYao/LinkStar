@@ -17,7 +17,6 @@ type ProviderView struct {
 }
 
 type DdnsConfigView struct {
-	Enabled     bool               `json:"enabled"`
 	IntervalSec int                `json:"intervalSec"`
 	Providers   []ProviderView     `json:"providers"`
 	Records     []model.DDNSRecord `json:"records"`
@@ -30,19 +29,17 @@ func (DdnsApi) GetDdnsConfigView(c *gin.Context) {
 		Records:   []model.DDNSRecord{},
 	}
 
-	ddns.Runtime.View(func(cfg *model.DDNSConfig) {
-		view.Enabled = cfg.Enabled
-		view.IntervalSec = cfg.IntervalSec
-		for _, p := range cfg.Providers {
-			view.Providers = append(view.Providers, ProviderView{
-				ID:            p.ID,
-				Name:          p.Name,
-				Type:          p.Type,
-				HasCredential: len(p.Credential) > 0,
-			})
-		}
-		view.Records = append(view.Records, cfg.Records...)
-	})
+	cfg := ddns.Runtime.Snapshot()
+	view.IntervalSec = cfg.IntervalSec
+	for _, p := range cfg.Providers {
+		view.Providers = append(view.Providers, ProviderView{
+			ID:            p.ID,
+			Name:          p.Name,
+			Type:          p.Type,
+			HasCredential: len(p.Credential) > 0,
+		})
+	}
+	view.Records = append(view.Records, cfg.Records...)
 
 	res.OkWithData(view, c)
 }

@@ -49,6 +49,48 @@ var defaultIPv6Sources = []*webIPSource{
 }
 var sourceMu sync.Mutex
 
+// SyncRecordNow 同步指定记录（“单条立即同步”按钮用），同步执行以便返回即时结果
+func (r *DDNSRuntime) SyncRecordNow(id uint) error {
+	r.mu.RLock()
+	var rec model.DDNSRecord
+	var provider model.DDNSProvider
+	found := false
+	for i := range r.Config.Records {
+		if r.Config.Records[i].ID == id {
+			rec = r.Config.Records[i]
+			for _, p := range r.Config.Providers {
+				if p.ID == rec.ProviderID {
+					provider = p
+					break
+				}
+			}
+			found = true
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	if !found {
+		return fmt.Errorf("记录不存在")
+	}
+	if !rec.Enabled {
+		return fmt.Errorf("该记录已停用，请先启用")
+	}
+
+	client := dns.BuildClient(provider)
+	if client == nil {
+		return fmt.Errorf("记录所属服务商无效或未配置")
+	}
+
+	SyncRecord(client, &rec)
+	r.commitRecord(&rec)
+
+	if rec.LastStatus == model.DDNSRecordStatusFailed {
+		return fmt.Errorf("%s", rec.LastMessage)
+	}
+	return nil
+}
+
 // SyncRecord 同步记录:解析 IP -> 比对 -> 调服务商 API -> 回写状态
 func SyncRecord(client dns.DNSProvider, r *model.DDNSRecord) {
 

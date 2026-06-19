@@ -6,10 +6,10 @@ import {
   Globe,
   Pencil,
   Plus,
-  Power,
   RefreshCw,
   Search,
   Server,
+  Settings,
   Trash2,
   TriangleAlert,
   X,
@@ -415,6 +415,96 @@ function RecordModal({
   )
 }
 
+// ===================== 设置弹窗 =====================
+
+const intervalOptions = [
+  { value: 60, label: '1 分钟' },
+  { value: 300, label: '5 分钟' },
+  { value: 600, label: '10 分钟' },
+  { value: 1800, label: '30 分钟' },
+  { value: 3600, label: '1 小时' },
+]
+
+function SettingsModal({
+  intervalSec,
+  onCancel,
+  onSubmit,
+}: {
+  intervalSec: number
+  onCancel: () => void
+  onSubmit: (intervalSec: number) => Promise<void>
+}) {
+  const [sec, setSec] = useState(intervalSec)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const submit = async () => {
+    setErr('')
+    setBusy(true)
+    try {
+      await onSubmit(sec)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '操作失败')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+    >
+      <div className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+        <div className="mb-5 flex items-center justify-between">
+          <div className="text-base font-bold text-slate-800">DDNS 设置</div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="grid h-7 w-7 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <label className="block">
+          <div className="mb-1 text-xs font-semibold text-slate-500">全局同步间隔</div>
+          <select
+            value={sec}
+            onChange={(e) => setSec(Number(e.target.value))}
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+          >
+            {intervalOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <div className="mt-1.5 text-[11px] text-slate-400">每条记录按此间隔检查 IP 是否变化并自动同步</div>
+        </label>
+        {err && <div className="mt-3 text-xs text-rose-500">{err}</div>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy}
+            className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition hover:bg-blue-600 disabled:opacity-50"
+          >
+            {busy ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ===================== 主页面 =====================
 
 export function Ddns() {
@@ -427,6 +517,7 @@ export function Ddns() {
 
   const [providerModal, setProviderModal] = useState<{ open: boolean; initial?: DdnsProvider }>({ open: false })
   const [recordModal, setRecordModal] = useState<{ open: boolean; initial?: DdnsRecord }>({ open: false })
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -470,26 +561,12 @@ export function Ddns() {
   const failed = records.filter((r) => r.lastStatus === 'failed').length
 
   // ---- 全局设置 ----
-  const toggleEnabled = async () => {
-    if (!config) return
-    try {
-      await api.updateDdnsSettings({ enabled: !config.enabled, intervalSec: config.intervalSec })
-      toast(config.enabled ? 'DDNS 已停用' : 'DDNS 已启用')
-      await refresh()
-    } catch (e) {
-      toast('操作失败: ' + (e instanceof Error ? e.message : ''))
-    }
-  }
-
   const changeInterval = async (sec: number) => {
     if (!config || sec < 30) return
-    try {
-      await api.updateDdnsSettings({ enabled: config.enabled, intervalSec: sec })
-      toast('同步间隔已更新')
-      await refresh()
-    } catch (e) {
-      toast('操作失败: ' + (e instanceof Error ? e.message : ''))
-    }
+    await api.updateDdnsSettings({ intervalSec: sec })
+    setSettingsOpen(false)
+    toast('同步间隔已更新')
+    await refresh()
   }
 
   // ---- 服务商 ----
@@ -612,6 +689,19 @@ export function Ddns() {
 
   return (
     <div className="space-y-4">
+      {/* 顶部标题 + 设置入口 */}
+      <div className="flex items-center justify-between">
+        <div className="text-base font-bold text-slate-800">动态域名解析</div>
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 transition hover:bg-slate-50"
+          title="DDNS 设置"
+        >
+          <Settings className="h-4 w-4" />
+          设置
+        </button>
+      </div>
+
       {/* 顶部概览 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -659,42 +749,6 @@ export function Ddns() {
           </div>
         </Card>
       </div>
-
-      {/* 全局设置 */}
-      <Card>
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={toggleEnabled}
-              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${
-                config.enabled
-                  ? 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200 hover:bg-emerald-100'
-                  : 'bg-slate-100 text-slate-500 ring-1 ring-slate-200 hover:bg-slate-200'
-              }`}
-            >
-              <Power className="h-4 w-4" />
-              {config.enabled ? 'DDNS 已启用' : 'DDNS 已停用'}
-            </button>
-            <span className="text-xs text-slate-400">
-              {config.enabled ? '调度器运行中，按间隔自动同步' : '已关闭，记录不会自动更新'}
-            </span>
-          </div>
-          <div className="ml-auto flex items-center gap-2 text-sm">
-            <span className="text-xs font-semibold text-slate-500">全局同步间隔</span>
-            <select
-              value={config.intervalSec}
-              onChange={(e) => changeInterval(Number(e.target.value))}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm outline-none focus:border-blue-400"
-            >
-              <option value={60}>1 分钟</option>
-              <option value={300}>5 分钟</option>
-              <option value={600}>10 分钟</option>
-              <option value={1800}>30 分钟</option>
-              <option value={3600}>1 小时</option>
-            </select>
-          </div>
-        </div>
-      </Card>
 
       {/* 服务商 */}
       <Card>
@@ -889,6 +943,13 @@ export function Ddns() {
           providers={providers}
           onCancel={() => setRecordModal({ open: false })}
           onSubmit={submitRecord}
+        />
+      )}
+      {settingsOpen && (
+        <SettingsModal
+          intervalSec={config.intervalSec}
+          onCancel={() => setSettingsOpen(false)}
+          onSubmit={changeInterval}
         />
       )}
 

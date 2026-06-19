@@ -42,8 +42,7 @@ const (
 
 // DDNS 配置
 type DDNSConfig struct {
-	Enabled     bool `json:"enabled"`     // 总开关
-	IntervalSec int  `json:"intervalSec"` // 全局默认同步时间300
+	IntervalSec int `json:"intervalSec"` // 全局默认同步时间300
 
 	Providers []DDNSProvider `json:"providers"` // DNS 服务商 配置
 	Records   []DDNSRecord   `json:"records"`   // DDNS 记录

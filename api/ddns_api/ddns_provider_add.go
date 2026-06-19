@@ -5,7 +5,6 @@ import (
 	"linkstar/modules/ddns"
 	"linkstar/modules/ddns/model"
 	"linkstar/utils/res"
-	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -19,45 +18,16 @@ type DdnsProviderAddRequest struct {
 func (DdnsApi) DdnsProviderAddView(c *gin.Context) {
 	cr := middleware.GetBindRequest[DdnsProviderAddRequest](c)
 
-	if cr.Name == "" {
-		res.FailWithMsg("服务商名称不能为空", c)
-		return
-	}
-	if cr.Type != model.DNSProviderCloudflare {
-		res.FailWithMsg("暂不支持的服务商类型", c)
-		return
-	}
-	if cr.APIToken == "" {
-		res.FailWithMsg("API Token 不能为空", c)
-		return
-	}
-
-	var newProvider model.DDNSProvider
-	err := ddns.Runtime.Apply(func(cfg *model.DDNSConfig) error {
-		now := time.Now()
-		newProvider = model.DDNSProvider{
-			ID:         ddns.NextProviderID(cfg),
-			Name:       cr.Name,
-			Type:       cr.Type,
-			Credential: map[string]interface{}{"apiToken": cr.APIToken},
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}
-		cfg.Providers = append(cfg.Providers, newProvider)
-		return nil
-	})
+	p, err := ddns.Runtime.AddProvider(cr.Name, cr.Type, cr.APIToken)
 	if err != nil {
-		res.FailWithMsg("保存配置失败", c)
+		res.FailWithMsg(err.Error(), c)
 		return
 	}
-
-	// 新增服务商需重建调度器，使其拥有对应 worker
-	ddns.Runtime.RebuildScheduler()
 
 	res.OkWithData(ProviderView{
-		ID:            newProvider.ID,
-		Name:          newProvider.Name,
-		Type:          newProvider.Type,
+		ID:            p.ID,
+		Name:          p.Name,
+		Type:          p.Type,
 		HasCredential: true,
 	}, c)
 }

@@ -88,7 +88,7 @@ export const getHomeConfig = () =>
 
 export const getDdnsConfig = () => request<DdnsConfig>('/api/ddns/config')
 
-export const updateDdnsSettings = (body: { enabled: boolean; intervalSec: number }) =>
+export const updateDdnsSettings = (body: { intervalSec: number }) =>
   request<unknown>('/api/ddns/settings', {
     method: 'PUT',
     body: JSON.stringify(body),
