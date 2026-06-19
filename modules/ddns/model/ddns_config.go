@@ -9,13 +9,29 @@ const (
 	DNSProviderCloudflare   DNSProviderType = "cloudflare"
 	DNSProviderAlidns       DNSProviderType = "alidns"
 	DNSProviderTencentCloud DNSProviderType = "tencentcloud"
-	DNSProviderDnspod       DNSProviderType = "dnspod"
 	DNSProviderBaiduCloud   DNSProviderType = "baiducloud"
 	DNSProviderHuaweiCloud  DNSProviderType = "huaweicloud"
-	DNSProviderGoDaddy      DNSProviderType = "godaddy"
 	DNSProviderNameCheap    DNSProviderType = "namecheap"
 	DNSProviderNameSilo     DNSProviderType = "namesilo"
 )
+
+// ProviderCredentialKeys 每种服务商类型所需的凭证字段 key。
+// 作为后端校验与 BuildClient 取值的唯一依据；前端另有一张展示用字段表。
+var ProviderCredentialKeys = map[DNSProviderType][]string{
+	DNSProviderCloudflare:   {"apiToken"},
+	DNSProviderAlidns:       {"accessKeyId", "accessKeySecret"},
+	DNSProviderTencentCloud: {"secretId", "secretKey"},
+	DNSProviderBaiduCloud:   {"accessKeyId", "accessKeySecret"},
+	DNSProviderHuaweiCloud:  {"accessKeyId", "accessKeySecret"},
+	DNSProviderNameCheap:    {"password"},
+	DNSProviderNameSilo:     {"apiKey"},
+}
+
+// IsValidProviderType 该服务商类型是否受支持
+func IsValidProviderType(t DNSProviderType) bool {
+	_, ok := ProviderCredentialKeys[t]
+	return ok
+}
 
 // 定义每个 DNS 记录类型
 type DNSRecordType string

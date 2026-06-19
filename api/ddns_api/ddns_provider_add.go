@@ -10,15 +10,15 @@ import (
 )
 
 type DdnsProviderAddRequest struct {
-	Name     string                `json:"name"`
-	Type     model.DNSProviderType `json:"type"`
-	APIToken string                `json:"apiToken"` // Cloudflare API Token
+	Name       string                `json:"name"`
+	Type       model.DNSProviderType `json:"type"`
+	Credential map[string]string     `json:"credential"` // 凭证字段，key 因服务商而异
 }
 
 func (DdnsApi) DdnsProviderAddView(c *gin.Context) {
 	cr := middleware.GetBindRequest[DdnsProviderAddRequest](c)
 
-	p, err := ddns.Runtime.AddProvider(cr.Name, cr.Type, cr.APIToken)
+	p, err := ddns.Runtime.AddProvider(cr.Name, cr.Type, cr.Credential)
 	if err != nil {
 		res.FailWithMsg(err.Error(), c)
 		return

@@ -3,6 +3,7 @@ package ddns
 import (
 	"fmt"
 	"linkstar/modules/ddns/model"
+	"strings"
 	"time"
 )
 
@@ -23,15 +24,16 @@ type RecordInput struct {
 // ============ Provider 增删改 =============
 
 // AddProvider 校验后追加一个服务商，落盘并重建调度器
-func (r *DDNSRuntime) AddProvider(name string, ptype model.DNSProviderType, apiToken string) (model.DDNSProvider, error) {
+func (r *DDNSRuntime) AddProvider(name string, ptype model.DNSProviderType, credential map[string]string) (model.DDNSProvider, error) {
 	if name == "" {
 		return model.DDNSProvider{}, fmt.Errorf("服务商名称不能为空")
 	}
-	if ptype != model.DNSProviderCloudflare {
+	if !model.IsValidProviderType(ptype) {
 		return model.DDNSProvider{}, fmt.Errorf("暂不支持的服务商类型")
 	}
-	if apiToken == "" {
-		return model.DDNSProvider{}, fmt.Errorf("API Token 不能为空")
+	cred, err := buildCredential(ptype, credential, nil)
+	if err != nil {
+		return model.DDNSProvider{}, err
 	}
 
 	var created model.DDNSProvider
@@ -41,7 +43,7 @@ func (r *DDNSRuntime) AddProvider(name string, ptype model.DNSProviderType, apiT
 			ID:         nextProviderID(cfg),
 			Name:       name,
 			Type:       ptype,
-			Credential: map[string]interface{}{"apiToken": apiToken},
+			Credential: cred,
 			CreatedAt:  now,
 			UpdatedAt:  now,
 		}
@@ -55,14 +57,16 @@ func (r *DDNSRuntime) AddProvider(name string, ptype model.DNSProviderType, apiT
 	return created, nil
 }
 
-// UpdateProvider 改名 / 可选改凭证；仅凭证变更时才重建调度器
-func (r *DDNSRuntime) UpdateProvider(id uint, name, apiToken string) error {
+// UpdateProvider 改名 / 可选改凭证；仅凭证变更时才重建调度器。
+// credential 中为空串的字段视为“不修改”，沿用原值。
+func (r *DDNSRuntime) UpdateProvider(id uint, name string, credential map[string]string) error {
 	if name == "" {
 		return fmt.Errorf("服务商名称不能为空")
 	}
 
 	found := false
 	credChanged := false
+	var buildErr error
 	if err := r.Update(func(cfg *model.DDNSConfig) error {
 		for i := range cfg.Providers {
 			if cfg.Providers[i].ID != id {
@@ -70,11 +74,15 @@ func (r *DDNSRuntime) UpdateProvider(id uint, name, apiToken string) error {
 			}
 			p := &cfg.Providers[i]
 			p.Name = name
-			if apiToken != "" {
-				if p.Credential == nil {
-					p.Credential = map[string]interface{}{}
+
+			// 有任意非空凭证字段才重建凭证（基于旧值补齐留空字段）
+			if hasAnyValue(credential) {
+				cred, err := buildCredential(p.Type, credential, p.Credential)
+				if err != nil {
+					buildErr = err
+					return nil
 				}
-				p.Credential["apiToken"] = apiToken
+				p.Credential = cred
 				credChanged = true
 			}
 			p.UpdatedAt = time.Now()
@@ -86,6 +94,9 @@ func (r *DDNSRuntime) UpdateProvider(id uint, name, apiToken string) error {
 		return err
 	}
 
+	if buildErr != nil {
+		return buildErr
+	}
 	if !found {
 		return fmt.Errorf("服务商不存在")
 	}
@@ -290,6 +301,37 @@ func (r *DDNSRuntime) UpdateSettings(intervalSec int) error {
 }
 
 // ============ 辅助 =============
+
+// buildCredential 按服务商类型所需字段构建凭证 map。
+// in 为本次提交的字段值，old 为原凭证（更新时用于补齐留空字段，新增时传 nil）。
+// 任一必填字段最终为空则报错。
+func buildCredential(ptype model.DNSProviderType, in map[string]string, old map[string]interface{}) (map[string]interface{}, error) {
+	keys := model.ProviderCredentialKeys[ptype]
+	cred := map[string]interface{}{}
+	for _, k := range keys {
+		v := strings.TrimSpace(in[k])
+		if v == "" && old != nil {
+			if ov, ok := old[k].(string); ok {
+				v = ov
+			}
+		}
+		if v == "" {
+			return nil, fmt.Errorf("凭证字段 %s 不能为空", k)
+		}
+		cred[k] = v
+	}
+	return cred, nil
+}
+
+// hasAnyValue 是否存在任意非空字段
+func hasAnyValue(m map[string]string) bool {
+	for _, v := range m {
+		if strings.TrimSpace(v) != "" {
+			return true
+		}
+	}
+	return false
+}
 
 // validateRecord 公共字段校验，返回空串表示通过
 func validateRecord(name, domain string, recordType model.DNSRecordType, ipSource model.IPSourceType) string {

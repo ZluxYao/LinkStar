@@ -38,6 +38,80 @@ const ipSourceLabel: Record<string, string> = {
   interface: '本地网卡',
 }
 
+// ===================== 服务商字段表 =====================
+// 新增服务商时：1) 在后端 dns/ 加实现 + builder case + model.ProviderCredentialKeys；
+// 2) 在此追加一项即可，表单按 fields 自动渲染。
+
+interface ProviderField {
+  key: string
+  label: string
+  secret?: boolean
+  placeholder?: string
+}
+
+interface ProviderTypeMeta {
+  type: DdnsProvider['type']
+  label: string
+  fields: ProviderField[]
+  ipv4Only?: boolean // 仅支持 A 记录（如 NameCheap）
+  supportsProxied?: boolean // 支持小云朵代理（仅 Cloudflare）
+}
+
+const PROVIDER_TYPES: ProviderTypeMeta[] = [
+  {
+    type: 'cloudflare',
+    label: 'Cloudflare',
+    supportsProxied: true,
+    fields: [{ key: 'apiToken', label: 'API Token', secret: true, placeholder: '粘贴 Cloudflare API Token' }],
+  },
+  {
+    type: 'alidns',
+    label: '阿里云 DNS',
+    fields: [
+      { key: 'accessKeyId', label: 'AccessKey ID' },
+      { key: 'accessKeySecret', label: 'AccessKey Secret', secret: true },
+    ],
+  },
+  {
+    type: 'tencentcloud',
+    label: '腾讯云 DNSPod',
+    fields: [
+      { key: 'secretId', label: 'SecretId' },
+      { key: 'secretKey', label: 'SecretKey', secret: true },
+    ],
+  },
+  {
+    type: 'baiducloud',
+    label: '百度云 DNS',
+    fields: [
+      { key: 'accessKeyId', label: 'AccessKey ID' },
+      { key: 'accessKeySecret', label: 'AccessKey Secret', secret: true },
+    ],
+  },
+  {
+    type: 'huaweicloud',
+    label: '华为云 DNS',
+    fields: [
+      { key: 'accessKeyId', label: 'AccessKey ID' },
+      { key: 'accessKeySecret', label: 'AccessKey Secret', secret: true },
+    ],
+  },
+  {
+    type: 'namecheap',
+    label: 'NameCheap（仅 IPv4）',
+    ipv4Only: true,
+    fields: [{ key: 'password', label: 'Dynamic DNS Password', secret: true }],
+  },
+  {
+    type: 'namesilo',
+    label: 'NameSilo',
+    fields: [{ key: 'apiKey', label: 'API Key', secret: true }],
+  },
+]
+
+const providerMetaMap = new Map(PROVIDER_TYPES.map((m) => [m.type, m]))
+const providerTypeLabel = (t: string): string => providerMetaMap.get(t as DdnsProvider['type'])?.label ?? t
+
 interface Toast {
   id: number
   text: string
@@ -65,8 +139,8 @@ function fmtTime(s?: string): string {
 
 interface ProviderFormState {
   name: string
-  type: 'cloudflare'
-  apiToken: string
+  type: DdnsProvider['type']
+  credential: Record<string, string>
 }
 
 function ProviderModal({
@@ -80,20 +154,28 @@ function ProviderModal({
 }) {
   const [form, setForm] = useState<ProviderFormState>(() => ({
     name: initial?.name ?? '',
-    type: 'cloudflare',
-    apiToken: '',
+    type: initial?.type ?? 'cloudflare',
+    credential: {},
   }))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+
+  const meta = providerMetaMap.get(form.type) ?? PROVIDER_TYPES[0]
+  const isEdit = !!initial
 
   const submit = async () => {
     if (!form.name.trim()) {
       setErr('请填写服务商名称')
       return
     }
-    if (!initial && !form.apiToken.trim()) {
-      setErr('请填写 API Token')
-      return
+    // 新增时所有字段必填；编辑时留空表示沿用原凭证
+    if (!isEdit) {
+      for (const f of meta.fields) {
+        if (!(form.credential[f.key] ?? '').trim()) {
+          setErr(`请填写${f.label}`)
+          return
+        }
+      }
     }
     setErr('')
     setBusy(true)
@@ -138,24 +220,37 @@ function ProviderModal({
             <div className="mb-1 text-xs font-semibold text-slate-500">服务商类型</div>
             <select
               value={form.type}
-              onChange={(e) => setForm((p) => ({ ...p, type: e.target.value as 'cloudflare' }))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+              disabled={isEdit}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, type: e.target.value as DdnsProvider['type'], credential: {} }))
+              }
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-500"
             >
-              <option value="cloudflare">Cloudflare</option>
+              {PROVIDER_TYPES.map((m) => (
+                <option key={m.type} value={m.type}>
+                  {m.label}
+                </option>
+              ))}
             </select>
+            {isEdit && <div className="mt-1 text-[11px] text-slate-400">类型创建后不可更改</div>}
           </label>
-          <label className="block">
-            <div className="mb-1 text-xs font-semibold text-slate-500">
-              API Token{initial && <span className="ml-1 font-normal text-slate-400">（留空表示不修改）</span>}
-            </div>
-            <input
-              type="password"
-              value={form.apiToken}
-              onChange={(e) => setForm((p) => ({ ...p, apiToken: e.target.value }))}
-              placeholder={initial ? '••••••••（已配置）' : '粘贴 Cloudflare API Token'}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm outline-none focus:border-blue-400"
-            />
-          </label>
+          {meta.fields.map((f) => (
+            <label key={f.key} className="block">
+              <div className="mb-1 text-xs font-semibold text-slate-500">
+                {f.label}
+                {isEdit && <span className="ml-1 font-normal text-slate-400">（留空表示不修改）</span>}
+              </div>
+              <input
+                type={f.secret ? 'password' : 'text'}
+                value={form.credential[f.key] ?? ''}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, credential: { ...p.credential, [f.key]: e.target.value } }))
+                }
+                placeholder={isEdit ? '••••••••（已配置）' : f.placeholder ?? f.label}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-sm outline-none focus:border-blue-400"
+              />
+            </label>
+          ))}
           {err && <div className="text-xs text-rose-500">{err}</div>}
         </div>
         <div className="mt-5 flex justify-end gap-2">
@@ -262,6 +357,18 @@ function RecordModal({
 
   const needArg = form.ipSource === 'web' || form.ipSource === 'dns'
 
+  const selectedProvider = providers.find((p) => String(p.id) === form.providerId)
+  const providerMeta = selectedProvider ? providerMetaMap.get(selectedProvider.type) : undefined
+  const ipv4Only = providerMeta?.ipv4Only ?? false
+  const supportsProxied = providerMeta?.supportsProxied ?? false
+
+  // NameCheap 等仅支持 IPv4：强制 A 记录
+  useEffect(() => {
+    if (ipv4Only && form.recordType !== 'A') {
+      setForm((p) => ({ ...p, recordType: 'A' }))
+    }
+  }, [ipv4Only, form.recordType])
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
@@ -332,7 +439,9 @@ function RecordModal({
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
             >
               <option value="A">A (IPv4)</option>
-              <option value="AAAA">AAAA (IPv6)</option>
+              <option value="AAAA" disabled={ipv4Only}>
+                AAAA (IPv6){ipv4Only ? '（该服务商不支持）' : ''}
+              </option>
             </select>
           </label>
           <label className="col-span-2 block sm:col-span-1">
@@ -381,15 +490,17 @@ function RecordModal({
               />
               启用自动同步
             </label>
-            <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-              <input
-                type="checkbox"
-                checked={form.proxied}
-                onChange={(e) => setForm((p) => ({ ...p, proxied: e.target.checked }))}
-                className="h-3.5 w-3.5"
-              />
-              Cloudflare 小云朵代理
-            </label>
+            {supportsProxied && (
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={form.proxied}
+                  onChange={(e) => setForm((p) => ({ ...p, proxied: e.target.checked }))}
+                  className="h-3.5 w-3.5"
+                />
+                Cloudflare 小云朵代理
+              </label>
+            )}
           </div>
           {err && <div className="col-span-2 text-xs text-rose-500">{err}</div>}
         </div>
@@ -571,15 +682,20 @@ export function Ddns() {
 
   // ---- 服务商 ----
   const submitProvider = async (form: ProviderFormState) => {
+    const credential: Record<string, string> = {}
+    for (const [k, v] of Object.entries(form.credential)) {
+      const t = v.trim()
+      if (t) credential[k] = t
+    }
     if (providerModal.initial) {
       await api.updateDdnsProvider({
         id: providerModal.initial.id,
         name: form.name.trim(),
-        apiToken: form.apiToken.trim(),
+        credential,
       })
       toast('服务商已更新')
     } else {
-      await api.addDdnsProvider({ name: form.name.trim(), type: form.type, apiToken: form.apiToken.trim() })
+      await api.addDdnsProvider({ name: form.name.trim(), type: form.type, credential })
       toast('服务商已添加')
     }
     setProviderModal({ open: false })
@@ -764,7 +880,7 @@ export function Ddns() {
           }
         />
         {providers.length === 0 ? (
-          <div className="py-6 text-center text-xs text-slate-400">尚未配置服务商，先添加一个 Cloudflare 凭证</div>
+          <div className="py-6 text-center text-xs text-slate-400">尚未配置服务商，先添加一个 DNS 服务商凭证</div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {providers.map((p) => (
@@ -774,7 +890,7 @@ export function Ddns() {
               >
                 <Server className="h-3.5 w-3.5" />
                 {p.name}
-                <span className="text-[10px] font-normal text-orange-400">({p.type})</span>
+                <span className="text-[10px] font-normal text-orange-400">({providerTypeLabel(p.type)})</span>
                 <button
                   onClick={() => setProviderModal({ open: true, initial: p })}
                   className="ml-1 grid h-5 w-5 place-items-center rounded-md text-orange-400 transition hover:bg-white hover:text-emerald-600"

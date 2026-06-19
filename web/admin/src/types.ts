@@ -60,7 +60,14 @@ export interface StunStatusEvent {
   logs?: StunStatusLog[]
 }
 
-export type DnsProviderType = 'cloudflare'
+export type DnsProviderType =
+  | 'cloudflare'
+  | 'alidns'
+  | 'tencentcloud'
+  | 'baiducloud'
+  | 'huaweicloud'
+  | 'namecheap'
+  | 'namesilo'
 export type DnsRecordType = 'A' | 'AAAA'
 export type DdnsRecordStatus = 'pending' | 'success' | 'failed' | 'skipped'
 export type IpSourceType = 'stun' | 'web' | 'dns' | 'interface'

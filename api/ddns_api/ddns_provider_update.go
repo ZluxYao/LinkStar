@@ -9,15 +9,15 @@ import (
 )
 
 type DdnsProviderUpdateRequest struct {
-	ID       uint   `json:"id"`
-	Name     string `json:"name"`
-	APIToken string `json:"apiToken"` // 留空表示不修改凭证
+	ID         uint              `json:"id"`
+	Name       string            `json:"name"`
+	Credential map[string]string `json:"credential"` // 留空字段表示不修改
 }
 
 func (DdnsApi) DdnsProviderUpdateView(c *gin.Context) {
 	cr := middleware.GetBindRequest[DdnsProviderUpdateRequest](c)
 
-	if err := ddns.Runtime.UpdateProvider(cr.ID, cr.Name, cr.APIToken); err != nil {
+	if err := ddns.Runtime.UpdateProvider(cr.ID, cr.Name, cr.Credential); err != nil {
 		res.FailWithMsg(err.Error(), c)
 		return
 	}

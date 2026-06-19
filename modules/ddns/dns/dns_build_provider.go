@@ -25,12 +25,6 @@ func BuildClient(p model.DDNSProvider) DNSProvider {
 		secretKey, _ := p.Credential["secretKey"].(string)
 		return NewTencentCloud(secretID, secretKey)
 
-	// DNSPod 老版(dnsapi.cn)
-	case model.DNSProviderDnspod:
-		id, _ := p.Credential["id"].(string)
-		token, _ := p.Credential["token"].(string)
-		return NewDnspod(id, token)
-
 	// 百度云 DNS
 	case model.DNSProviderBaiduCloud:
 		accessKeyID, _ := p.Credential["accessKeyId"].(string)
@@ -42,12 +36,6 @@ func BuildClient(p model.DDNSProvider) DNSProvider {
 		accessKeyID, _ := p.Credential["accessKeyId"].(string)
 		accessKeySecret, _ := p.Credential["accessKeySecret"].(string)
 		return NewHuaweicloud(accessKeyID, accessKeySecret)
-
-	// GoDaddy
-	case model.DNSProviderGoDaddy:
-		apiKey, _ := p.Credential["apiKey"].(string)
-		apiSecret, _ := p.Credential["apiSecret"].(string)
-		return NewGoDaddyDNS(apiKey, apiSecret)
 
 	// NameCheap
 	case model.DNSProviderNameCheap:

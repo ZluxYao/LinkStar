@@ -94,13 +94,13 @@ export const updateDdnsSettings = (body: { intervalSec: number }) =>
     body: JSON.stringify(body),
   })
 
-export const addDdnsProvider = (body: { name: string; type: string; apiToken: string }) =>
+export const addDdnsProvider = (body: { name: string; type: string; credential: Record<string, string> }) =>
   request<DdnsProvider>('/api/ddns/provider/add', {
     method: 'POST',
     body: JSON.stringify(body),
   })
 
-export const updateDdnsProvider = (body: { id: number; name: string; apiToken: string }) =>
+export const updateDdnsProvider = (body: { id: number; name: string; credential: Record<string, string> }) =>
   request<unknown>('/api/ddns/provider/update', {
     method: 'PUT',
     body: JSON.stringify(body),
