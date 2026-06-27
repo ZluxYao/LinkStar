@@ -14,7 +14,7 @@ func TestSendCloudflareSRVRecord(t *testing.T) {
 	}
 
 	cfg := WebhookConfig{
-		URL:    "https://api.cloudflare.com/client/v4/zones/55452537bf50dd7e2946971f53fa12ae/dns_records/4489eb6ab6a5f33b093207cf8ac8472a",
+		URL:    "https://api.cloudflare.com/client/v4/zones/",
 		Method: "PUT",
 		Headers: strings.Join([]string{
 			"Authorization: Bearer #{token}",
@@ -31,7 +31,7 @@ func TestSendCloudflareSRVRecord(t *testing.T) {
 				"priority": 5,
 				"weight": 0,
 				"port": #{port},
-				"target": "zlux.top"
+				"target": "example.top"
 			}
 		}`,
 		DisableSuccessCheck: true,
