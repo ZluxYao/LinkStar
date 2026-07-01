@@ -224,4 +224,4 @@ npm run dev
 
 ## License
 
-本项目计划采用 GPL-3.0-or-later 开源许可证。
+本项目采用 GPL-3.0-or-later 开源许可证，详见 [LICENSE](LICENSE)。
