@@ -14,10 +14,10 @@ import (
 func Run(webFS fs.FS) {
 
 	// 单独起 pprof，只在排查问题时用
-	go func() {
-		logrus.Info("pprof 运行在：0.0.0.0:3334")
-		http.ListenAndServe("0.0.0.0:3334", nil)
-	}()
+	// go func() {
+	// 	logrus.Info("pprof 运行在：0.0.0.0:3334")
+	// 	http.ListenAndServe("0.0.0.0:3334", nil)
+	// }()
 
 	gin.SetMode("release")
 	r := gin.Default()
