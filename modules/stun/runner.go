@@ -1,14 +1,18 @@
 package stun
 
-import "context"
+import (
+	"context"
+	"linkstar/modules/webhook"
+)
 
 // STUN 需要的参数
 type STUNRequest struct {
-	ServiceName  string
-	TargetIP     string
-	InternalPort uint16
-	Protocol     string
-	UseUPnP      bool
+	ServiceName   string
+	TargetIP      string
+	InternalPort  uint16
+	Protocol      string
+	UseUPnP       bool
+	WebhookConfig webhook.WebhookConfig
 }
 
 // 定义STUN 状态类型
@@ -24,6 +28,7 @@ const (
 // 当前STUN 服务的状态
 type STUNState struct {
 	State        STUNStateType // 状态
+	ExternalIP   string        // 外部 IP
 	ExternalPort uint16        // 外部端口
 	Log          string        // 日志
 }

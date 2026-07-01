@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
+  BookmarkPlus,
   ChevronRight,
   ClipboardCopy,
   Computer,
@@ -8,10 +9,12 @@ import {
   FileText,
   Globe,
   Home as HomeIcon,
+  LayoutTemplate,
   Pencil,
   Plus,
   RotateCw,
   Server,
+  Send,
   Trash2,
   Wifi,
   X,
@@ -23,6 +26,7 @@ import type {
   StunDevice,
   StunService,
   StunStatusEvent,
+  WebhookConfig,
 } from '../types'
 
 const phaseLabel: Record<string, string> = {
@@ -161,7 +165,82 @@ interface ServiceFormState {
   enabled: boolean
   showOnHome: boolean
   description: string
+  webhookconfig: WebhookConfig
 }
+
+interface WebhookTemplate {
+  id: string
+  name: string
+  description: string
+  config: WebhookConfig
+  builtin?: boolean
+}
+
+type ServiceModalTab = 'basic' | 'webhook'
+
+const emptyWebhook: WebhookConfig = {
+  enabled: false,
+  onlyWhenChanged: true,
+  url: '',
+  method: 'POST',
+  headers: '',
+  body: '{"service":"#{service_name}","address":"#{address}","phase":"#{phase}"}',
+  disableSuccessCheck: true,
+  successContains: '',
+  proxy: '',
+}
+
+const webhookTemplateStorageKey = 'linkstar:stun:webhookTemplates'
+const webhookMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
+
+const builtinWebhookTemplates: WebhookTemplate[] = [
+  {
+    id: 'generic-json',
+    name: '通用 JSON 通知',
+    description: '向任意 HTTP 接口推送 STUN 服务地址',
+    builtin: true,
+    config: {
+      ...emptyWebhook,
+      enabled: true,
+      method: 'POST',
+      headers: 'Content-Type: application/json',
+      body: '{"service":"#{service_name}","device":"#{device_name}","address":"#{address}","protocol":"#{protocol}","phase":"#{phase}","time":"#{updated_at}"}',
+    },
+  },
+  {
+    id: 'cloudflare-srv',
+    name: 'Cloudflare SRV 记录',
+    description: '把 STUN 外部端口写入 Cloudflare SRV 记录',
+    builtin: true,
+    config: {
+      ...emptyWebhook,
+      enabled: true,
+      method: 'PUT',
+      url: 'https://api.cloudflare.com/client/v4/zones/#{zone_id}/dns_records/#{record_id}',
+      headers: 'Authorization: Bearer #{token}\nContent-Type: application/json',
+      body: '{\n  "type": "SRV",\n  "name": "_aa._tcp.istore",\n  "ttl": 60,\n  "data": {\n    "service": "_aa",\n    "proto": "_tcp",\n    "name": "istore",\n    "priority": 5,\n    "weight": 0,\n    "port": #{port},\n    "target": "zlux.top"\n  }\n}',
+      disableSuccessCheck: false,
+      successContains: '"success":true',
+    },
+  },
+  {
+    id: 'cloudflare-redirect-rule',
+    name: 'Cloudflare 重定向规则',
+    description: '把访问规则重定向到当前 STUN 公网 IP',
+    builtin: true,
+    config: {
+      ...emptyWebhook,
+      enabled: true,
+      method: 'POST',
+      url: 'https://api.cloudflare.com/client/v4/zones/#{zone_id}/rulesets/#{ruleset_id}/rules',
+      headers: 'Authorization: Bearer #{token}\nContent-Type: application/json',
+      body: '{\n  "action": "redirect",\n  "expression": "(http.host eq \\"fn.zlux.top\\")",\n  "description": "fn",\n  "action_parameters": {\n    "from_value": {\n      "status_code": 307,\n      "target_url": {\n        "expression": "concat(\\"https://#{ipAddr}\\", http.request.uri.path)"\n      },\n      "preserve_query_string": true\n    }\n  }\n}',
+      disableSuccessCheck: false,
+      successContains: '"success":true',
+    },
+  },
+]
+
 const emptyService: ServiceFormState = {
   name: '',
   internalPort: '',
@@ -172,6 +251,51 @@ const emptyService: ServiceFormState = {
   enabled: true,
   showOnHome: false,
   description: '',
+  webhookconfig: emptyWebhook,
+}
+
+function normalizeWebhook(cfg?: Partial<WebhookConfig>): WebhookConfig {
+  return {
+    ...emptyWebhook,
+    ...(cfg || {}),
+    method: cfg?.method || emptyWebhook.method,
+  }
+}
+
+function loadSavedWebhookTemplates(): WebhookTemplate[] {
+  try {
+    const raw = window.localStorage.getItem(webhookTemplateStorageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as WebhookTemplate[]
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item) => item?.id && item?.name && item?.config)
+      .map((item) => ({
+        ...item,
+        builtin: false,
+        config: normalizeWebhook(item.config),
+      }))
+  } catch {
+    return []
+  }
+}
+
+function saveWebhookTemplates(templates: WebhookTemplate[]) {
+  window.localStorage.setItem(webhookTemplateStorageKey, JSON.stringify(templates))
+}
+
+function getWebhookStatus(status?: StunStatusEvent) {
+  const logs = status?.logs ?? []
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const msg = logs[i]?.message || ''
+    if (msg.includes('Webhook 发送成功')) {
+      return { state: 'success' as const, text: '最近发送成功', at: logs[i].createdAt }
+    }
+    if (msg.includes('Webhook 发送失败')) {
+      return { state: 'failed' as const, text: '最近发送失败', at: logs[i].createdAt }
+    }
+  }
+  return { state: 'pending' as const, text: '等待后台发送', at: '' }
 }
 
 function ServiceModal({
@@ -197,10 +321,67 @@ function ServiceModal({
       enabled: initial.enabled !== false,
       showOnHome: initialShowOnHome,
       description: initial.description || '',
+      webhookconfig: normalizeWebhook(initial.webhookconfig),
     }
   })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [activeTab, setActiveTab] = useState<ServiceModalTab>('basic')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [savedTemplates, setSavedTemplates] = useState<WebhookTemplate[]>(() => loadSavedWebhookTemplates())
+  const [templateName, setTemplateName] = useState('')
+  const allTemplates = useMemo(
+    () => [...builtinWebhookTemplates, ...savedTemplates],
+    [savedTemplates],
+  )
+
+  const updateWebhook = (patch: Partial<WebhookConfig>) => {
+    setForm((p) => ({
+      ...p,
+      webhookconfig: {
+        ...p.webhookconfig,
+        ...patch,
+      },
+    }))
+  }
+
+  const applyWebhookTemplate = (templateId: string) => {
+    const template = allTemplates.find((item) => item.id === templateId)
+    if (!template) return
+    setForm((p) => ({
+      ...p,
+      webhookconfig: normalizeWebhook(template.config),
+    }))
+    setSelectedTemplateId(templateId)
+    setActiveTab('webhook')
+  }
+
+  const saveCurrentWebhookTemplate = () => {
+    const name = templateName.trim()
+    if (!name) {
+      setErr('请填写模板名称')
+      return
+    }
+    const next = [
+      ...savedTemplates,
+      {
+        id: `custom-${Date.now()}`,
+        name,
+        description: '保存的 Webhook 模板',
+        config: normalizeWebhook(form.webhookconfig),
+      },
+    ]
+    setSavedTemplates(next)
+    saveWebhookTemplates(next)
+    setTemplateName('')
+    setErr('')
+  }
+
+  const deleteSavedWebhookTemplate = (templateId: string) => {
+    const next = savedTemplates.filter((item) => item.id !== templateId)
+    setSavedTemplates(next)
+    saveWebhookTemplates(next)
+  }
 
   const submit = async () => {
     if (!form.name.trim()) {
@@ -229,8 +410,8 @@ function ServiceModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
-        <div className="mb-5 flex items-center justify-between">
+      <div className="flex max-h-[92vh] w-full max-w-3xl flex-col rounded-2xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200">
+        <div className="flex items-center justify-between px-6 py-5">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑服务' : '添加服务'}</div>
           <button
             type="button"
@@ -240,87 +421,303 @@ function ServiceModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block col-span-2 sm:col-span-1">
-            <div className="mb-1 text-xs font-semibold text-slate-500">服务名称</div>
-            <input
-              autoFocus
-              value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-              placeholder="如 SSH / Web管理"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-            />
-          </label>
-          <label className="block col-span-2 sm:col-span-1">
-            <div className="mb-1 text-xs font-semibold text-slate-500">内网端口</div>
-            <input
-              type="number"
-              value={form.internalPort}
-              onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
-              placeholder="如 22"
-              min={1}
-              max={65535}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-            />
-          </label>
-          <label className="block col-span-2 sm:col-span-1">
-            <div className="mb-1 text-xs font-semibold text-slate-500">协议类型</div>
-            <select
-              value={form.protocol}
-              onChange={(e) => setForm((p) => ({ ...p, protocol: e.target.value as 'TCP' | 'UDP' }))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+        <div className="flex gap-8 border-b border-slate-100 px-6">
+          {[
+            { key: 'basic' as const, label: '基础配置' },
+            { key: 'webhook' as const, label: 'Webhook' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={`border-b-2 px-0 pb-3 text-sm font-bold transition ${
+                activeTab === tab.key
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
             >
-              <option value="TCP">TCP</option>
-              <option value="UDP">UDP</option>
-            </select>
-          </label>
-          <label className="block col-span-2 sm:col-span-1">
-            <div className="mb-1 text-xs font-semibold text-slate-500">UPnP 映射端口</div>
-            <input
-              type="number"
-              value={form.upnpMappedPort}
-              onChange={(e) => setForm((p) => ({ ...p, upnpMappedPort: e.target.value }))}
-              placeholder="0 表示自动"
-              min={0}
-              max={65535}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-            />
-          </label>
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              { key: 'useUpnp' as const, label: '启用 UPnP' },
-              { key: 'https' as const, label: 'HTTPS 服务' },
-              { key: 'enabled' as const, label: '启用服务' },
-              { key: 'showOnHome' as const, label: '主页显示' },
-            ].map((opt) => (
-              <label
-                key={opt.key}
-                className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"
-              >
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {activeTab === 'basic' && (
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block col-span-2 sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">服务名称</div>
+                <input
+                  autoFocus
+                  value={form.name}
+                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="如 SSH / Web管理"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="block col-span-2 sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">内网端口</div>
+                <input
+                  type="number"
+                  value={form.internalPort}
+                  onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
+                  placeholder="如 22"
+                  min={1}
+                  max={65535}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+              <label className="block col-span-2 sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">协议类型</div>
+                <select
+                  value={form.protocol}
+                  onChange={(e) => setForm((p) => ({ ...p, protocol: e.target.value as 'TCP' | 'UDP' }))}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                >
+                  <option value="TCP">TCP</option>
+                  <option value="UDP">UDP</option>
+                </select>
+              </label>
+              <label className="block col-span-2 sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">UPnP 映射端口</div>
+                <input
+                  type="number"
+                  value={form.upnpMappedPort}
+                  onChange={(e) => setForm((p) => ({ ...p, upnpMappedPort: e.target.value }))}
+                  placeholder="0 表示自动"
+                  min={0}
+                  max={65535}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+
+              <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  { key: 'useUpnp' as const, label: '启用 UPnP' },
+                  { key: 'https' as const, label: 'HTTPS 服务' },
+                  { key: 'enabled' as const, label: '启用服务' },
+                  { key: 'showOnHome' as const, label: '主页显示' },
+                ].map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form[opt.key]}
+                      onChange={(e) => setForm((p) => ({ ...p, [opt.key]: e.target.checked }))}
+                      className="h-3.5 w-3.5"
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+
+              <label className="col-span-2 block">
+                <div className="mb-1 text-xs font-semibold text-slate-500">描述（可选）</div>
+                <input
+                  value={form.description}
+                  onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
+                  placeholder="服务描述信息"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+              </label>
+            </div>
+          )}
+
+          {activeTab === 'webhook' && (
+            <div className="mx-auto max-w-2xl">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-800">
                 <input
                   type="checkbox"
-                  checked={form[opt.key]}
-                  onChange={(e) => setForm((p) => ({ ...p, [opt.key]: e.target.checked }))}
+                  checked={form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ enabled: e.target.checked })}
                   className="h-3.5 w-3.5"
                 />
-                {opt.label}
+                <Send className="h-4 w-4 text-blue-500" />
+                Webhook
               </label>
-            ))}
-          </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateWebhook({ enabled: !form.webhookconfig.enabled })}
+                    className={`rounded-md px-2 py-1 text-xs font-semibold transition ${
+                      form.webhookconfig.enabled
+                        ? 'bg-blue-50 text-blue-600'
+                        : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                    }`}
+                  >
+                    {form.webhookconfig.enabled ? '已启用' : '未启用'}
+                  </button>
+                </div>
+              </div>
 
-          <label className="col-span-2 block">
-            <div className="mb-1 text-xs font-semibold text-slate-500">描述（可选）</div>
-            <input
-              value={form.description}
-              onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-              placeholder="服务描述信息"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-            />
-          </label>
-          {err && <div className="col-span-2 text-xs text-rose-500">{err}</div>}
+              <div className="mb-4 rounded-xl bg-slate-50 p-3">
+                <div className="mb-2 flex items-center gap-2 text-xs font-bold text-slate-600">
+                  <LayoutTemplate className="h-3.5 w-3.5 text-blue-500" />
+                  选择模板，填入下方表单
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                    {builtinWebhookTemplates.map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        onClick={() => applyWebhookTemplate(template.id)}
+                        className={`w-44 shrink-0 rounded-xl border bg-white p-2.5 text-left transition ${
+                          selectedTemplateId === template.id
+                            ? 'border-blue-400 bg-blue-50/70'
+                            : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/60'
+                        }`}
+                      >
+                        <div className="text-xs font-bold text-slate-800">{template.name}</div>
+                        <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">{template.description}</div>
+                        <div className="mt-2 inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
+                          {template.config.method}
+                        </div>
+                      </button>
+                    ))}
+
+                    {savedTemplates.map((template) => (
+                        <div
+                          key={template.id}
+                          className={`flex w-52 shrink-0 items-start gap-2 rounded-xl border bg-white p-2.5 transition ${
+                            selectedTemplateId === template.id
+                              ? 'border-blue-400 bg-blue-50/70'
+                              : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/60'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => applyWebhookTemplate(template.id)}
+                            className="min-w-0 flex-1 text-left"
+                          >
+                            <div className="truncate text-xs font-bold text-slate-700">{template.name}</div>
+                            <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{template.config.method} {template.config.url || '未填写 URL'}</div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteSavedWebhookTemplate(template.id)}
+                            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
+                            title="删除模板"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                    ))}
+                </div>
+              </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="col-span-2 block sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">请求方法</div>
+                <select
+                  value={form.webhookconfig.method}
+                  disabled={!form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ method: e.target.value })}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  {webhookMethods.map((method) => (
+                    <option key={method} value={method}>{method}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="col-span-2 block sm:col-span-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">代理（可选）</div>
+                <input
+                  value={form.webhookconfig.proxy}
+                  disabled={!form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ proxy: e.target.value })}
+                  placeholder="http://127.0.0.1:7890"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </label>
+              <label className="col-span-2 block">
+                <div className="mb-1 text-xs font-semibold text-slate-500">Webhook URL</div>
+                <input
+                  value={form.webhookconfig.url}
+                  disabled={!form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ url: e.target.value })}
+                  placeholder="https://example.com/hook?addr=#{address}"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </label>
+              <label className="col-span-2 block">
+                <div className="mb-1 text-xs font-semibold text-slate-500">Headers</div>
+                <textarea
+                  value={form.webhookconfig.headers}
+                  disabled={!form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ headers: e.target.value })}
+                  rows={2}
+                  placeholder={'Content-Type: application/json\nAuthorization: Bearer xxx'}
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </label>
+              <label className="col-span-2 block">
+                <div className="mb-1 text-xs font-semibold text-slate-500">Body</div>
+                <textarea
+                  value={form.webhookconfig.body}
+                  disabled={!form.webhookconfig.enabled}
+                  onChange={(e) => updateWebhook({ body: e.target.value })}
+                  rows={4}
+                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </label>
+              <div className="col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={form.webhookconfig.onlyWhenChanged}
+                    disabled={!form.webhookconfig.enabled}
+                    onChange={(e) => updateWebhook({ onlyWhenChanged: e.target.checked })}
+                    className="h-3.5 w-3.5"
+                  />
+                  地址变化时才触发
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={form.webhookconfig.disableSuccessCheck}
+                    disabled={!form.webhookconfig.enabled}
+                    onChange={(e) => updateWebhook({ disableSuccessCheck: e.target.checked })}
+                    className="h-3.5 w-3.5"
+                  />
+                  只检查 HTTP 2xx
+                </label>
+              </div>
+              {!form.webhookconfig.disableSuccessCheck && (
+                <label className="col-span-2 block">
+                  <div className="mb-1 text-xs font-semibold text-slate-500">成功包含文本</div>
+                  <input
+                    value={form.webhookconfig.successContains}
+                    disabled={!form.webhookconfig.enabled}
+                    onChange={(e) => updateWebhook({ successContains: e.target.value })}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                </label>
+              )}
+              <div className="col-span-2 flex gap-2">
+                <input
+                  value={templateName}
+                  onChange={(e) => setTemplateName(e.target.value)}
+                  placeholder="保存当前配置为模板"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+                <button
+                  type="button"
+                  onClick={saveCurrentWebhookTemplate}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition hover:bg-blue-600"
+                  title="保存当前为模板"
+                >
+                  <BookmarkPlus className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            </div>
+          )}
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+
+        {err && <div className="px-6 pb-2 text-xs text-rose-500">{err}</div>}
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
           <button
             type="button"
             onClick={onCancel}
@@ -501,6 +898,11 @@ export function Stun() {
       https: form.https,
       enabled: form.enabled,
       description: form.description.trim(),
+      webhookconfig: {
+        ...form.webhookconfig,
+        url: form.webhookconfig.url.trim(),
+        proxy: form.webhookconfig.proxy.trim(),
+      },
     }
     let serviceId: number | undefined
     if (serviceModal.initial) {
@@ -748,6 +1150,8 @@ export function Stun() {
                   const inHome = homeSet.has(key)
                   const lastError = status?.lastError || ''
                   const restartCount = status?.restartCount ?? 0
+                  const webhookEnabled = !!svc.webhookconfig?.enabled
+                  const webhookStatus = webhookEnabled ? getWebhookStatus(status) : null
                   return (
                     <div
                       key={svc.id}
@@ -815,6 +1219,26 @@ export function Stun() {
                           >
                             {running ? '✅ 穿透成功' : `❌ ${phaseLabel[phase] || phase}`}
                           </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500">Webhook</span>
+                          {webhookEnabled && webhookStatus ? (
+                            <span
+                              className={`truncate text-right font-semibold ${
+                                webhookStatus.state === 'success'
+                                  ? 'text-emerald-600'
+                                  : webhookStatus.state === 'failed'
+                                    ? 'text-rose-500'
+                                    : 'text-amber-600'
+                              }`}
+                              title={webhookStatus.at ? new Date(webhookStatus.at).toLocaleString() : ''}
+                            >
+                              {webhookStatus.state === 'success' ? '✅ ' : webhookStatus.state === 'failed' ? '❌ ' : '⏳ '}
+                              {webhookStatus.text}
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-slate-400">未启用</span>
+                          )}
                         </div>
                       </div>
 

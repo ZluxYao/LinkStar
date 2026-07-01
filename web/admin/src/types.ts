@@ -19,6 +19,19 @@ export interface StunService {
   https: boolean
   enabled: boolean
   description: string
+  webhookconfig?: WebhookConfig
+}
+
+export interface WebhookConfig {
+  enabled: boolean
+  onlyWhenChanged: boolean
+  url: string
+  method: string
+  headers: string
+  body: string
+  disableSuccessCheck: boolean
+  successContains: string
+  proxy: string
 }
 
 export interface StunDevice {

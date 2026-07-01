@@ -4,6 +4,7 @@ import (
 	"linkstar/middleware"
 	"linkstar/modules/stun"
 	"linkstar/modules/stun/model"
+	"linkstar/modules/webhook"
 	"linkstar/utils/res"
 	"time"
 
@@ -23,6 +24,8 @@ type StunServiceAddViewRequest struct {
 
 	Enabled     bool   `json:"enabled"`     // 服务是否启用 (默认 true)
 	Description string `json:"description"` // 服务描述信息 (可选)
+
+	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 }
 
 func (StunApi) StunServiceAddView(c *gin.Context) {
@@ -60,6 +63,7 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 		UPnPMappedPort: cr.UPnPMappedPort,
 		Enabled:        cr.Enabled,
 		Description:    cr.Description,
+		WebHookConfig:  cr.WebHookConfig,
 		UpdatedAt:      time.Now(),
 	}
 

@@ -1,4 +1,4 @@
-import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig } from '../types'
+import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig, WebhookConfig } from '../types'
 
 interface ApiResponse<T> {
   code: number
@@ -50,6 +50,7 @@ export interface StunServicePayload {
   https: boolean
   enabled: boolean
   description: string
+  webhookconfig?: WebhookConfig
 }
 
 export const addStunService = (body: StunServicePayload) =>

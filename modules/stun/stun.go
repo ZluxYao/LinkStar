@@ -125,7 +125,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 
 	// 把端口传出去
 	if onState != nil {
-		onState(STUNState{State: STUNMapped, ExternalPort: uint16(publicPort)}) //todo统一一下命名
+		onState(STUNState{State: STUNMapped, ExternalIP: publicIP, ExternalPort: uint16(publicPort)}) //todo统一一下命名
 	}
 
 	// 保活
@@ -146,7 +146,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 				req.ServiceName,
 				func() {
 					if onState != nil {
-						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
+						onState(STUNState{State: STUNAlive, ExternalIP: publicIP, ExternalPort: uint16(publicPort)})
 					}
 				},
 			); err != nil && ctx.Err() == nil {
@@ -165,7 +165,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 				localIP,
 				func() {
 					if onState != nil {
-						onState(STUNState{State: STUNAlive, ExternalPort: uint16(publicPort)})
+						onState(STUNState{State: STUNAlive, ExternalIP: publicIP, ExternalPort: uint16(publicPort)})
 					}
 				},
 			); err != nil && ctx.Err() == nil {

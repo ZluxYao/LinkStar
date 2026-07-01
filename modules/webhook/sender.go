@@ -67,12 +67,9 @@ func sendOnce(client *http.Client, method, rawURL, body string, cfg WebhookConfi
 	}
 
 	// 字符串检测
-	if cfg.DisableSuccessCheck {
-		fmt.Println("开始检测")
+	if !cfg.DisableSuccessCheck {
 		needle := strings.TrimSpace(cfg.SuccessContains)
-		fmt.Println("检测结果", strings.Contains(respBody, needle))
 		if needle != "" && !strings.Contains(respBody, needle) {
-			fmt.Println("检查失败")
 			return respBody, fmt.Errorf("返回体未包含成功字符串: %s", needle)
 		}
 	}

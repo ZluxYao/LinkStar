@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"linkstar/modules/webhook"
+	"time"
+)
 
 type Config struct {
 	// 基础网络信息
@@ -38,6 +41,8 @@ type Service struct {
 
 	Enabled     bool   `json:"enabled"`     // 服务是否启用 (默认 true)
 	Description string `json:"description"` // 服务描述信息 (可选)
+
+	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 
 	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
 }

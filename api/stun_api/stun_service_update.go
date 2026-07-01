@@ -3,6 +3,7 @@ package stun_api
 import (
 	"linkstar/middleware"
 	"linkstar/modules/stun"
+	"linkstar/modules/webhook"
 	"linkstar/utils/res"
 	"time"
 
@@ -23,6 +24,8 @@ type StunServiceUpdateViewRequest struct {
 
 	Enabled     bool   `json:"enabled"`
 	Description string `json:"description"`
+
+	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 }
 
 func (StunApi) StunServiceUpdateView(c *gin.Context) {
@@ -64,6 +67,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.UPnPMappedPort = cr.UPnPMappedPort
 	svc.Enabled = cr.Enabled
 	svc.Description = cr.Description
+	svc.WebHookConfig = cr.WebHookConfig
 	svc.UpdatedAt = time.Now()
 
 	// 持久化配置到文件

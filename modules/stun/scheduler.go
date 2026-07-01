@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"linkstar/modules/stun/model"
+	"linkstar/modules/webhook"
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // EventKind 区分阶段变化和纯日志，订阅者可选择性处理
@@ -82,6 +85,7 @@ type serviceEntry struct {
 	mu           sync.RWMutex
 	phase        ServicePhase // 当前阶段
 	externalPort uint16       // STUN 映射后的外部端口
+	lastWebhook  string       // 最近一次触发 webhook 的 publicIP:port
 	restartCount int          // 重启次数
 	lastError    string
 	logMessages  []ServiceLog // 滚动日志
@@ -258,13 +262,14 @@ func (s *Scheduler) releaseEntry(Key string, entry *serviceEntry) {
 }
 
 // transition 状态变更唯一写入路径：改 entry → 决定 kind → emit
-func (s *Scheduler) transition(entry *serviceEntry, key string, phase ServicePhase, port uint16, msg string) {
+func (s *Scheduler) transition(entry *serviceEntry, key string, phase ServicePhase, port uint16, msg string) bool {
 	changed := entry.applyState(phase, port, msg)
 	kind := EventLogAppended
 	if changed {
 		kind = EventPhaseChanged
 	}
 	s.emit(entry.snapshot(key, kind))
+	return changed
 }
 
 // log 仅追加日志，不改阶段
@@ -441,7 +446,8 @@ func (s *Scheduler) runService(ctx context.Context, key string, entry *serviceEn
 				s.transition(entry, key, PhaseProbing, state.ExternalPort, state.Log)
 			case STUNAlive:
 				everAlive = true
-				s.transition(entry, key, PhaseRunning, state.ExternalPort, state.Log)
+				phaseChanged := s.transition(entry, key, PhaseRunning, state.ExternalPort, state.Log)
+				s.sendServiceWebhook(entry, key, req, state, phaseChanged)
 			case STUNFailed:
 				s.transition(entry, key, PhaseRestarting, 0, state.Log)
 			case STUNLog:
@@ -543,12 +549,69 @@ func serviceKey(deviceID, serviceID uint) string {
 
 func buildSTUNRequest(device *model.Device, service *model.Service) STUNRequest {
 	return STUNRequest{
-		ServiceName:  service.Name,
-		TargetIP:     device.IP,
-		InternalPort: service.InternalPort,
-		Protocol:     service.Protocol,
-		UseUPnP:      service.UseUPnP,
+		ServiceName:   service.Name,
+		TargetIP:      device.IP,
+		InternalPort:  service.InternalPort,
+		Protocol:      service.Protocol,
+		UseUPnP:       service.UseUPnP,
+		WebhookConfig: service.WebHookConfig,
 	}
+}
+
+func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUNRequest, state STUNState, phaseChanged bool) {
+	cfg := req.WebhookConfig
+	if !cfg.Enabled {
+		return
+	}
+	publicIP := state.ExternalIP
+	if publicIP == "" {
+		publicIP = Runtime.Network.PublicIP
+	}
+	if publicIP == "" || state.ExternalPort == 0 {
+		return
+	}
+
+	address := fmt.Sprintf("%s:%d", publicIP, state.ExternalPort)
+	if !entry.shouldSendWebhook(address, phaseChanged, cfg.OnlyWhenChanged) {
+		return
+	}
+
+	event := entry.snapshot(key, EventPhaseChanged)
+	fields := map[string]string{
+		"address":       address,
+		"device_name":   event.DeviceName,
+		"external_ip":   publicIP,
+		"external_port": fmt.Sprintf("%d", state.ExternalPort),
+		"ipAddr":        publicIP,
+		"internal_port": fmt.Sprintf("%d", req.InternalPort),
+		"phase":         PhaseRunning.String(),
+		"port":          fmt.Sprintf("%d", state.ExternalPort),
+		"protocol":      req.Protocol,
+		"service_key":   key,
+		"service_name":  req.ServiceName,
+		"target_ip":     req.TargetIP,
+		"updated_at":    time.Now().Format(time.RFC3339),
+	}
+
+	go func() {
+		if _, err := webhook.Send(cfg, fields); err != nil {
+			msg := fmt.Sprintf("Webhook 发送失败：%v", err)
+			logrus.WithError(err).Warnf("STUN webhook failed: key=%s", key)
+			s.log(entry, key, msg)
+			return
+		}
+		s.log(entry, key, "Webhook 发送成功")
+	}()
+}
+
+func (e *serviceEntry) shouldSendWebhook(address string, phaseChanged bool, onlyWhenChanged bool) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.lastWebhook == address {
+		return phaseChanged && !onlyWhenChanged
+	}
+	e.lastWebhook = address
+	return true
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) bool {
