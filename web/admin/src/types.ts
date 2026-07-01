@@ -34,6 +34,16 @@ export interface WebhookConfig {
   proxy: string
 }
 
+export interface WebhookTemplate {
+  id: string
+  name: string
+  description: string
+  builtin: boolean
+  config: WebhookConfig
+  createdAt?: string
+  updatedAt?: string
+}
+
 export interface StunDevice {
   id: number
   DeviceID?: number

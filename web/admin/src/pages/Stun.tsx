@@ -27,6 +27,7 @@ import type {
   StunService,
   StunStatusEvent,
   WebhookConfig,
+  WebhookTemplate,
 } from '../types'
 
 const phaseLabel: Record<string, string> = {
@@ -168,14 +169,6 @@ interface ServiceFormState {
   webhookconfig: WebhookConfig
 }
 
-interface WebhookTemplate {
-  id: string
-  name: string
-  description: string
-  config: WebhookConfig
-  builtin?: boolean
-}
-
 type ServiceModalTab = 'basic' | 'webhook'
 
 const emptyWebhook: WebhookConfig = {
@@ -190,56 +183,7 @@ const emptyWebhook: WebhookConfig = {
   proxy: '',
 }
 
-const webhookTemplateStorageKey = 'linkstar:stun:webhookTemplates'
 const webhookMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
-
-const builtinWebhookTemplates: WebhookTemplate[] = [
-  {
-    id: 'generic-json',
-    name: '通用 JSON 通知',
-    description: '向任意 HTTP 接口推送 STUN 服务地址',
-    builtin: true,
-    config: {
-      ...emptyWebhook,
-      enabled: true,
-      method: 'POST',
-      headers: 'Content-Type: application/json',
-      body: '{"service":"#{service_name}","device":"#{device_name}","address":"#{address}","protocol":"#{protocol}","phase":"#{phase}","time":"#{updated_at}"}',
-    },
-  },
-  {
-    id: 'cloudflare-srv',
-    name: 'Cloudflare SRV 记录',
-    description: '把 STUN 外部端口写入 Cloudflare SRV 记录',
-    builtin: true,
-    config: {
-      ...emptyWebhook,
-      enabled: true,
-      method: 'PUT',
-      url: 'https://api.cloudflare.com/client/v4/zones/#{zone_id}/dns_records/#{record_id}',
-      headers: 'Authorization: Bearer #{token}\nContent-Type: application/json',
-      body: '{\n  "type": "SRV",\n  "name": "_aa._tcp.istore",\n  "ttl": 60,\n  "data": {\n    "service": "_aa",\n    "proto": "_tcp",\n    "name": "istore",\n    "priority": 5,\n    "weight": 0,\n    "port": #{port},\n    "target": "zlux.top"\n  }\n}',
-      disableSuccessCheck: false,
-      successContains: '"success":true',
-    },
-  },
-  {
-    id: 'cloudflare-redirect-rule',
-    name: 'Cloudflare 重定向规则',
-    description: '把访问规则重定向到当前 STUN 公网 IP',
-    builtin: true,
-    config: {
-      ...emptyWebhook,
-      enabled: true,
-      method: 'POST',
-      url: 'https://api.cloudflare.com/client/v4/zones/#{zone_id}/rulesets/#{ruleset_id}/rules',
-      headers: 'Authorization: Bearer #{token}\nContent-Type: application/json',
-      body: '{\n  "action": "redirect",\n  "expression": "(http.host eq \\"fn.zlux.top\\")",\n  "description": "fn",\n  "action_parameters": {\n    "from_value": {\n      "status_code": 307,\n      "target_url": {\n        "expression": "concat(\\"https://#{ipAddr}\\", http.request.uri.path)"\n      },\n      "preserve_query_string": true\n    }\n  }\n}',
-      disableSuccessCheck: false,
-      successContains: '"success":true',
-    },
-  },
-]
 
 const emptyService: ServiceFormState = {
   name: '',
@@ -260,28 +204,6 @@ function normalizeWebhook(cfg?: Partial<WebhookConfig>): WebhookConfig {
     ...(cfg || {}),
     method: cfg?.method || emptyWebhook.method,
   }
-}
-
-function loadSavedWebhookTemplates(): WebhookTemplate[] {
-  try {
-    const raw = window.localStorage.getItem(webhookTemplateStorageKey)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as WebhookTemplate[]
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((item) => item?.id && item?.name && item?.config)
-      .map((item) => ({
-        ...item,
-        builtin: false,
-        config: normalizeWebhook(item.config),
-      }))
-  } catch {
-    return []
-  }
-}
-
-function saveWebhookTemplates(templates: WebhookTemplate[]) {
-  window.localStorage.setItem(webhookTemplateStorageKey, JSON.stringify(templates))
 }
 
 function getWebhookStatus(status?: StunStatusEvent) {
@@ -328,12 +250,31 @@ function ServiceModal({
   const [err, setErr] = useState('')
   const [activeTab, setActiveTab] = useState<ServiceModalTab>('basic')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
-  const [savedTemplates, setSavedTemplates] = useState<WebhookTemplate[]>(() => loadSavedWebhookTemplates())
+  const [templates, setTemplates] = useState<WebhookTemplate[]>([])
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templateBusy, setTemplateBusy] = useState(false)
   const [templateName, setTemplateName] = useState('')
-  const allTemplates = useMemo(
-    () => [...builtinWebhookTemplates, ...savedTemplates],
-    [savedTemplates],
-  )
+
+  const refreshWebhookTemplates = useCallback(async () => {
+    setTemplatesLoading(true)
+    try {
+      const list = await api.getWebhookTemplates()
+      setTemplates(
+        list.map((item) => ({
+          ...item,
+          config: normalizeWebhook(item.config),
+        })),
+      )
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '读取模板失败')
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshWebhookTemplates()
+  }, [refreshWebhookTemplates])
 
   const updateWebhook = (patch: Partial<WebhookConfig>) => {
     setForm((p) => ({
@@ -346,7 +287,7 @@ function ServiceModal({
   }
 
   const applyWebhookTemplate = (templateId: string) => {
-    const template = allTemplates.find((item) => item.id === templateId)
+    const template = templates.find((item) => item.id === templateId)
     if (!template) return
     setForm((p) => ({
       ...p,
@@ -356,31 +297,41 @@ function ServiceModal({
     setActiveTab('webhook')
   }
 
-  const saveCurrentWebhookTemplate = () => {
+  const saveCurrentWebhookTemplate = async () => {
     const name = templateName.trim()
     if (!name) {
       setErr('请填写模板名称')
       return
     }
-    const next = [
-      ...savedTemplates,
-      {
-        id: `custom-${Date.now()}`,
+    setTemplateBusy(true)
+    try {
+      const created = await api.addWebhookTemplate({
         name,
         description: '保存的 Webhook 模板',
         config: normalizeWebhook(form.webhookconfig),
-      },
-    ]
-    setSavedTemplates(next)
-    saveWebhookTemplates(next)
-    setTemplateName('')
-    setErr('')
+      })
+      setTemplates((p) => [...p, { ...created, config: normalizeWebhook(created.config) }])
+      setSelectedTemplateId(created.id)
+      setTemplateName('')
+      setErr('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '保存模板失败')
+    } finally {
+      setTemplateBusy(false)
+    }
   }
 
-  const deleteSavedWebhookTemplate = (templateId: string) => {
-    const next = savedTemplates.filter((item) => item.id !== templateId)
-    setSavedTemplates(next)
-    saveWebhookTemplates(next)
+  const deleteSavedWebhookTemplate = async (templateId: string) => {
+    setTemplateBusy(true)
+    try {
+      await api.deleteWebhookTemplate(templateId)
+      setTemplates((p) => p.filter((item) => item.id !== templateId))
+      if (selectedTemplateId === templateId) setSelectedTemplateId('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '删除模板失败')
+    } finally {
+      setTemplateBusy(false)
+    }
   }
 
   const submit = async () => {
@@ -558,52 +509,56 @@ function ServiceModal({
                   选择模板，填入下方表单
                 </div>
                 <div className="flex gap-2 overflow-x-auto pb-1">
-                    {builtinWebhookTemplates.map((template) => (
+                  {templatesLoading && (
+                    <div className="w-44 shrink-0 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400">
+                      模板加载中...
+                    </div>
+                  )}
+                  {!templatesLoading && templates.length === 0 && (
+                    <div className="w-44 shrink-0 rounded-xl border border-slate-200 bg-white p-2.5 text-xs text-slate-400">
+                      暂无模板
+                    </div>
+                  )}
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className={`flex w-52 shrink-0 items-start gap-2 rounded-xl border bg-white p-2.5 transition ${
+                        selectedTemplateId === template.id
+                          ? 'border-blue-400 bg-blue-50/70'
+                          : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/60'
+                      }`}
+                    >
                       <button
-                        key={template.id}
                         type="button"
                         onClick={() => applyWebhookTemplate(template.id)}
-                        className={`w-44 shrink-0 rounded-xl border bg-white p-2.5 text-left transition ${
-                          selectedTemplateId === template.id
-                            ? 'border-blue-400 bg-blue-50/70'
-                            : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/60'
-                        }`}
+                        className="min-w-0 flex-1 text-left"
                       >
-                        <div className="text-xs font-bold text-slate-800">{template.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-xs font-bold text-slate-700">{template.name}</span>
+                          {template.builtin && (
+                            <span className="shrink-0 rounded bg-blue-50 px-1 py-0.5 text-[10px] font-semibold text-blue-500">
+                              内置
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-400">{template.description}</div>
-                        <div className="mt-2 inline-flex rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500">
-                          {template.config.method}
+                        <div className="mt-2 truncate font-mono text-[10px] text-slate-400">
+                          {template.config.method} {template.config.url || '未填写 URL'}
                         </div>
                       </button>
-                    ))}
-
-                    {savedTemplates.map((template) => (
-                        <div
-                          key={template.id}
-                          className={`flex w-52 shrink-0 items-start gap-2 rounded-xl border bg-white p-2.5 transition ${
-                            selectedTemplateId === template.id
-                              ? 'border-blue-400 bg-blue-50/70'
-                              : 'border-slate-200 hover:border-blue-300 hover:bg-blue-50/60'
-                          }`}
+                      {!template.builtin && (
+                        <button
+                          type="button"
+                          disabled={templateBusy}
+                          onClick={() => deleteSavedWebhookTemplate(template.id)}
+                          className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-40"
+                          title="删除模板"
                         >
-                          <button
-                            type="button"
-                            onClick={() => applyWebhookTemplate(template.id)}
-                            className="min-w-0 flex-1 text-left"
-                          >
-                            <div className="truncate text-xs font-bold text-slate-700">{template.name}</div>
-                            <div className="mt-1 truncate font-mono text-[10px] text-slate-400">{template.config.method} {template.config.url || '未填写 URL'}</div>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => deleteSavedWebhookTemplate(template.id)}
-                            className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
-                            title="删除模板"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                    ))}
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -705,7 +660,8 @@ function ServiceModal({
                 <button
                   type="button"
                   onClick={saveCurrentWebhookTemplate}
-                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition hover:bg-blue-600"
+                  disabled={templateBusy}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-500 text-white shadow-sm shadow-blue-500/20 transition hover:bg-blue-600 disabled:opacity-50"
                   title="保存当前为模板"
                 >
                   <BookmarkPlus className="h-4 w-4" />

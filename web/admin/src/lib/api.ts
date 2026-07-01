@@ -1,4 +1,4 @@
-import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig, WebhookConfig } from '../types'
+import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig, WebhookConfig, WebhookTemplate } from '../types'
 
 interface ApiResponse<T> {
   code: number
@@ -147,5 +147,27 @@ export const deleteDdnsRecord = (id: number) =>
 export const syncDdnsRecord = (id: number) =>
   request<unknown>('/api/ddns/record/sync', {
     method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+
+// ===================== Webhook =====================
+
+export const getWebhookTemplates = () => request<WebhookTemplate[]>('/api/webhook/templates')
+
+export const addWebhookTemplate = (body: { name: string; description: string; config: WebhookConfig }) =>
+  request<WebhookTemplate>('/api/webhook/template/add', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateWebhookTemplate = (body: { id: string; name: string; description: string; config: WebhookConfig }) =>
+  request<WebhookTemplate>('/api/webhook/template/update', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const deleteWebhookTemplate = (id: string) =>
+  request<unknown>('/api/webhook/template/delete', {
+    method: 'DELETE',
     body: JSON.stringify({ id }),
   })

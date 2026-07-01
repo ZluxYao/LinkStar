@@ -28,6 +28,7 @@ func Run(webFS fs.FS) {
 	StunRouters(g)
 	HomeRouters(g)
 	DdnsRouters(g)
+	WebhookRouters(g)
 
 	// 用户上传的图标静态目录
 	r.Static("/data/icon", "data/icon")

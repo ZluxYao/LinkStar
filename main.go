@@ -6,6 +6,7 @@ import (
 	"linkstar/modules/ddns"
 	"linkstar/modules/home"
 	"linkstar/modules/stun"
+	"linkstar/modules/webhook"
 	"linkstar/routers"
 	"os"
 	"sync"
@@ -26,7 +27,7 @@ func main() {
 	core.ListenShutdown()
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() {
 		defer wg.Done()
 		stun.InitSTUN()
@@ -41,6 +42,12 @@ func main() {
 		defer wg.Done()
 		if err := ddns.DDNSInit(); err != nil {
 			logrus.Error("DDNS 模块初始化失败：", err)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := webhook.InitWebhook(); err != nil {
+			logrus.Error("Webhook 模块初始化失败：", err)
 		}
 	}()
 	go func() {
