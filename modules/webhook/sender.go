@@ -19,6 +19,11 @@ func Send(cfg WebhookConfig, fields map[string]string) (respBody string, err err
 	if method == "" {
 		method = http.MethodGet
 	}
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodOptions:
+	default:
+		return "", fmt.Errorf("不支持的请求方法: %s", method)
+	}
 
 	rawURL := strings.TrimSpace(replacer.Replace(cfg.URL))
 	if rawURL == "" {
@@ -41,7 +46,7 @@ func Send(cfg WebhookConfig, fields map[string]string) (respBody string, err err
 	return respBody, err
 }
 
-// SendOnce + 判定成功
+// sendOnce 发送一次 webhook 请求并判定是否成功
 func sendOnce(client *http.Client, method, rawURL, body string, cfg WebhookConfig, replacer *strings.Replacer) (string, error) {
 	var reqBody io.Reader
 	if method != http.MethodGet && body != "" {
@@ -87,7 +92,7 @@ func buildReplacer(fields map[string]string) *strings.Replacer {
 	return strings.NewReplacer(pairs...)
 }
 
-// 构建请求客户端
+// buildClient 构建 webhook 请求客户端
 func buildClient(proxy string) (*http.Client, error) {
 	transport := &http.Transport{Proxy: nil}
 	// 解析http代理
@@ -105,9 +110,9 @@ func buildClient(proxy string) (*http.Client, error) {
 	}, nil
 }
 
-// applyHeaders 逐行解析 "Key: Value",value 同样做占位符替换
-func applyHeaders(req *http.Request, headders string, replacer *strings.Replacer) {
-	for _, line := range strings.Split(headders, "\n") {
+// applyHeaders 逐行解析 "Key: Value"，value 同样做占位符替换
+func applyHeaders(req *http.Request, headers string, replacer *strings.Replacer) {
+	for _, line := range strings.Split(headers, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
