@@ -3,6 +3,7 @@ package webhook
 import (
 	"os"
 	"path"
+	"reflect"
 	"time"
 
 	"linkstar/utils/utilsFile"
@@ -22,6 +23,12 @@ func ReadConfig() (Config, error) {
 	if err != nil {
 		logrus.Error("Webhook Config 读取失败：", err)
 		return cfg, err
+	}
+	if next, changed := syncBuiltinTemplates(cfg); changed {
+		if err := SaveConfig(next); err != nil {
+			return next, err
+		}
+		cfg = next
 	}
 	return cfg, nil
 }
@@ -55,6 +62,42 @@ func SaveConfig(cfg Config) error {
 	return nil
 }
 
+// syncBuiltinTemplates 同步内置模板定义，不影响用户保存的自定义模板
+func syncBuiltinTemplates(cfg Config) (Config, bool) {
+	now := time.Now()
+	defaults := defaultTemplates(now)
+	changed := false
+
+	for _, def := range defaults {
+		idx := -1
+		for i := range cfg.Templates {
+			if cfg.Templates[i].ID == def.ID {
+				idx = i
+				break
+			}
+		}
+		if idx == -1 {
+			cfg.Templates = append(cfg.Templates, def)
+			changed = true
+			continue
+		}
+		if !cfg.Templates[idx].Builtin {
+			continue
+		}
+
+		next := def
+		next.CreatedAt = cfg.Templates[idx].CreatedAt
+		next.UpdatedAt = cfg.Templates[idx].UpdatedAt
+		if reflect.DeepEqual(cfg.Templates[idx], next) {
+			continue
+		}
+		next.UpdatedAt = now
+		cfg.Templates[idx] = next
+		changed = true
+	}
+	return cfg, changed
+}
+
 // defaultTemplates 返回 webhook 内置模板列表
 func defaultTemplates(now time.Time) []WebhookTemplate {
 	return []WebhookTemplate{
@@ -64,11 +107,20 @@ func defaultTemplates(now time.Time) []WebhookTemplate {
 			Description: "向任意 HTTP 接口推送 STUN 服务地址",
 			Builtin:     true,
 			Config: WebhookConfig{
-				Enabled:             true,
-				OnlyWhenChanged:     true,
-				Method:              "POST",
-				Headers:             "Content-Type: application/json",
-				Body:                `{"service":"#{service_name}","device":"#{device_name}","address":"#{address}","protocol":"#{protocol}","phase":"#{phase}","time":"#{updated_at}"}`,
+				Enabled:         true,
+				OnlyWhenChanged: true,
+				Method:          "POST",
+				Headers:         "Content-Type: application/json",
+				Body: `{
+  "service": "#{service_name}",
+  "device": "#{device_name}",
+  "address": "#{address}",
+  "ip": "#{ipAddr}",
+  "port": #{port},
+  "protocol": "#{protocol}",
+  "phase": "#{phase}",
+  "time": "#{updated_at}"
+}`,
 				DisableSuccessCheck: true,
 			},
 			CreatedAt: now,
@@ -83,20 +135,20 @@ func defaultTemplates(now time.Time) []WebhookTemplate {
 				Enabled:         true,
 				OnlyWhenChanged: true,
 				URL:             "https://api.cloudflare.com/client/v4/zones/#{zone_id}/dns_records/#{record_id}",
-				Method:          "PUT",
+				Method:          "PATCH",
 				Headers:         "Authorization: Bearer #{token}\nContent-Type: application/json",
 				Body: `{
   "type": "SRV",
-  "name": "_aa._tcp.istore",
+  "name": "_service._tcp.example.com",
   "ttl": 60,
   "data": {
-    "service": "_aa",
+    "service": "_service",
     "proto": "_tcp",
-    "name": "istore",
+    "name": "example",
     "priority": 5,
     "weight": 0,
     "port": #{port},
-    "target": "zlux.top"
+    "target": "example.com"
   }
 }`,
 				DisableSuccessCheck: false,
@@ -108,18 +160,18 @@ func defaultTemplates(now time.Time) []WebhookTemplate {
 		{
 			ID:          "cloudflare-redirect-rule",
 			Name:        "Cloudflare 重定向规则",
-			Description: "把访问规则重定向到当前 STUN 公网 IP",
+			Description: "把访问规则重定向到当前 STUN 公网 IP，实现访问域名就是访问该访问",
 			Builtin:     true,
 			Config: WebhookConfig{
 				Enabled:         true,
 				OnlyWhenChanged: true,
-				URL:             "https://api.cloudflare.com/client/v4/zones/#{zone_id}/rulesets/#{ruleset_id}/rules",
-				Method:          "POST",
+				URL:             "https://api.cloudflare.com/client/v4/zones/#{zone_id}/rulesets/#{ruleset_id}/rules/#{rule_id}",
+				Method:          "PATCH",
 				Headers:         "Authorization: Bearer #{token}\nContent-Type: application/json",
 				Body: `{
   "action": "redirect",
-  "expression": "(http.host eq \"fn.zlux.top\")",
-  "description": "fn",
+  "expression": "(http.host eq \"example.com\")",
+  "description": "example",
   "action_parameters": {
     "from_value": {
       "status_code": 307,

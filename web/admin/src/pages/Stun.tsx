@@ -254,6 +254,7 @@ function ServiceModal({
   const [templatesLoading, setTemplatesLoading] = useState(false)
   const [templateBusy, setTemplateBusy] = useState(false)
   const [templateName, setTemplateName] = useState('')
+  const [templateDescription, setTemplateDescription] = useState('')
 
   const refreshWebhookTemplates = useCallback(async () => {
     setTemplatesLoading(true)
@@ -294,6 +295,8 @@ function ServiceModal({
       webhookconfig: normalizeWebhook(template.config),
     }))
     setSelectedTemplateId(templateId)
+    setTemplateName(template.builtin ? '' : template.name)
+    setTemplateDescription(template.builtin ? '' : template.description)
     setActiveTab('webhook')
   }
 
@@ -307,15 +310,48 @@ function ServiceModal({
     try {
       const created = await api.addWebhookTemplate({
         name,
-        description: '保存的 Webhook 模板',
+        description: templateDescription.trim(),
         config: normalizeWebhook(form.webhookconfig),
       })
       setTemplates((p) => [...p, { ...created, config: normalizeWebhook(created.config) }])
       setSelectedTemplateId(created.id)
       setTemplateName('')
+      setTemplateDescription('')
       setErr('')
     } catch (e) {
       setErr(e instanceof Error ? e.message : '保存模板失败')
+    } finally {
+      setTemplateBusy(false)
+    }
+  }
+
+  const updateCurrentWebhookTemplate = async () => {
+    const current = templates.find((item) => item.id === selectedTemplateId)
+    if (!current || current.builtin) {
+      setErr('请选择一个自定义模板')
+      return
+    }
+    const name = templateName.trim()
+    if (!name) {
+      setErr('请填写模板名称')
+      return
+    }
+    setTemplateBusy(true)
+    try {
+      const updated = await api.updateWebhookTemplate({
+        id: current.id,
+        name,
+        description: templateDescription.trim(),
+        config: normalizeWebhook(form.webhookconfig),
+      })
+      setTemplates((p) =>
+        p.map((item) => (
+          item.id === updated.id ? { ...updated, config: normalizeWebhook(updated.config) } : item
+        )),
+      )
+      setErr('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '更新模板失败')
     } finally {
       setTemplateBusy(false)
     }
@@ -327,6 +363,8 @@ function ServiceModal({
       await api.deleteWebhookTemplate(templateId)
       setTemplates((p) => p.filter((item) => item.id !== templateId))
       if (selectedTemplateId === templateId) setSelectedTemplateId('')
+      setTemplateName('')
+      setTemplateDescription('')
     } catch (e) {
       setErr(e instanceof Error ? e.message : '删除模板失败')
     } finally {
@@ -650,12 +688,18 @@ function ServiceModal({
                   />
                 </label>
               )}
-              <div className="col-span-2 flex gap-2">
+              <div className="col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]">
                 <input
                   value={templateName}
                   onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="保存当前配置为模板"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  placeholder="模板名称"
+                  className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                />
+                <input
+                  value={templateDescription}
+                  onChange={(e) => setTemplateDescription(e.target.value)}
+                  placeholder="模板描述"
+                  className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
                 />
                 <button
                   type="button"
@@ -665,6 +709,15 @@ function ServiceModal({
                   title="保存当前为模板"
                 >
                   <BookmarkPlus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={updateCurrentWebhookTemplate}
+                  disabled={templateBusy || !selectedTemplateId || templates.find((item) => item.id === selectedTemplateId)?.builtin}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-700 text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-40"
+                  title="更新选中的自定义模板"
+                >
+                  <Pencil className="h-4 w-4" />
                 </button>
               </div>
             </div>
