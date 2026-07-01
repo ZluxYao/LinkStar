@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"linkstar/modules/stun/model"
 	"linkstar/modules/webhook"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -571,7 +573,8 @@ func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUN
 		return
 	}
 
-	address := fmt.Sprintf("%s:%d", publicIP, state.ExternalPort)
+	port := strconv.Itoa(int(state.ExternalPort))
+	address := net.JoinHostPort(publicIP, port)
 	if !entry.shouldSendWebhook(address, phaseChanged, cfg.OnlyWhenChanged) {
 		return
 	}
@@ -581,11 +584,11 @@ func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUN
 		"address":       address,
 		"device_name":   event.DeviceName,
 		"external_ip":   publicIP,
-		"external_port": fmt.Sprintf("%d", state.ExternalPort),
-		"ipAddr":        publicIP,
+		"external_port": port,
+		"ipAddr":        address,
 		"internal_port": fmt.Sprintf("%d", req.InternalPort),
 		"phase":         PhaseRunning.String(),
-		"port":          fmt.Sprintf("%d", state.ExternalPort),
+		"port":          port,
 		"protocol":      req.Protocol,
 		"service_key":   key,
 		"service_name":  req.ServiceName,

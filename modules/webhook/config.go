@@ -115,7 +115,7 @@ func defaultTemplates(now time.Time) []WebhookTemplate {
   "service": "#{service_name}",
   "device": "#{device_name}",
   "address": "#{address}",
-  "ip": "#{ipAddr}",
+  "ip": "#{external_ip}",
   "port": #{port},
   "protocol": "#{protocol}",
   "phase": "#{phase}",
@@ -176,14 +176,14 @@ func defaultTemplates(now time.Time) []WebhookTemplate {
     "from_value": {
       "status_code": 307,
       "target_url": {
-        "expression": "concat(\"https://#{ipAddr}\", http.request.uri.path)"
+        "expression": "concat(\"https://#{address}\", http.request.uri.path)"
       },
       "preserve_query_string": true
     }
   }
 }`,
 				DisableSuccessCheck: false,
-				SuccessContains:     `"success":true`,
+				SuccessContains:     `"success": true`,
 			},
 			CreatedAt: now,
 			UpdatedAt: now,

@@ -109,7 +109,7 @@ Webhook 请求体和 URL 中可使用服务运行时变量，例如：
   "service": "#{service_name}",
   "device": "#{device_name}",
   "address": "#{address}",
-  "ip": "#{ipAddr}",
+  "ip": "#{external_ip}",
   "port": #{port},
   "protocol": "#{protocol}",
   "phase": "#{phase}",
