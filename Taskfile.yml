@@ -9,16 +9,43 @@ includes:
   windows: ./build/windows/Taskfile.yml
 
 tasks:
+  # 一键编译三个版本：Windows 桌面版 + Windows CLI + Linux CLI
   build:
-    summary: Builds the LinkStar desktop application
+    summary: Builds desktop, Windows CLI and Linux CLI in one shot
     cmds:
-      - task: '{{.GOOS}}:build'
+      - task: build:desktop
+      - task: build:cli
+      - task: build:linux
 
-  run:
-    summary: Runs the built desktop application
+  # Windows 桌面版：带图标资源，双击无黑框（bin/linkstar-desktop.exe）
+  build:desktop:
+    summary: Builds the Windows desktop application (bin/linkstar-desktop.exe)
     cmds:
-      - task: '{{.GOOS}}:run'
+      - task: windows:build
+        vars:
+          APP_NAME: linkstar-desktop
 
+  # Windows CLI 版：前台运行看日志（bin/linkstar-cli.exe）
+  build:cli:
+    summary: Builds the Windows CLI application (bin/linkstar-cli.exe)
+    env:
+      CGO_ENABLED: 0
+    cmds:
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - go build -trimpath -ldflags="-s -w" -o "{{.BIN_DIR}}/linkstar-cli.exe" .
+
+  # Linux CLI 版：交叉编译（bin/linkstar-linux）
+  build:linux:
+    summary: Builds the Linux CLI application (bin/linkstar-linux)
+    env:
+      GOOS: linux
+      GOARCH: amd64
+      CGO_ENABLED: 0
+    cmds:
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - go build -trimpath -ldflags="-s -w" -o "{{.BIN_DIR}}/linkstar" .
+
+  # 前端构建：改过前端后先跑这个再 build
   build:frontend:
     summary: Builds the admin and home web frontends
     cmds:
@@ -37,17 +64,10 @@ tasks:
     cmds:
       - npm run build
 
-  build:windows:
-    summary: Builds the Windows desktop application
-    cmds:
-      - task: windows:build
-
-  build:desktop:
-    summary: Builds the Windows desktop shell without rebuilding frontend assets
-    cmds:
-      - task: windows:build
-
-  run:windows:
-    summary: Runs the Windows desktop application
+  # 运行桌面版
+  run:
+    summary: Runs the built desktop application
     cmds:
       - task: windows:run
+        vars:
+          APP_NAME: linkstar-desktop
