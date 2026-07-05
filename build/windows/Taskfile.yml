@@ -1,0 +1,36 @@
+version: '3'
+
+tasks:
+  build:
+    summary: Builds LinkStar for Windows
+    deps:
+      - task: generate:syso
+    cmds:
+      - go mod tidy
+      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - go build -tags "production desktop" -trimpath -buildvcs=false -ldflags="-w -s -H windowsgui" -o "{{.BIN_DIR}}/{{.APP_NAME}}.exe" .
+      - cmd: powershell -NoProfile -Command "Remove-Item -LiteralPath wails_windows_{{.ARCH}}.syso -Force"
+        platforms: [windows]
+      - cmd: rm -f wails_windows_{{.ARCH}}.syso
+        platforms: [linux, darwin]
+    vars:
+      APP_NAME: '{{.APP_NAME | default "linkstar"}}'
+      BIN_DIR: '{{.BIN_DIR | default "bin"}}'
+      ARCH: '{{.ARCH | default ARCH}}'
+    env:
+      GOOS: windows
+      GOARCH: '{{.ARCH | default ARCH}}'
+
+  generate:syso:
+    summary: Generates the Windows resource file
+    cmds:
+      - wails3 generate syso -arch {{.ARCH}} -icon build/windows/icon.ico -manifest build/windows/wails.exe.manifest -info build/windows/info.json -out wails_windows_{{.ARCH}}.syso
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+
+  run:
+    cmds:
+      - '{{.BIN_DIR}}/{{.APP_NAME}}.exe'
+    vars:
+      APP_NAME: '{{.APP_NAME | default "linkstar"}}'
+      BIN_DIR: '{{.BIN_DIR | default "bin"}}'

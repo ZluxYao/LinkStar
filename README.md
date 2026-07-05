@@ -1,83 +1,99 @@
+<div align="center">
+
 # LinkStar
 
-轻量级家庭服务器 / NAS / 软路由网络入口管理工具，把导航主页、内网穿透（STUN/UPnP）、DDNS 动态解析和 Webhook 通知整合进一个 Go 单二进制里。
+**把导航主页、内网穿透、DDNS 与 Webhook 通知，装进一个 Go 单二进制。**
 
-> 项目仍在快速迭代中，适合个人实验、自用部署和二次开发。
+面向家庭服务器 / NAS / 软路由的网络入口管理工具——无需公网 IP，也能把内网服务稳定地暴露到外网。
 
-## 界面预览
-
-### Home 导航页
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#从源码构建)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#开发者指南)
 
 ![LinkStar Home](docs/img/home.png)
 
-### STUN 管理页
+</div>
 
-![LinkStar STUN](docs/img/stun.png)
+---
+
+LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主页、给内网服务打洞、跟着公网 IP 变化更新 DNS、在地址变动时通知外部系统——收进同一个程序里。前端资源通过 Go `embed` 打包，下载一个二进制运行即可，同时提供**首页导航**和**管理后台**两套界面。
 
 ## 目录
 
-- [界面预览](#界面预览)
+- [为什么用 LinkStar](#为什么用-linkstar)
 - [功能特性](#功能特性)
+- [界面预览](#界面预览)
+- [快速开始](#快速开始)
 - [使用指南](#使用指南)
-  - [快速开始](#快速开始)
   - [界面入口](#界面入口)
   - [数据目录](#数据目录)
   - [DDNS 配置说明](#ddns-配置说明)
   - [Webhook 变量](#webhook-变量)
 - [开发者指南](#开发者指南)
-  - [技术栈](#技术栈)
-  - [从源码构建](#从源码构建)
-  - [本地开发](#本地开发)
-  - [项目结构](#项目结构)
 - [路线图](#路线图)
 - [注意事项](#注意事项)
 - [License](#license)
 
+## 为什么用 LinkStar
+
+- **一个二进制搞定全部**：不用 Docker、不用装一堆服务，前端已随程序打包，`./linkstar` 直接跑。
+- **没有公网 IP 也能穿透**：STUN 探测公网出口 + UPnP 自动映射，家宽 NAT 后的服务也能对外访问。
+- **地址一变就自动同步**：公网 IP 变化时自动更新 DDNS 记录、触发 Webhook，无需人工盯着。
+- **两种形态**：既能作为后台服务常驻运行（CLI 版），也有系统托盘常驻的桌面版（基于 Wails）。
+
 ## 功能特性
 
-- **Home 导航页**：应用快捷入口、分类、拖拽排序、搜索引擎管理、Bing 壁纸、图标上传/抓取。
-- **STUN / UPnP 服务映射**：探测本机、公网 IP 与 NAT 路由链路，为内网服务维护外部访问地址。
-- **服务管理**：按设备维护 TCP/UDP 服务，可设置内部端口、UPnP 映射端口、HTTPS 标记和是否展示到首页。
-- **DDNS 动态解析**：支持 A / AAAA 记录，定时同步公网 IP 到 DNS 服务商。
-- **DNS 服务商适配**：Cloudflare、阿里云 DNS、腾讯云 DNSPod、百度云、华为云、NameCheap、NameSilo。
-- **Webhook 通知**：服务地址变化时推送 HTTP 请求，内置通用 JSON、Cloudflare SRV、Cloudflare 重定向规则模板。
-- **单二进制部署**：Go `embed` 打包前端静态资源，运行后同时提供首页和管理后台。
+| 模块 | 能力 |
+| --- | --- |
+| 🏠 导航主页 | 应用快捷入口、分类与拖拽排序、搜索引擎管理、Bing 每日壁纸、图标上传与自动抓取 |
+| 🌐 内网穿透 | STUN 探测本机 / 公网 IP 与 NAT 路由链路，UPnP 自动创建端口映射，维护外部访问地址 |
+| 🔌 服务管理 | 按设备维护 TCP / UDP 服务，配置内部端口、映射端口、HTTPS 标记与是否展示到首页 |
+| 🔁 DDNS 解析 | 支持 A / AAAA 记录，定时把公网 IP 同步到 DNS 服务商 |
+| 📡 Webhook | 服务地址变化时推送 HTTP 请求，内置通用 JSON、Cloudflare SRV、Cloudflare 重定向规则模板 |
+| ⚡ 实时状态 | 后端定时心跳检测链路，Web 界面通过 SSE 实时推送服务状态变化 |
 
----
+**已适配的 DNS 服务商**：Cloudflare、阿里云 DNS、腾讯云 DNSPod、百度云、华为云、NameCheap、NameSilo。
 
-## 使用指南
+## 界面预览
 
-面向只想部署和使用 LinkStar 的用户。
+<table>
+<tr>
+<td width="50%"><b>导航主页</b><br><img src="docs/img/home.png" alt="LinkStar Home"></td>
+<td width="50%"><b>穿透管理</b><br><img src="docs/img/stun.png" alt="LinkStar STUN"></td>
+</tr>
+</table>
 
-### 快速开始
+## 快速开始
 
-已经拿到编译好的二进制文件：
+拿到编译好的二进制后，直接运行即可：
 
 ```bash
+# Linux / macOS
 ./linkstar
 ```
 
-Windows：
-
 ```powershell
+# Windows
 .\linkstar.exe
 ```
 
-启动后打开 `http://localhost:3333/`。首次运行会自动创建 `config/`、`data/`、`logs/` 等运行目录。
+启动后打开 `http://localhost:3333/`。首次运行会自动创建 `config/`、`data/`、`logs/` 等目录，无需任何前置配置。
+
+> 想从源码构建，或使用系统托盘桌面版，见 [开发者指南](#开发者指南)。
+
+## 使用指南
 
 ### 界面入口
-
-默认监听地址：
 
 | 入口 | 地址 |
 | --- | --- |
 | 首页导航 | `http://localhost:3333/` |
 | 管理后台 | `http://localhost:3333/linkstar/` |
-| pprof 调试 | `http://localhost:3334/debug/pprof/` |
 
 ### 数据目录
 
-LinkStar 默认使用本地 JSON 文件持久化配置：
+LinkStar 使用本地 JSON 文件持久化配置：
 
 | 路径 | 说明 |
 | --- | --- |
@@ -95,7 +111,7 @@ LinkStar 默认使用本地 JSON 文件持久化配置：
 DDNS 记录支持以下 IP 来源：
 
 - `stun`：使用 STUN 模块探测到的公网 IP。
-- `web`：从公网 IP 查询接口获取，未填写 URL 时使用内置 IPv4/IPv6 查询源。
+- `web`：从公网 IP 查询接口获取，未填写 URL 时使用内置 IPv4 / IPv6 查询源。
 - `dns` / `interface`：类型已预留，当前实现仍在完善中。
 
 Cloudflare 支持 `proxied` 开关；NameCheap 当前仅适合 IPv4 A 记录场景。
@@ -119,52 +135,52 @@ Webhook 请求体和 URL 中可使用服务运行时变量，例如：
 
 适合在端口变化、服务重启或地址更新后同步到外部系统。
 
----
-
 ## 开发者指南
 
 面向想要从源码构建、参与开发或二次开发的用户。
 
 ### 技术栈
 
-- 后端：Go、Gin、logrus、pion/stun、goupnp
-- 前端：React、TypeScript、Vite、Tailwind CSS、lucide-react
-- 存储：本地 JSON 配置文件
+- **后端**：Go、Gin、logrus、pion/stun、goupnp
+- **桌面壳**：Wails v3（可选，构建托盘桌面版时使用）
+- **前端**：React、TypeScript、Vite、Tailwind CSS、lucide-react
+- **存储**：本地 JSON 配置文件
+
+### 环境要求
+
+- Go 1.25+
+- Node.js 20+ 与 npm（用于构建前端）
 
 ### 从源码构建
 
-环境要求：
-
-- Go 1.25+
-- Node.js 20+（用于构建前端）
-- npm
-
-构建前端：
+先构建前端（后端会通过 `embed` 嵌入 `web/home/dist` 与 `web/admin/dist`）：
 
 ```bash
-cd web/home
-npm install
-npm run build
-
-cd ../admin
-npm install
-npm run build
+cd web/home && npm install && npm run build
+cd ../admin && npm install && npm run build
 ```
 
-回到项目根目录构建后端：
+再回到项目根目录构建后端：
 
 ```bash
 cd ../..
-go build -o linkstar .
-```
-
-运行：
-
-```bash
+go build -o linkstar .     # CLI / 服务版
 ./linkstar
 ```
 
-> 后端会嵌入 `web/home/dist` 和 `web/admin/dist`，如果修改了前端代码，请先重新执行对应前端的 `npm run build`。
+> 修改前端代码后，需重新执行对应前端的 `npm run build`，嵌入的静态资源才会更新。
+
+### 桌面版（可选）
+
+项目内置 [Taskfile](Taskfile.yml)，可通过 `task` 构建基于 Wails v3 的系统托盘桌面版：
+
+```bash
+task build:frontend   # 构建前后端前端资源
+task build            # 构建当前平台的桌面应用
+task run              # 运行桌面应用
+```
+
+桌面版在托盘常驻，可快速打开管理后台或导航主页，关闭窗口即最小化到托盘。
 
 ### 本地开发
 
@@ -174,23 +190,14 @@ go build -o linkstar .
 go run .
 ```
 
-Home 前端：
+Home / Admin 前端（分别在各自目录）：
 
 ```bash
-cd web/home
-npm install
-npm run dev
+cd web/home  && npm install && npm run dev
+cd web/admin && npm install && npm run dev
 ```
 
-Admin 前端：
-
-```bash
-cd web/admin
-npm install
-npm run dev
-```
-
-前端接口默认请求同源 `/api/...`。联调时可按需要在 Vite 开发服务器中配置代理，或直接使用后端嵌入后的静态页面进行测试。
+前端接口默认请求同源 `/api/...`，联调时可在 Vite 开发服务器中配置代理，或直接使用后端嵌入后的静态页面测试。
 
 ### 项目结构
 
@@ -203,18 +210,18 @@ npm run dev
 ├── utils/            # 通用工具
 ├── web/home/         # 首页导航前端
 ├── web/admin/        # 管理后台前端
-└── main.go           # 程序入口，嵌入前端资源并启动服务
+├── app.go            # 后端启动、模块初始化、前端资源嵌入
+├── main_cli.go       # CLI / 服务版入口
+└── main_desktop.go   # Wails 桌面版入口（build tag: desktop）
 ```
-
----
 
 ## 路线图
 
-- 反向代理管理
-- 证书管理
-- 用户与权限
-- 审计日志与通知中心
-- Docker / systemd 部署示例
+- [ ] 反向代理管理
+- [ ] 证书管理
+- [ ] 用户与权限
+- [ ] 审计日志与通知中心
+- [ ] Docker / systemd 部署示例
 
 ## 注意事项
 
@@ -225,3 +232,11 @@ npm run dev
 ## License
 
 本项目采用 GPL-3.0-or-later 开源许可证，详见 [LICENSE](LICENSE)。
+
+---
+
+<div align="center">
+
+如果 LinkStar 对你有帮助，欢迎点一个 ⭐ Star 支持一下。
+
+</div>

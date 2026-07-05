@@ -133,19 +133,27 @@ func scanNATChain(target string) ([]model.NatRouterInfo, error) {
 
 // buildTracerouteCmd 构建traceroute命令，返回命令及是否为tracepath
 func buildTracerouteCmd(target string) (*exec.Cmd, bool) {
+	var cmd *exec.Cmd
+	var isTracepath bool
+
 	switch runtime.GOOS {
 	case "windows":
 		// -d 不解析主机名, -h 10 最大跳数, -w 300 超时300ms
-		return exec.Command("tracert", "-d", "-h", "10", "-w", "300", target), false
+		cmd = exec.Command("tracert", "-d", "-h", "10", "-w", "300", target)
 	case "linux":
 		if _, err := exec.LookPath("traceroute"); err == nil {
-			return exec.Command("traceroute", "-n", "-m", "10", "-w", "1", "-q", "1", target), false
+			cmd = exec.Command("traceroute", "-n", "-m", "10", "-w", "1", "-q", "1", target)
+			break
 		}
-		return exec.Command("tracepath", "-n", "-m", "8", target), true
+		cmd = exec.Command("tracepath", "-n", "-m", "8", target)
+		isTracepath = true
 	default: // mac
 		// -n 不解析主机名, -m 10 最大跳数, -w 1 超时1秒, -q 1 每跳只测一次
-		return exec.Command("traceroute", "-n", "-m", "10", "-w", "1", "-q", "1", target), false
+		cmd = exec.Command("traceroute", "-n", "-m", "10", "-w", "1", "-q", "1", target)
 	}
+
+	hideCommandWindow(cmd)
+	return cmd, isTracepath
 }
 
 // classifyIP IP分类

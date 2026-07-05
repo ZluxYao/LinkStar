@@ -12,7 +12,6 @@ import (
 )
 
 func Run(webFS fs.FS) {
-
 	// 单独起 pprof，只在排查问题时用
 	// go func() {
 	// 	logrus.Info("pprof 运行在：0.0.0.0:3334")

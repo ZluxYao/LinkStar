@@ -1,0 +1,15 @@
+{
+  "fixed": {
+    "file_version": "0.1.0"
+  },
+  "info": {
+    "0000": {
+      "ProductVersion": "0.1.0",
+      "CompanyName": "LinkStar",
+      "FileDescription": "LinkStar desktop application",
+      "LegalCopyright": "Copyright 2026 LinkStar",
+      "ProductName": "LinkStar",
+      "Comments": "LinkStar desktop control panel"
+    }
+  }
+}

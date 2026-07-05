@@ -1,0 +1,53 @@
+version: '3'
+
+vars:
+  APP_NAME: linkstar
+  BIN_DIR: bin
+  GOOS: '{{.GOOS | default OS}}'
+
+includes:
+  windows: ./build/windows/Taskfile.yml
+
+tasks:
+  build:
+    summary: Builds the LinkStar desktop application
+    cmds:
+      - task: '{{.GOOS}}:build'
+
+  run:
+    summary: Runs the built desktop application
+    cmds:
+      - task: '{{.GOOS}}:run'
+
+  build:frontend:
+    summary: Builds the admin and home web frontends
+    cmds:
+      - task: build:admin
+      - task: build:home
+
+  build:admin:
+    summary: Builds the admin frontend
+    dir: web/admin
+    cmds:
+      - npm run build
+
+  build:home:
+    summary: Builds the home frontend
+    dir: web/home
+    cmds:
+      - npm run build
+
+  build:windows:
+    summary: Builds the Windows desktop application
+    cmds:
+      - task: windows:build
+
+  build:desktop:
+    summary: Builds the Windows desktop shell without rebuilding frontend assets
+    cmds:
+      - task: windows:build
+
+  run:windows:
+    summary: Runs the Windows desktop application
+    cmds:
+      - task: windows:run
