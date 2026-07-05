@@ -7,3 +7,9 @@ linkstar-linux-amd64
 linkstar
 data
 .claude
+
+# 编译产物
+bin/
+core/bin/
+*.exe
+*.syso
