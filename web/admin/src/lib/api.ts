@@ -85,6 +85,75 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
 
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
 
+export interface SSEHandle {
+  close: () => void
+}
+
+// subscribeStunStatus 用 fetch 流式读取 SSE，替代浏览器原生 EventSource——
+// 因为受保护端点需要 Authorization/桌面 secret 头，而 EventSource 无法自定义请求头。
+export function subscribeStunStatus(onEvent: (data: string) => void): SSEHandle {
+  const controller = new AbortController()
+  let closed = false
+  let retry = 1000
+
+  const run = async () => {
+    while (!closed) {
+      try {
+        const headers: Record<string, string> = { Accept: 'text/event-stream' }
+        const token = getToken()
+        if (token) headers['Authorization'] = `Bearer ${token}`
+        const secret = sessionStorage.getItem(DESKTOP_SECRET_KEY)
+        if (secret) headers['X-LinkStar-Desktop'] = secret
+
+        const resp = await fetch('/api/stun/status/events', {
+          headers,
+          signal: controller.signal,
+        })
+        if (resp.status === 401) {
+          clearToken()
+          if (!location.hash.startsWith('#/login')) location.hash = '#/login'
+          return
+        }
+        if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`)
+        retry = 1000
+
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!closed) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          let idx: number
+          while ((idx = buffer.indexOf('\n\n')) >= 0) {
+            const raw = buffer.slice(0, idx)
+            buffer = buffer.slice(idx + 2)
+            const data = raw
+              .split('\n')
+              .filter((l) => l.startsWith('data:'))
+              .map((l) => l.slice(5).replace(/^ /, ''))
+              .join('\n')
+            if (data) onEvent(data)
+          }
+        }
+      } catch {
+        if (closed) return
+      }
+      if (closed) return
+      await new Promise((r) => setTimeout(r, retry))
+      retry = Math.min(retry * 2, 15000)
+    }
+  }
+  run()
+
+  return {
+    close: () => {
+      closed = true
+      controller.abort()
+    },
+  }
+}
+
 export const addStunDevice = (body: { name: string; ip: string }) =>
   request<{ id: number }>('/api/stun/device/add', {
     method: 'POST',

@@ -855,15 +855,14 @@ export function Stun() {
   }, [refresh])
 
   useEffect(() => {
-    const es = new EventSource('/api/stun/status/events')
-    es.onmessage = (e) => {
+    const es = api.subscribeStunStatus((data) => {
       try {
-        const evt = JSON.parse(e.data) as StunStatusEvent
+        const evt = JSON.parse(data) as StunStatusEvent
         setStatusMap((p) => ({ ...p, [evt.key]: evt }))
       } catch {
         // ignore
       }
-    }
+    })
     return () => es.close()
   }, [])
 
