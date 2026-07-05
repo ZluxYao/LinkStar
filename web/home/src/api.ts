@@ -11,6 +11,24 @@ import type {
 
 const BASE = '/api'
 
+// 与 admin 保持一致的鉴权凭证：token 存 localStorage（同源共享），桌面 secret 存 sessionStorage
+const TOKEN_KEY = 'linkstar_token'
+const DESKTOP_SECRET_KEY = 'linkstar_desktop_secret'
+
+// 桌面版首屏若带 desktop_secret，存入 sessionStorage 并抹掉地址栏
+function captureDesktopSecret() {
+  const params = new URLSearchParams(window.location.search)
+  const secret = params.get('desktop_secret')
+  if (secret) {
+    sessionStorage.setItem(DESKTOP_SECRET_KEY, secret)
+    params.delete('desktop_secret')
+    const q = params.toString()
+    const url = window.location.pathname + (q ? `?${q}` : '') + window.location.hash
+    window.history.replaceState(null, '', url)
+  }
+}
+captureDesktopSecret()
+
 interface ApiResponse<T> {
   code: number
   data: T
@@ -22,6 +40,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const secret = sessionStorage.getItem(DESKTOP_SECRET_KEY)
+  if (secret) headers.set('X-LinkStar-Desktop', secret)
+
   const resp = await fetch(`${BASE}${path}`, { ...init, headers })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   const json = (await resp.json()) as ApiResponse<T>
