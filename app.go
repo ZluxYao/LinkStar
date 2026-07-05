@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"linkstar/core"
+	"linkstar/modules/auth"
 	"linkstar/modules/ddns"
 	"linkstar/modules/home"
 	"linkstar/modules/stun"
@@ -111,6 +112,7 @@ func startModulesInBackground() {
 		}()
 	}
 
+	initModule("Auth", auth.InitAuth)
 	initModule("Home", home.InitHome)
 	initModule("Webhook", webhook.InitWebhook)
 	initModule("STUN", stun.InitSTUN)

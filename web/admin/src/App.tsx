@@ -4,7 +4,9 @@ import { Dashboard } from './pages/Dashboard'
 import { Ddns } from './pages/Ddns'
 import { Placeholder } from './pages/Placeholder'
 import { Stun } from './pages/Stun'
+import { Login, Setup } from './pages/Auth'
 import { findNav } from './layout/nav'
+import { getAuthStatus, getToken, isDesktop } from './lib/api'
 import type { PageKey } from './types'
 
 function readPageFromHash(): PageKey {
@@ -12,8 +14,29 @@ function readPageFromHash(): PageKey {
   return findNav(h) ? h : 'dashboard'
 }
 
+type AuthState = 'loading' | 'setup' | 'login' | 'authed'
+
 function App() {
   const [page, setPage] = useState<PageKey>(() => readPageFromHash())
+  const [auth, setAuth] = useState<AuthState>('loading')
+
+  // 启动：查初始化状态，决定进引导 / 登录 / 后台
+  useEffect(() => {
+    let alive = true
+    getAuthStatus()
+      .then((s) => {
+        if (!alive) return
+        if (!s.initialized) setAuth('setup')
+        else if (isDesktop() || getToken()) setAuth('authed')
+        else setAuth('login')
+      })
+      .catch(() => {
+        if (alive) setAuth('login')
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   useEffect(() => {
     const onHash = () => setPage(readPageFromHash())
@@ -26,6 +49,16 @@ function App() {
       window.location.hash = `#/${key}`
     }
     setPage(key)
+  }
+
+  if (auth === 'loading') {
+    return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-400">加载中…</div>
+  }
+  if (auth === 'setup') {
+    return <Setup onSuccess={() => setAuth('authed')} />
+  }
+  if (auth === 'login') {
+    return <Login onSuccess={() => setAuth('authed')} />
   }
 
   const view = (() => {

@@ -4,9 +4,13 @@ package main
 
 import (
 	_ "embed"
+	"crypto/rand"
+	"encoding/hex"
+	"net/url"
 	"runtime"
 
 	"linkstar/core"
+	"linkstar/modules/auth"
 
 	"github.com/sirupsen/logrus"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -23,8 +27,30 @@ const (
 //go:embed icon_64.png
 var trayIcon []byte
 
+// desktopSecret 本次进程的桌面免登录 secret，注入后端并随 admin URL 传给 webview。
+var desktopSecret = genDesktopSecret()
+
+func genDesktopSecret() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
+}
+
+// desktopAdminURL 在 admin URL 上附带 secret，前端首屏读取后存入 sessionStorage 并从地址栏抹掉。
+func desktopAdminURL() string {
+	if desktopSecret == "" {
+		return adminURL
+	}
+	return adminURL + "?desktop_secret=" + url.QueryEscape(desktopSecret)
+}
+
 func main() {
 	initRuntime()
+
+	// 注入桌面免登录 secret：仅 wails 构建设置，CLI 构建 secret 为空，中间件永不放行桌面通道
+	auth.SetDesktopSecret(desktopSecret)
 
 	app := newDesktopApp()
 
@@ -81,7 +107,7 @@ func newDesktopApp() *application.App {
 		Height:        windowHeight,
 		MinWidth:      960,
 		MinHeight:     640,
-		URL:           adminURL,
+		URL:           desktopAdminURL(),
 		HideOnEscape:  true,
 		DisableResize: false,
 		BackgroundColour: application.NewRGB(

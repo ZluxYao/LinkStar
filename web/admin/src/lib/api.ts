@@ -6,19 +6,82 @@ interface ApiResponse<T> {
   data?: T
 }
 
+const TOKEN_KEY = 'linkstar_token'
+const DESKTOP_SECRET_KEY = 'linkstar_desktop_secret'
+
+// captureDesktopSecret 桌面版首屏：从 URL 读 desktop_secret 存入 sessionStorage 并抹掉地址栏
+function captureDesktopSecret() {
+  const params = new URLSearchParams(window.location.search)
+  const secret = params.get('desktop_secret')
+  if (secret) {
+    sessionStorage.setItem(DESKTOP_SECRET_KEY, secret)
+    params.delete('desktop_secret')
+    const q = params.toString()
+    const url = window.location.pathname + (q ? `?${q}` : '') + window.location.hash
+    window.history.replaceState(null, '', url)
+  }
+}
+captureDesktopSecret()
+
+export const getToken = () => localStorage.getItem(TOKEN_KEY)
+export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
+export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
+export const isDesktop = () => !!sessionStorage.getItem(DESKTOP_SECRET_KEY)
+
 async function request<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  }
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const secret = sessionStorage.getItem(DESKTOP_SECRET_KEY)
+  if (secret) headers['X-LinkStar-Desktop'] = secret
+
   const resp = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers,
   })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   const json = (await resp.json()) as ApiResponse<T>
+  if (json.code === 401) {
+    clearToken()
+    if (!location.hash.startsWith('#/login')) location.hash = '#/login'
+    throw new Error(json.msg || '未登录')
+  }
+  if (json.code === 428) {
+    if (!location.hash.startsWith('#/setup')) location.hash = '#/setup'
+    throw new Error(json.msg || '系统尚未初始化')
+  }
   if (json.code !== 0) throw new Error(json.msg || '请求失败')
   return json.data as T
 }
+
+// ===================== Auth =====================
+
+export const getAuthStatus = () =>
+  request<{ initialized: boolean }>('/api/auth/status')
+
+export const setupPassword = (password: string) =>
+  request<{ token: string }>('/api/auth/setup', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+
+export const login = (password: string) =>
+  request<{ token: string }>('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  })
+
+export const changePassword = (oldPassword: string, newPassword: string) =>
+  request<unknown>('/api/auth/password', {
+    method: 'PUT',
+    body: JSON.stringify({ oldPassword, newPassword }),
+  })
 
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
 

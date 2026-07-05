@@ -8,12 +8,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func HomeRouters(g *gin.RouterGroup) {
+func HomeRoutersPublic(g *gin.RouterGroup) {
 	var app = api.App.HomeApi
 
-	// 整体读
+	// 导航主页公开读接口（访客直接打开主页就用）
 	g.GET("home/config", app.GetHomeConfigView)
 	g.GET("home/bing-wallpaper", app.BingWallpaperView)
+	g.GET("home/search-history", app.SearchHistoryGetView)
+}
+
+func HomeRoutersProtected(g *gin.RouterGroup) {
+	var app = api.App.HomeApi
 
 	// 主页装饰
 	g.PUT("home/wallpaper",
@@ -35,8 +40,7 @@ func HomeRouters(g *gin.RouterGroup) {
 	g.PUT("home/search-engine/default",
 		middleware.BindJsonMiddleware[home_api.SearchEngineDefaultRequest], app.SearchEngineDefaultView)
 
-	// 搜索历史
-	g.GET("home/search-history", app.SearchHistoryGetView)
+	// 搜索历史（写）
 	g.POST("home/search-history/add",
 		middleware.BindJsonMiddleware[home_api.SearchHistoryAddRequest], app.SearchHistoryAddView)
 	g.DELETE("home/search-history/clear", app.SearchHistoryClearView)

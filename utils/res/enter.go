@@ -48,3 +48,17 @@ func FailWithError(err error, c *gin.Context) {
 	msg := err.Error()
 	Fail(7, msg, c)
 }
+
+// 鉴权约定码：401 未登录/token 失效，428 需先初始化（设置密码）
+const (
+	CodeUnauthorized = 401
+	CodeNeedInit     = 428
+)
+
+func FailUnauthorized(c *gin.Context) {
+	Fail(CodeUnauthorized, "未登录或登录已失效", c)
+}
+
+func FailNeedInit(c *gin.Context) {
+	Fail(CodeNeedInit, "系统尚未初始化", c)
+}

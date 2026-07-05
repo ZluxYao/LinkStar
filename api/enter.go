@@ -1,6 +1,7 @@
 package api
 
 import (
+	"linkstar/api/auth_api"
 	"linkstar/api/ddns_api"
 	"linkstar/api/home_api"
 	"linkstar/api/stun_api"
@@ -12,6 +13,7 @@ type Api struct {
 	HomeApi    home_api.HomeApi
 	DdnsApi    ddns_api.DdnsApi
 	WebhookApi webhook_api.WebhookApi
+	AuthApi    auth_api.AuthApi
 }
 
 var App = new(Api)

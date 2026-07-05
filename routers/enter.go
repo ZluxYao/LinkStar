@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"linkstar/middleware"
+
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 )
@@ -24,10 +26,17 @@ func Run(webFS fs.FS) {
 
 	// API 路由
 	g := r.Group("api")
-	StunRouters(g)
-	HomeRouters(g)
-	DdnsRouters(g)
-	WebhookRouters(g)
+
+	// 公开接口：鉴权自身 + 导航主页读接口
+	AuthRouters(g)
+	HomeRoutersPublic(g)
+
+	// 受保护接口：需登录（或桌面 secret）
+	protected := g.Group("", middleware.AuthMiddleware)
+	StunRouters(protected)
+	DdnsRouters(protected)
+	WebhookRouters(protected)
+	HomeRoutersProtected(protected)
 
 	// 用户上传的图标静态目录
 	r.Static("/data/icon", "data/icon")
