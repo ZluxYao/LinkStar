@@ -2,11 +2,12 @@
 
 # LinkStar
 
-**把导航主页、内网穿透、DDNS 与 Webhook 通知，装进一个 Go 单二进制。**
+**把导航主页、STUN 内网穿透、DDNS 与 Webhook 通知，装进一个 Go 单二进制。**
 
-面向家庭服务器 / NAS / 软路由的网络入口管理工具——无需公网 IP，也能把内网服务稳定地暴露到外网。
+面向家庭服务器 / NAS / 软路由的网络入口管理工具——基于 **STUN + UPnP** 做 NAT 穿透，无需公网 IP，也能把内网服务稳定地暴露到外网。
 
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
+[![STUN](https://img.shields.io/badge/NAT-STUN%20%2B%20UPnP-orange)](#内网穿透)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#从源码构建)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#开发者指南)
@@ -17,12 +18,15 @@
 
 ---
 
-LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主页、给内网服务打洞、跟着公网 IP 变化更新 DNS、在地址变动时通知外部系统——收进同一个程序里。前端资源通过 Go `embed` 打包，下载一个二进制运行即可，同时提供**首页导航**和**管理后台**两套界面。
+LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主页、用 STUN 给内网服务打洞、跟着公网 IP 变化更新 DNS、在地址变动时通知外部系统——收进同一个程序里。前端资源通过 Go `embed` 打包，下载一个二进制运行即可，同时提供**首页导航**和**管理后台**两套界面。
+
+> **关键词 / Keywords**：STUN、NAT 穿透 / NAT traversal、内网穿透、端口映射 / port forwarding、UPnP、DDNS、动态域名解析、Webhook、家庭服务器 / homelab、NAS、导航主页 / homepage dashboard、Go、self-hosted。
 
 ## 目录
 
 - [为什么用 LinkStar](#为什么用-linkstar)
 - [功能特性](#功能特性)
+- [内网穿透](#内网穿透)
 - [界面预览](#界面预览)
 - [快速开始](#快速开始)
 - [使用指南](#使用指南)
@@ -55,6 +59,18 @@ LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主�
 | ⚡ 实时状态 | 后端定时心跳检测链路，Web 界面通过 SSE 实时推送服务状态变化 |
 
 **已适配的 DNS 服务商**：Cloudflare、阿里云 DNS、腾讯云 DNSPod、百度云、华为云、NameCheap、NameSilo。
+
+## 内网穿透
+
+LinkStar 的 NAT 穿透（内网穿透 / NAT traversal）基于标准 **STUN** 协议（[pion/stun](https://github.com/pion/stun) 实现）：
+
+1. **STUN 探测**：向公共 STUN 服务器发送 Binding 请求，拿到本机在 NAT 后的公网出口 IP 与端口，判断 NAT 类型。
+2. **端口复用打洞**：在同一本地端口上复用监听（TCP/UDP），保持 STUN 会话打通的 NAT 映射。
+3. **UPnP 自动映射**：网关支持 UPnP 时自动创建端口映射，TCP 场景下把公网端口指向内网服务。
+4. **端口转发**：把外网入站连接转发到目标设备的内部端口，实现无公网 IP 的服务暴露。
+5. **心跳保活**：定时健康检查与重连，公网端口变化时自动感知并触发 DDNS / Webhook 同步。
+
+> 适合家宽（家庭宽带）大内网、运营商 NAT、软路由等没有独立公网 IP 的场景，作为 frp / ngrok 之外的轻量自建选择。
 
 ## 界面预览
 
