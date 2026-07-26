@@ -1,4 +1,5 @@
-import { Sparkles, Star } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
+import logo from '../assets/logo.png'
 import { navGroups } from './nav'
 import type { PageKey } from '../types'
 
@@ -12,9 +13,7 @@ export function Sidebar({ active, onChange }: SidebarProps) {
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200/70 bg-white/80 backdrop-blur">
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-5">
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 text-white shadow-md shadow-blue-500/30">
-          <Star className="h-5 w-5" fill="currentColor" />
-        </div>
+        <img src={logo} alt="LinkStar" className="h-9 w-9" />
         <span className="text-lg font-bold tracking-tight text-slate-800">linkstar</span>
       </div>
 

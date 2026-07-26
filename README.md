@@ -1,11 +1,14 @@
 <div align="center">
 
+<img src="docs/img/logo.png" alt="LinkStar Logo" width="140">
+
 # LinkStar
 
 **把导航主页、STUN 内网穿透、DDNS 与 Webhook 通知，装进一个 Go 单二进制。**
 
 面向家庭服务器 / NAS / 软路由的网络入口管理工具——基于 **STUN + UPnP** 做 NAT 穿透，无需公网 IP，也能把内网服务稳定地暴露到外网。
 
+[![Release](https://img.shields.io/github/v/release/ZluxYao/LinkStar?label=Release&color=success)](https://github.com/ZluxYao/LinkStar/releases/latest)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
 [![STUN](https://img.shields.io/badge/NAT-STUN%20%2B%20UPnP-orange)](#内网穿透)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
@@ -18,9 +21,7 @@
 
 ---
 
-LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主页、用 STUN 给内网服务打洞、跟着公网 IP 变化更新 DNS、在地址变动时通知外部系统——收进同一个程序里。前端资源通过 Go `embed` 打包，下载一个二进制运行即可，同时提供**首页导航**和**管理后台**两套界面。
-
-> **关键词 / Keywords**：STUN、NAT 穿透 / NAT traversal、内网穿透、端口映射 / port forwarding、UPnP、DDNS、动态域名解析、Webhook、家庭服务器 / homelab、NAS、导航主页 / homepage dashboard、Go、self-hosted。
+LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主页、用 STUN 给内网服务打洞、跟着公网 IP 变化更新 DNS、在地址变动时通知外部系统——收进同一个程序里。前端资源通过 Go `embed` 打包，下载一个二进制运行即可，同时提供**首页导航**和**管理后台**（密码保护）两套界面。
 
 ## 目录
 
@@ -31,6 +32,7 @@ LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主�
 - [快速开始](#快速开始)
 - [使用指南](#使用指南)
   - [界面入口](#界面入口)
+  - [密码与登录](#密码与登录)
   - [数据目录](#数据目录)
   - [DDNS 配置说明](#ddns-配置说明)
   - [Webhook 变量](#webhook-变量)
@@ -57,6 +59,7 @@ LinkStar 把几件原本要各自折腾的事——搭一个好看的导航主�
 | 🔁 DDNS 解析 | 支持 A / AAAA 记录，定时把公网 IP 同步到 DNS 服务商 |
 | 📡 Webhook | 服务地址变化时推送 HTTP 请求，内置通用 JSON、Cloudflare SRV、Cloudflare 重定向规则模板 |
 | ⚡ 实时状态 | 后端定时心跳检测链路，Web 界面通过 SSE 实时推送服务状态变化 |
+| 🔐 密码保护 | 首次使用引导设置管理密码，管理后台与全部管理接口需登录（JWT token），桌面版本地窗口免登录 |
 
 **已适配的 DNS 服务商**：Cloudflare、阿里云 DNS、腾讯云 DNSPod、百度云、华为云、NameCheap、NameSilo。
 
@@ -74,16 +77,13 @@ LinkStar 的 NAT 穿透（内网穿透 / NAT traversal）基于标准 **STUN** �
 
 ## 界面预览
 
-<table>
-<tr>
-<td width="50%"><b>导航主页</b><br><img src="docs/img/home.png" alt="LinkStar Home"></td>
-<td width="50%"><b>穿透管理</b><br><img src="docs/img/stun.png" alt="LinkStar STUN"></td>
-</tr>
-</table>
+导航主页见页首截图，管理后台的穿透管理界面如下：
+
+<img src="docs/img/stun.png" alt="LinkStar 穿透管理">
 
 ## 快速开始
 
-拿到编译好的二进制后，直接运行即可：
+从 [Releases](https://github.com/ZluxYao/LinkStar/releases/latest) 下载对应平台的二进制，直接运行即可：
 
 ```bash
 # Linux / macOS
@@ -95,7 +95,7 @@ LinkStar 的 NAT 穿透（内网穿透 / NAT traversal）基于标准 **STUN** �
 .\linkstar.exe
 ```
 
-启动后打开 `http://localhost:3333/`。首次运行会自动创建 `config/`、`data/`、`logs/` 等目录，无需任何前置配置。
+启动后打开 `http://localhost:3333/`。首次运行会自动创建 `config/`、`data/`、`logs/` 等目录；首次进入管理后台会引导设置管理密码，之后即可正常使用，无需其他前置配置。
 
 > 想从源码构建，或使用系统托盘桌面版，见 [开发者指南](#开发者指南)。
 
@@ -103,10 +103,20 @@ LinkStar 的 NAT 穿透（内网穿透 / NAT traversal）基于标准 **STUN** �
 
 ### 界面入口
 
-| 入口 | 地址 |
-| --- | --- |
-| 首页导航 | `http://localhost:3333/` |
-| 管理后台 | `http://localhost:3333/linkstar/` |
+| 入口 | 地址 | 说明 |
+| --- | --- | --- |
+| 首页导航 | `http://localhost:3333/` | 公开访问，无需登录 |
+| 管理后台 | `http://localhost:3333/linkstar/` | 需要密码登录 |
+
+> 服务监听 `0.0.0.0:3333`（端口暂不支持修改），局域网内其他设备可通过本机 IP 访问。
+
+### 密码与登录
+
+- **首次设置**：第一次进入管理后台时会引导设置管理密码，设置完成前所有管理接口拒绝访问。
+- **登录有效期**：登录后签发 JWT token，默认有效期 7 天，可在 `config/authConfig.json` 中通过 `tokenTtlHours` 调整。
+- **修改密码**：在管理后台内验证旧密码后修改。
+- **忘记密码**：停止程序，删除 `config/authConfig.json` 后重新启动，会再次进入设置密码流程（已登录设备的 token 将全部失效）。
+- **桌面版**：本地窗口通过内部通道免登录，浏览器访问仍需密码。
 
 ### 数据目录
 
@@ -118,6 +128,7 @@ LinkStar 使用本地 JSON 文件持久化配置：
 | `config/stunConfig.json` | STUN 服务器列表、设备与服务配置 |
 | `config/ddnsConfig.json` | DDNS 服务商、解析记录与同步间隔 |
 | `config/webhookConfig.json` | Webhook 模板配置 |
+| `config/authConfig.json` | 管理密码哈希、JWT 密钥与 token 有效期 |
 | `data/icon/` | 用户上传或抓取的网站图标 |
 | `logs/YYYY-MM-DD/` | 运行日志与错误日志 |
 
@@ -186,13 +197,15 @@ go build -o linkstar .     # CLI / 服务版
 ```
 
 > 修改前端代码后，需重新执行对应前端的 `npm run build`，嵌入的静态资源才会更新。
+>
+> 更多构建细节（发布版压缩体积、Windows 平台注意事项、桌面版打包）见 [BUILD.md](BUILD.md)。
 
 ### 桌面版（可选）
 
 项目内置 [Taskfile](Taskfile.yml)，可通过 `task` 构建基于 Wails v3 的系统托盘桌面版：
 
 ```bash
-task build:frontend   # 构建前后端前端资源
+task build:frontend   # 构建 Home / Admin 两个前端
 task build            # 构建当前平台的桌面应用
 task run              # 运行桌面应用
 ```
@@ -222,7 +235,7 @@ cd web/admin && npm install && npm run dev
 .
 ├── api/              # HTTP API 处理层
 ├── core/             # 日志、退出保存等基础能力
-├── modules/          # home / stun / ddns / webhook 核心模块
+├── modules/          # home / stun / ddns / webhook / auth 核心模块
 ├── routers/          # Gin 路由注册
 ├── utils/            # 通用工具
 ├── web/home/         # 首页导航前端
@@ -242,9 +255,10 @@ cd web/admin && npm install && npm run dev
 
 ## 注意事项
 
+- 服务监听 `0.0.0.0:3333`，局域网内可直接访问；导航主页是公开页面，管理操作受密码保护。
 - UPnP 映射依赖网关支持并开启 UPnP。
-- 请妥善保护 `config/` 中的 DNS 服务商凭据。
-- 将服务暴露到公网前，请确认服务本身的认证、访问控制和防火墙策略。
+- 请妥善保护 `config/` 目录：其中包含 DNS 服务商凭据与管理密码相关配置（`authConfig.json`），不要提交到 Git 或对外分享。
+- 将服务暴露到公网前，请确认被暴露服务本身的认证、访问控制和防火墙策略——LinkStar 只保护自己的管理后台，不会为被穿透的服务加认证。
 
 ## 社区交流
 
@@ -268,3 +282,5 @@ cd web/admin && npm install && npm run dev
 如果 LinkStar 对你有帮助，欢迎点一个 ⭐ Star 支持一下。
 
 </div>
+
+<sub>**关键词 / Keywords**：STUN、NAT 穿透 / NAT traversal、内网穿透、端口映射 / port forwarding、UPnP、DDNS、动态域名解析、Webhook、家庭服务器 / homelab、NAS、导航主页 / homepage dashboard、Go、self-hosted。</sub>
