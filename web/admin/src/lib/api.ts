@@ -83,6 +83,8 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
     body: JSON.stringify({ oldPassword, newPassword }),
   })
 
+export const getVersion = () => request<{ version: string }>('/api/version')
+
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
 
 export const getNatType = () => request<NatTypeInfo>('/api/stun/nat-type')

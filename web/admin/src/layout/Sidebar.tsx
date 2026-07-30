@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import logo from '../assets/logo.png'
 import { navGroups } from './nav'
+import { getVersion } from '../lib/api'
 import type { PageKey } from '../types'
 
 interface SidebarProps {
@@ -9,6 +11,18 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onChange }: SidebarProps) {
+  const [version, setVersion] = useState('0.5.4')
+
+  useEffect(() => {
+    getVersion()
+      .then((data) => {
+        if (data?.version) setVersion(data.version)
+      })
+      .catch(() => {
+        // 忽略错误，使用默认版本号
+      })
+  }, [])
+
   return (
     <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200/70 bg-white/80 backdrop-blur">
       {/* Logo */}
@@ -80,7 +94,7 @@ export function Sidebar({ active, onChange }: SidebarProps) {
 
       <div className="px-5 pb-4 text-[11px] text-slate-400">
         © 2026 linkstar
-        <div>v1.0.0</div>
+        <div>v{version}</div>
       </div>
     </aside>
   )

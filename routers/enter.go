@@ -27,9 +27,10 @@ func Run(webFS fs.FS) {
 	// API 路由
 	g := r.Group("api")
 
-	// 公开接口：鉴权自身 + 导航主页读接口
+	// 公开接口：鉴权自身 + 导航主页读接口 + 系统信息
 	AuthRouters(g)
 	HomeRoutersPublic(g)
+	SystemRouters(g)
 
 	// 受保护接口：需登录（或桌面 secret）
 	protected := g.Group("", middleware.AuthMiddleware)
