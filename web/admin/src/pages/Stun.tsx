@@ -889,12 +889,30 @@ function NatProtocolResult({ protocol, result }: { protocol: 'UDP' | 'TCP'; resu
         <div className="min-w-0 rounded-md bg-white/80 px-3 py-2 ring-1 ring-slate-200/70">
           <dt className="text-[11px] font-semibold text-slate-400">Mapping</dt>
           <dd className="mt-1 break-words font-medium leading-5 text-slate-700">{behaviorText(result.mapping, mappingLabels)}</dd>
+          {result.mapping && result.mapping !== 'unknown' && (
+            <dd className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+              {result.mapping === 'EIM' && '✓ 最佳：同一端口对所有目标使用相同映射，打洞成功率最高'}
+              {result.mapping === 'ADM' && '△ 中等：不同目标 IP 使用不同映射，需要端口预测'}
+              {result.mapping === 'APDM' && '✗ 困难：每个目标 IP+端口都不同，打洞成功率低'}
+            </dd>
+          )}
         </div>
         <div className="min-w-0 rounded-md bg-white/80 px-3 py-2 ring-1 ring-slate-200/70">
           <dt className="text-[11px] font-semibold text-slate-400">Filtering</dt>
           <dd className="mt-1 break-words font-medium leading-5 text-slate-700">
             {protocol === 'TCP' ? 'TCP 不适用' : behaviorText(result.filtering, filteringLabels)}
           </dd>
+          {protocol === 'TCP' ? (
+            <dd className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+              TCP 面向连接特性导致 Filtering 无法准确测试
+            </dd>
+          ) : result.filtering && result.filtering !== 'unknown' ? (
+            <dd className="mt-1.5 text-[10px] leading-relaxed text-slate-500">
+              {result.filtering === 'EIF' && '✓ 宽松：任何外部地址都能连入'}
+              {result.filtering === 'ADF' && '△ 中等：需要先向目标发包建立连接'}
+              {result.filtering === 'APDF' && '○ 严格：需要精确匹配端口，但 EIM 下仍可打洞'}
+            </dd>
+          ) : null}
         </div>
       </dl>
       {(result.mappingErr || result.filteringErr) && (
@@ -1008,8 +1026,8 @@ function NatTypeModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
               <div className="grid gap-3 md:grid-cols-2">
-              <NatProtocolResult protocol="UDP" result={data?.udp ?? null} />
-              <NatProtocolResult protocol="TCP" result={data?.tcp ?? null} />
+                <NatProtocolResult protocol="UDP" result={data?.udp ?? null} />
+                <NatProtocolResult protocol="TCP" result={data?.tcp ?? null} />
               </div>
             </div>
           )}
