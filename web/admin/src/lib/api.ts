@@ -1,4 +1,4 @@
-import type { DdnsConfig, DdnsProvider, DdnsRecord, StunConfig, WebhookConfig, WebhookTemplate } from '../types'
+import type { DdnsConfig, DdnsProvider, DdnsRecord, NatTypeInfo, StunConfig, WebhookConfig, WebhookTemplate } from '../types'
 
 interface ApiResponse<T> {
   code: number
@@ -84,6 +84,10 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
   })
 
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
+
+export const getNatType = () => request<NatTypeInfo>('/api/stun/nat-type')
+
+export const detectNatType = () => request<NatTypeInfo>('/api/stun/nat-type/detect', { method: 'POST' })
 
 export interface SSEHandle {
   close: () => void

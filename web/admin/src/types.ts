@@ -59,6 +59,20 @@ export interface NatRouter {
   ipType: 'private' | 'cgn'
 }
 
+export interface NatDetectResult {
+  natType: string
+  mapping: string
+  filtering: string
+  mappingErr?: string
+  filteringErr?: string
+}
+
+export interface NatTypeInfo {
+  udp: NatDetectResult | null
+  tcp: NatDetectResult | null
+  error?: string
+}
+
 export interface StunConfig {
   localIP: string
   publicIP: string

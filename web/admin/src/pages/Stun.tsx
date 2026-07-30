@@ -9,7 +9,9 @@ import {
   FileText,
   Globe,
   Home as HomeIcon,
+  Info,
   LayoutTemplate,
+  LoaderCircle,
   Pencil,
   Plus,
   RotateCw,
@@ -22,6 +24,8 @@ import {
 import { Card, CardHeader } from '../components/Card'
 import * as api from '../lib/api'
 import type {
+  NatDetectResult,
+  NatTypeInfo,
   StunConfig,
   StunDevice,
   StunService,
@@ -815,6 +819,220 @@ function LogModal({
   )
 }
 
+const mappingLabels: Record<string, string> = {
+  EIM: '端点无关映射',
+  ADM: '地址相关映射',
+  APDM: '地址和端口相关映射',
+  unknown: '未知',
+}
+
+const filteringLabels: Record<string, string> = {
+  EIF: '端点无关过滤',
+  ADF: '地址相关过滤',
+  APDF: '地址和端口相关过滤',
+  unknown: '未知',
+}
+
+function behaviorText(value: string, labels: Record<string, string>) {
+  if (!value) return '--'
+  const label = labels[value]
+  return label ? `${label} (${value})` : value
+}
+
+function natTypeTone(natType: string) {
+  if (natType.includes('NAT1')) return { panel: 'border-emerald-200 bg-emerald-50/40', badge: 'bg-emerald-100 text-emerald-700' }
+  if (natType.includes('NAT2')) return { panel: 'border-sky-200 bg-sky-50/40', badge: 'bg-sky-100 text-sky-700' }
+  if (natType.includes('NAT3')) return { panel: 'border-amber-200 bg-amber-50/40', badge: 'bg-amber-100 text-amber-700' }
+  if (natType.includes('NAT4') || natType.includes('阻断')) return { panel: 'border-rose-200 bg-rose-50/40', badge: 'bg-rose-100 text-rose-700' }
+  if (natType.includes('公网')) return { panel: 'border-teal-200 bg-teal-50/40', badge: 'bg-teal-100 text-teal-700' }
+  return { panel: 'border-slate-200 bg-slate-50/70', badge: 'bg-slate-100 text-slate-600' }
+}
+
+function NatProtocolResult({ protocol, result }: { protocol: 'UDP' | 'TCP'; result: NatDetectResult | null }) {
+  const tone = natTypeTone(result?.natType ?? '')
+  const ProtocolIcon = protocol === 'UDP' ? Wifi : Server
+
+  if (!result) {
+    return (
+      <section className="rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4">
+        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+          <ProtocolIcon className="h-4 w-4 text-slate-400" /> {protocol}
+        </div>
+        <div className="mt-5 text-center text-sm text-slate-400">尚无检测结果</div>
+      </section>
+    )
+  }
+
+  return (
+    <section className={`rounded-lg border p-4 ${tone.panel}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-white text-slate-600 shadow-sm ring-1 ring-slate-200/80">
+            <ProtocolIcon className="h-4 w-4" />
+          </span>
+          <div>
+            <div className="text-sm font-bold text-slate-800">{protocol}</div>
+            <div className="text-[11px] text-slate-400">{protocol === 'UDP' ? 'Mapping + Filtering' : 'Mapping'}</div>
+          </div>
+        </div>
+        <span className={`shrink-0 rounded-md px-2 py-1 text-[11px] font-bold ${tone.badge}`}>
+          {result.mappingErr ? '部分失败' : '检测完成'}
+        </span>
+      </div>
+
+      <div className="mt-4">
+        <div className="text-[11px] font-semibold text-slate-400">NAT 类型</div>
+        <div className="mt-1 break-words text-sm font-bold leading-5 text-slate-800">{result.natType || '无法确定'}</div>
+      </div>
+
+      <dl className="mt-4 grid gap-2 text-xs sm:grid-cols-2">
+        <div className="min-w-0 rounded-md bg-white/80 px-3 py-2 ring-1 ring-slate-200/70">
+          <dt className="text-[11px] font-semibold text-slate-400">Mapping</dt>
+          <dd className="mt-1 break-words font-medium leading-5 text-slate-700">{behaviorText(result.mapping, mappingLabels)}</dd>
+        </div>
+        <div className="min-w-0 rounded-md bg-white/80 px-3 py-2 ring-1 ring-slate-200/70">
+          <dt className="text-[11px] font-semibold text-slate-400">Filtering</dt>
+          <dd className="mt-1 break-words font-medium leading-5 text-slate-700">
+            {protocol === 'TCP' ? 'TCP 不适用' : behaviorText(result.filtering, filteringLabels)}
+          </dd>
+        </div>
+      </dl>
+      {(result.mappingErr || result.filteringErr) && (
+        <div className="mt-3 space-y-1 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+          {result.mappingErr && <div className="break-words">Mapping: {result.mappingErr}</div>}
+          {result.filteringErr && <div className="break-words">Filtering: {result.filteringErr}</div>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function NatTypeModal({ onClose }: { onClose: () => void }) {
+  const [data, setData] = useState<NatTypeInfo | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [detecting, setDetecting] = useState(false)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      setData(await api.getNatType())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const detect = async () => {
+    setDetecting(true)
+    setError('')
+    try {
+      setData(await api.detectNatType())
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '重新检测失败')
+    } finally {
+      setDetecting(false)
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    api.getNatType()
+      .then((result) => {
+        if (active) setData(result)
+      })
+      .catch((e) => {
+        if (active) setError(e instanceof Error ? e.message : '加载失败')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-lg bg-white shadow-2xl ring-1 ring-slate-200">
+        <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+              <Info className="h-4.5 w-4.5" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-base font-bold text-slate-800">NAT 类型详情</div>
+              <div className="mt-0.5 text-xs text-slate-400">RFC 5780 行为检测</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="关闭"
+            aria-label="关闭"
+            className="grid h-8 w-8 place-items-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-slate-400">
+              <LoaderCircle className="h-4 w-4 animate-spin" /> 正在加载
+            </div>
+          ) : error ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-sm text-rose-600">
+              <AlertCircle className="h-6 w-6" />
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={load}
+                className="flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                <RotateCw className="h-3.5 w-3.5" /> 重试
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {data?.error && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="break-words">部分探测未完成：{data.error}</span>
+                </div>
+              )}
+              <div className="grid gap-3 md:grid-cols-2">
+              <NatProtocolResult protocol="UDP" result={data?.udp ?? null} />
+              <NatProtocolResult protocol="TCP" result={data?.tcp ?? null} />
+              </div>
+            </div>
+          )}
+        </div>
+        {!loading && !error && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3">
+            <span className="text-xs text-slate-400">重新检测通常需要数秒</span>
+            <button
+              type="button"
+              onClick={detect}
+              disabled={detecting}
+              className="flex min-w-[104px] items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+            >
+              <RotateCw className={`h-3.5 w-3.5 ${detecting ? 'animate-spin' : ''}`} />
+              {detecting ? '检测中...' : '重新检测'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export function Stun() {
   const [config, setConfig] = useState<StunConfig | null>(null)
   const [loadErr, setLoadErr] = useState('')
@@ -830,6 +1048,7 @@ export function Stun() {
     initial?: StunService
   }>({ open: false, deviceId: 0 })
   const [logKey, setLogKey] = useState<string | null>(null)
+  const [natTypeOpen, setNatTypeOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -1010,10 +1229,21 @@ export function Stun() {
       <Card>
         <CardHeader
           title="基础网络与路由拓扑"
+          className="flex-wrap gap-2"
           action={
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex max-w-full flex-wrap items-center justify-end gap-2 text-xs">
               <span className="text-slate-400">最优 STUN:</span>
-              <span className="font-mono font-semibold text-blue-500">{config.bestStun || '--'}</span>
+              <span className="max-w-[220px] break-all text-right font-mono font-semibold text-blue-500 sm:max-w-none">
+                {config.bestStun || '--'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setNatTypeOpen(true)}
+                title="查看 NAT 类型详情"
+                className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+              >
+                <Info className="h-3.5 w-3.5" /> NAT 类型
+              </button>
               <button
                 onClick={refresh}
                 className="ml-2 flex items-center gap-1 rounded-md text-slate-500 transition hover:text-blue-500"
@@ -1330,6 +1560,7 @@ export function Stun() {
         />
       )}
       {logKey && <LogModal status={logStatus} onClose={() => setLogKey(null)} />}
+      {natTypeOpen && <NatTypeModal onClose={() => setNatTypeOpen(false)} />}
 
       {/* Toasts */}
       <div className="pointer-events-none fixed bottom-6 left-1/2 z-[60] flex -translate-x-1/2 flex-col items-center gap-2">

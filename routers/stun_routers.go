@@ -17,6 +17,16 @@ func StunRouters(g *gin.RouterGroup) {
 		app.GetStunConfigView,
 	)
 
+	// 输出最近一次 UDP/TCP NAT 类型检测结果
+	g.GET(
+		"stun/nat-type",
+		app.GetNatTypeView,
+	)
+	g.POST(
+		"stun/nat-type/detect",
+		app.DetectNatTypeView,
+	)
+
 	// 运行时状态快照（一次性）
 	g.GET(
 		"stun/status",

@@ -4,11 +4,31 @@ import (
 	"errors"
 	"fmt"
 	"linkstar/modules/stun/model"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 )
 
 type NatType string
+
+var natDetectionMu sync.Mutex
+
+// GetNatDetectionResults 返回最近一次检测结果的副本。
+// 检测进行中时会等待本轮结束，避免 API 读取到一半更新的状态。
+func GetNatDetectionResults() (udp, tcp *model.NatDetectResult) {
+	natDetectionMu.Lock()
+	defer natDetectionMu.Unlock()
+
+	if Runtime.Network.NatStatuUDP != nil {
+		value := *Runtime.Network.NatStatuUDP
+		udp = &value
+	}
+	if Runtime.Network.NatStatuTCP != nil {
+		value := *Runtime.Network.NatStatuTCP
+		tcp = &value
+	}
+	return udp, tcp
+}
 
 const (
 	OpenInternet   NatType = "公网直连(Open Internet)"
@@ -28,6 +48,9 @@ const (
 // 顶层err只在两者都失败、或基础网络数据都拿不到时非nil；
 // 单边失败会体现在对应NatDetectResult里，而不是掩盖成旧数据。
 func DetectAndClassifyNat() (udpResult, tcpResult *model.NatDetectResult, err error) {
+	natDetectionMu.Lock()
+	defer natDetectionMu.Unlock()
+
 	localIP, publicIP, e := getNetworkAddressData()
 	if e != nil {
 		return nil, nil, fmt.Errorf("网络基础数据未就绪: %w", e)
@@ -148,8 +171,8 @@ func getNetworkAddressData() (localIP, publicIP string, err error) {
 	}
 
 	var stunServer string
-	if Runtime.STUNService == nil {
-		// 从 STUNServer 获取STUN服务器
+	if Runtime.STUNService != nil {
+		// 从运行时 STUN 服务获取当前最优服务器
 		stunServer, err = Runtime.STUNService.GetBestSTUNServer()
 		if err != nil || stunServer == "" {
 			stunServer, err = Runtime.STUNService.GetBackupSTUNServer()
