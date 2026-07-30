@@ -56,6 +56,7 @@ export interface StunDevice {
 export interface NatRouter {
   natLevel: number
   lanIP: string
+  ipType: 'private' | 'cgn'
 }
 
 export interface StunConfig {

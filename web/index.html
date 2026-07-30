@@ -159,6 +159,12 @@
             background: #fefce8;
         }
 
+        .topo-node.router.cgn {
+            border-color: #c4b5fd;
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+
         /* ================= 两栏布局 (设备管理与拓扑) ================= */
         .device-layout {
             display: grid;
@@ -1014,7 +1020,9 @@
                 const sortedList = [...data.natRouterList].sort((a, b) => a.natLevel - b.natLevel);
                 sortedList.forEach(router => {
                     html += `<div class="topo-arrow">➔</div>`;
-                    html += `<div class="topo-node router">🛜 路由 NAT ${router.natLevel}<span>${router.lanIP}</span></div>`;
+                    const label = router.ipType === 'cgn' ? 'CGN 网关' : `路由 NAT ${router.natLevel}`;
+                    const typeClass = router.ipType === 'cgn' ? ' cgn' : '';
+                    html += `<div class="topo-node router${typeClass}">🛜 ${label}<span>${router.lanIP}</span></div>`;
                 });
             }
 

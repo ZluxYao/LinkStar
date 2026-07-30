@@ -117,6 +117,7 @@ func scanNATChain(target string) ([]model.NatRouterInfo, error) {
 			natChain = append(natChain, model.NatRouterInfo{
 				NatLevel: level,
 				LanIp:    ip,
+				IPType:   ipType,
 			})
 			if ipType == IPTypeCGN {
 				logrus.Infof("探测到cgn出口: %s，终止扫描", ip)

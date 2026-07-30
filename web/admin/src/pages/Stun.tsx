@@ -1036,10 +1036,20 @@ export function Stun() {
             .map((r) => (
               <div key={r.natLevel} className="flex items-center gap-2">
                 <ChevronRight className="h-4 w-4 text-slate-300" />
-                <div className="flex min-w-[140px] flex-col items-center gap-1 rounded-xl bg-amber-50 px-4 py-3 ring-1 ring-amber-200">
+                <div
+                  className={`flex min-w-[140px] flex-col items-center gap-1 rounded-xl px-4 py-3 ring-1 ${
+                    r.ipType === 'cgn' ? 'bg-violet-50 ring-violet-200' : 'bg-amber-50 ring-amber-200'
+                  }`}
+                >
                   <div className="flex items-center gap-1.5">
-                    <Wifi className="h-4 w-4 text-amber-500" />
-                    <span className="text-xs font-semibold text-amber-600">路由 NAT {r.natLevel}</span>
+                    <Wifi className={`h-4 w-4 ${r.ipType === 'cgn' ? 'text-violet-500' : 'text-amber-500'}`} />
+                    <span
+                      className={`text-xs font-semibold ${
+                        r.ipType === 'cgn' ? 'text-violet-600' : 'text-amber-600'
+                      }`}
+                    >
+                      {r.ipType === 'cgn' ? 'CGN 网关' : `路由 NAT ${r.natLevel}`}
+                    </span>
                   </div>
                   <span className="font-mono text-xs text-slate-600">{r.lanIP}</span>
                 </div>
