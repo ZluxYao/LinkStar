@@ -58,26 +58,11 @@ const (
 // 是这个字段在 TCP 下本来就没有意义，跟真正的探测失败要能区分开。
 type NATStatus struct {
 	Protocol     Protocol
-	NatType      NatType
 	Mapping      MappingBehavior
 	Filtering    FilteringBehavior
 	MappingErr   error
 	FilteringErr error
 }
-
-// NatType nat类型
-type NatType string
-
-const (
-	OpenInternet   NatType = "公网直连(Open Internet)"
-	SymmetricFW    NatType = "公网IP+对称防火墙"
-	FullCone       NatType = "NAT1 - 完全圆锥型(Full Cone)"
-	RestrictedCone NatType = "NAT2 - 受限圆锥型(Restricted Cone)"
-	PortRestricted NatType = "NAT3 - 端口受限圆锥型(Port Restricted Cone)"
-	Symmetric      NatType = "NAT4 - 对称型(Symmetric)"
-	PooledCGNAT    NatType = "运营商池化NAT(出口IP不固定)"
-	Uncertain      NatType = "无法完全确定(按保守估计处理)"
-)
 
 // DetectNatUDP 探测本机 UDP 场景下的 NAT Mapping 和 Filtering 行为。
 // 只有连服务器都选不出来时才返回顶层 error，

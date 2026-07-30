@@ -1,6 +1,8 @@
 package stun
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestRFC5780UDP(t *testing.T) {
 	server, err := selectRFC5780Server(rfc5780StunServer)

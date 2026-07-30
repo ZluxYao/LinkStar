@@ -18,9 +18,9 @@ type NatRouterInfo struct {
 }
 
 type NatDetectResult struct {
+	NatType      string `json:"natType"`
 	Mapping      string `json:"mapping"`
 	Filtering    string `json:"filtering"`
-	NatType      string `json:"natType"`
 	MappingErr   string `json:"mappingErr,omitempty"`
 	FilteringErr string `json:"filteringErr,omitempty"`
 }

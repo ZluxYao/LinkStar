@@ -81,7 +81,21 @@ func InitSTUN() error {
 	// 5. 启动网络信息更新器
 	go RunNetworkRuntimeUpdater(context.Background())
 
-	// 6. 启动所有 STUN 服务映射
+	// 6. 异步检测 UDP/TCP NAT 类型
+	go func() {
+		udpResult, tcpResult, err := DetectAndClassifyNat()
+		if err != nil {
+			logrus.Warnf("启动时检测 NAT 类型失败: %v", err)
+		}
+		if udpResult != nil {
+			logrus.Infof("UDP NAT检测结果: type=%s mapping=%s filtering=%s", udpResult.NatType, udpResult.Mapping, udpResult.Filtering)
+		}
+		if tcpResult != nil {
+			logrus.Infof("TCP NAT检测结果: type=%s mapping=%s", tcpResult.NatType, tcpResult.Mapping)
+		}
+	}()
+
+	// 7. 启动所有 STUN 服务映射
 	go Runtime.Scheduler.StartAll(Runtime.Config.Devices)
 
 	return nil
