@@ -1,6 +1,7 @@
 package auth_api
 
 import (
+	"errors"
 	"linkstar/middleware"
 	"linkstar/modules/auth"
 	"linkstar/utils/res"
@@ -16,11 +17,19 @@ type SetupRequest struct {
 func (AuthApi) SetupView(c *gin.Context) {
 	cr := middleware.GetBindRequest[SetupRequest](c)
 	if err := auth.Runtime.Setup(cr.Password); err != nil {
+		if errors.Is(err, auth.ErrPasswordBusy) {
+			res.FailTooManyRequests(c)
+			return
+		}
 		res.FailWithMsg(err.Error(), c)
 		return
 	}
 	token, err := auth.Runtime.Login(cr.Password)
 	if err != nil {
+		if errors.Is(err, auth.ErrPasswordBusy) {
+			res.FailTooManyRequests(c)
+			return
+		}
 		res.FailWithMsg(err.Error(), c)
 		return
 	}

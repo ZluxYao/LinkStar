@@ -13,9 +13,16 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// 内存阈值：>=512MB 用 argon2id，否则 bcrypt。argon2id 单次哈希吃约 64MB，
+// 内存阈值：>=512MB 用 argon2id，否则 bcrypt。argon2id 单次哈希吃约 19MB，
 // 低内存路由器（OpenWrt 等）并发登录会 OOM，故降级到内存占用极小的 bcrypt。
 const argon2MemoryThreshold = 512 * 1024 * 1024
+
+const argon2MaxConcurrent = 2
+
+var (
+	ErrArgon2Busy = errors.New("argon2 is busy")
+	argon2Slots   = make(chan struct{}, argon2MaxConcurrent)
+)
 
 // argon2id 参数（OWASP 推荐均衡配置：m=19MiB, t=2, p=1）
 const (
@@ -38,15 +45,20 @@ func HashPassword(password string) (string, error) {
 }
 
 // VerifyPassword 按哈希串前缀自动识别算法并校验。
-func VerifyPassword(hash, password string) bool {
+func VerifyPassword(hash, password string) (bool, error) {
 	if strings.HasPrefix(hash, "$argon2id$") {
 		return verifyArgon2(hash, password)
 	}
-	return ComparePasswordsHash(hash, password)
+	return ComparePasswordsHash(hash, password), nil
 }
 
 // hashArgon2 生成标准编码的 argon2id 哈希串。
 func hashArgon2(password string) (string, error) {
+	if !tryAcquireArgon2() {
+		return "", ErrArgon2Busy
+	}
+	defer releaseArgon2()
+
 	salt := make([]byte, argon2SaltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
@@ -61,13 +73,31 @@ func hashArgon2(password string) (string, error) {
 }
 
 // verifyArgon2 解析 argon2id 哈希串并用相同参数校验。
-func verifyArgon2(hash, password string) bool {
+func verifyArgon2(hash, password string) (bool, error) {
 	salt, key, mem, t, threads, err := decodeArgon2(hash)
 	if err != nil {
+		return false, nil
+	}
+	if !tryAcquireArgon2() {
+		return false, ErrArgon2Busy
+	}
+	defer releaseArgon2()
+
+	got := argon2.IDKey([]byte(password), salt, t, mem, threads, uint32(len(key)))
+	return subtle.ConstantTimeCompare(got, key) == 1, nil
+}
+
+func tryAcquireArgon2() bool {
+	select {
+	case argon2Slots <- struct{}{}:
+		return true
+	default:
 		return false
 	}
-	got := argon2.IDKey([]byte(password), salt, t, mem, threads, uint32(len(key)))
-	return subtle.ConstantTimeCompare(got, key) == 1
+}
+
+func releaseArgon2() {
+	<-argon2Slots
 }
 
 func decodeArgon2(hash string) (salt, key []byte, mem uint32, t uint32, threads uint8, err error) {

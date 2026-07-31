@@ -1,6 +1,7 @@
 package auth_api
 
 import (
+	"errors"
 	"linkstar/middleware"
 	"linkstar/modules/auth"
 	"linkstar/utils/res"
@@ -17,6 +18,10 @@ type ChangePasswordRequest struct {
 func (AuthApi) ChangePasswordView(c *gin.Context) {
 	cr := middleware.GetBindRequest[ChangePasswordRequest](c)
 	if err := auth.Runtime.ChangePassword(cr.OldPassword, cr.NewPassword); err != nil {
+		if errors.Is(err, auth.ErrPasswordBusy) {
+			res.FailTooManyRequests(c)
+			return
+		}
 		res.FailWithMsg(err.Error(), c)
 		return
 	}

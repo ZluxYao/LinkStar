@@ -9,10 +9,12 @@ import (
 )
 
 var (
-	ErrNotInitialized  = errors.New("尚未初始化")
-	ErrAlreadyInit     = errors.New("已初始化")
-	ErrWrongPassword   = errors.New("密码错误")
-	ErrEmptyPassword   = errors.New("密码不能为空")
+	ErrNotInitialized = errors.New("尚未初始化")
+	ErrAlreadyInit    = errors.New("已初始化")
+	ErrWrongPassword  = errors.New("密码错误")
+	ErrEmptyPassword  = errors.New("密码不能为空")
+	ErrPasswordBusy   = errors.New("密码校验繁忙，请稍后重试")
+	ErrLoginLimited   = errors.New("登录失败次数过多，请稍后重试")
 )
 
 // WithLock 在写锁内修改配置并持久化
@@ -46,7 +48,14 @@ func (r *AuthRuntime) Setup(password string) error {
 	if password == "" {
 		return ErrEmptyPassword
 	}
+	// WithLock 内仍会二次检查；此处提前返回，避免初始化后继续执行昂贵的密码哈希。
+	if r.IsInitialized() {
+		return ErrAlreadyInit
+	}
 	hash, err := pwd.HashPassword(password)
+	if errors.Is(err, pwd.ErrArgon2Busy) {
+		return ErrPasswordBusy
+	}
 	if err != nil {
 		return err
 	}
@@ -76,9 +85,26 @@ func (r *AuthRuntime) Login(password string) (string, error) {
 	if !cfg.Initialized {
 		return "", ErrNotInitialized
 	}
-	if !pwd.VerifyPassword(cfg.PasswordHash, password) {
+	if !globalLoginFailureLimiter.begin(time.Now()) {
+		return "", ErrLoginLimited
+	}
+	loginResult := loginAttemptIgnored
+	defer func() {
+		globalLoginFailureLimiter.finish(loginResult, time.Now())
+	}()
+
+	matched, err := pwd.VerifyPassword(cfg.PasswordHash, password)
+	if errors.Is(err, pwd.ErrArgon2Busy) {
+		return "", ErrPasswordBusy
+	}
+	if err != nil {
+		return "", err
+	}
+	if !matched {
+		loginResult = loginAttemptFailed
 		return "", ErrWrongPassword
 	}
+	loginResult = loginAttemptSucceeded
 	return jwt.GenerateToken(cfg.JwtSecret, time.Duration(cfg.TokenTTLHours)*time.Hour)
 }
 
@@ -106,10 +132,20 @@ func (r *AuthRuntime) ChangePassword(oldPassword, newPassword string) error {
 	if !cfg.Initialized {
 		return ErrNotInitialized
 	}
-	if !pwd.VerifyPassword(cfg.PasswordHash, oldPassword) {
+	matched, err := pwd.VerifyPassword(cfg.PasswordHash, oldPassword)
+	if errors.Is(err, pwd.ErrArgon2Busy) {
+		return ErrPasswordBusy
+	}
+	if err != nil {
+		return err
+	}
+	if !matched {
 		return ErrWrongPassword
 	}
 	hash, err := pwd.HashPassword(newPassword)
+	if errors.Is(err, pwd.ErrArgon2Busy) {
+		return ErrPasswordBusy
+	}
 	if err != nil {
 		return err
 	}

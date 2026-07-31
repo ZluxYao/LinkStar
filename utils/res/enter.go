@@ -1,6 +1,8 @@
 package res
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,8 +53,9 @@ func FailWithError(err error, c *gin.Context) {
 
 // 鉴权约定码：401 未登录/token 失效，428 需先初始化（设置密码）
 const (
-	CodeUnauthorized = 401
-	CodeNeedInit     = 428
+	CodeUnauthorized    = 401
+	CodeNeedInit        = 428
+	CodeTooManyRequests = 429
 )
 
 func FailUnauthorized(c *gin.Context) {
@@ -61,4 +64,20 @@ func FailUnauthorized(c *gin.Context) {
 
 func FailNeedInit(c *gin.Context) {
 	Fail(CodeNeedInit, "系统尚未初始化", c)
+}
+
+func FailTooManyRequests(c *gin.Context) {
+	c.JSON(http.StatusTooManyRequests, Response{
+		Code: CodeTooManyRequests,
+		Data: gin.H{},
+		Msg:  "密码校验繁忙，请稍后重试",
+	})
+}
+
+func FailRateLimited(c *gin.Context) {
+	c.JSON(http.StatusTooManyRequests, Response{
+		Code: CodeTooManyRequests,
+		Data: gin.H{},
+		Msg:  "3 分钟内登录失败最多 13 次，请稍后重试",
+	})
 }
