@@ -23,6 +23,7 @@ func HomeRoutersProtected(g *gin.RouterGroup) {
 	// 主页装饰
 	g.PUT("home/wallpaper",
 		middleware.BindJsonMiddleware[home_api.WallpaperUpdateRequest], app.WallpaperUpdateView)
+	g.POST("home/wallpaper/upload", app.WallpaperUploadView)
 	g.PUT("home/layout",
 		middleware.BindJsonMiddleware[home_api.LayoutUpdateRequest], app.LayoutUpdateView)
 	g.PUT("home/network",

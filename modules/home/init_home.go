@@ -21,6 +21,10 @@ func InitHome() error {
 	if err := os.MkdirAll("data/icon", 0755); err != nil {
 		logrus.Warn("创建 data/icon 失败：", err)
 	}
+	// 自定义壁纸目录
+	if err := os.MkdirAll("data/wallpaper", 0755); err != nil {
+		logrus.Warn("创建 data/wallpaper 失败：", err)
+	}
 
 	registerStunHooks()
 	return nil

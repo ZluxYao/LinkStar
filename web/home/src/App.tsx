@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Tags,
@@ -38,7 +39,18 @@ const pageCols = 8
 const pageRows = 5
 const pageSize = pageCols * pageRows
 const searchHistoryMax = 24
-const wallpaperFallbackMs = 3000
+
+// 默认背景的出厂样式。配置里 wallpaper.css 为空时用的就是 App.css 里那条同名规则，
+// 这份拷贝只用来给编辑框打底和「恢复默认」。
+// ⚠️ 改这里要同步改 App.css 的 .default-wallpaper，两边得是一份东西。
+const defaultWallpaperCss = `background-color: #eaf0fa;
+background-image:
+  radial-gradient(120% 78% at 50% -14%, rgba(255, 255, 255, 0.95), transparent 60%),
+  radial-gradient(58% 54% at 10% 16%, rgba(147, 197, 253, 0.52), transparent 66%),
+  radial-gradient(52% 48% at 88% 10%, rgba(165, 243, 252, 0.48), transparent 66%),
+  radial-gradient(56% 58% at 84% 88%, rgba(216, 191, 254, 0.46), transparent 66%),
+  radial-gradient(50% 52% at 12% 92%, rgba(167, 243, 208, 0.44), transparent 66%),
+  linear-gradient(168deg, #f8faff 0%, #e6edfb 42%, #eef3fb 72%, #f6f3fc 100%);`
 
 /* ============ 辅助函数 ============ */
 
@@ -98,7 +110,7 @@ function Clock({ showTime, title }: { showTime: boolean; title: string }) {
   const time = now.toLocaleTimeString('zh-CN', { hour12: false })
   const date = now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   return (
-    <div className="flex items-end justify-center gap-3 text-white drop-shadow-[0_2px_8px_rgba(0,0,0,0.65)]">
+    <div className="wp-title flex items-end justify-center gap-3">
       <h1 className="text-5xl font-black tracking-tight">{title || 'LinkStar'}</h1>
       {showTime && (
         <div className="mb-1 text-left">
@@ -205,7 +217,7 @@ function AppIcon({
       onClick={handleClick}
       onContextMenu={(e) => onContextMenu(e, app)}
       style={onPointerDown ? { touchAction: 'none' } : undefined}
-      className={`group flex w-24 flex-col items-center gap-2 text-white outline-none transition-opacity ${ghostClass}`}
+      className={`group flex w-24 flex-col items-center gap-2 outline-none transition-opacity ${ghostClass}`}
     >
       <div className="relative grid h-18 w-18 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-19 min-[2000px]:w-19">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
@@ -216,7 +228,7 @@ function AppIcon({
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-slate-400" />
         )}
       </div>
-      <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{app.name}</span>
+      <span className="wp-label max-w-24 truncate text-sm font-medium">{app.name}</span>
     </button>
   )
 }
@@ -270,7 +282,7 @@ function PagedGrid({
                 }
                 : undefined
             }
-            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${isHover ? 'bg-white/15 ring-2 ring-white/40' : ''
+            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${isHover ? 'wp-drop' : ''
               }`}
           >
             {slot ? (
@@ -779,6 +791,56 @@ function SearchEngineFormModal({
   )
 }
 
+/* ============ 默认背景的样式编辑框 ============ */
+
+// 自己拿文本状态，只在挂载时从配置里取一次种子：配置里存空串表示「用出厂那套」，
+// 框里却得显示出厂那套给人改，两边形状不一样，放一起会互相顶。
+// 面板每次打开都是新挂载，所以种子总是最新的。
+function WallpaperCssEditor({
+  initial,
+  onChange,
+}: {
+  initial: string
+  onChange: (css: string) => void
+}) {
+  const [draft, setDraft] = useState(() => initial || defaultWallpaperCss)
+
+  const write = (css: string) => {
+    setDraft(css)
+    onChange(css)
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
+        <span>背景样式</span>
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(defaultWallpaperCss)
+            onChange('') // 空串 = 回到出厂那条规则
+          }}
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          恢复默认
+        </button>
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => write(e.target.value)}
+        spellCheck={false}
+        rows={10}
+        className="w-full resize-y rounded-2xl bg-slate-100 p-3 font-mono text-xs leading-relaxed text-slate-700 outline-none ring-1 ring-transparent transition focus:bg-white focus:ring-blue-400"
+      />
+      <div className="mt-2 text-xs text-slate-400">
+        就是一段 CSS，改完立刻能看到效果。写 <code>background</code>、
+        <code>background-image</code> 这些就行，别写大括号和选择器。清空 = 用默认。
+      </div>
+    </div>
+  )
+}
+
 /* ============ 主组件 ============ */
 
 function App() {
@@ -801,12 +863,18 @@ function App() {
     | { kind: 'add'; x: number; y: number; pagedOrder?: number; categoryId?: string }
   const [contextMenu, setContextMenu] = useState<CtxMenu | null>(null)
 
-  // 壁纸状态
-  const [showDefaultWallpaper, setShowDefaultWallpaper] = useState(false)
-  const [backgroundReady, setBackgroundReady] = useState(false)
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null)
-  const [wallpaperLoaded, setWallpaperLoaded] = useState(false)
-  const wallpaperFallbackTimer = useRef<number | null>(null)
+  // 壁纸状态。默认背景是一层纯 CSS，永远铺在最底下，所以这里只管上面那张照片：
+  // photoUrl 是已经下载完、可以贴上去的图；photoLoaded 控制淡入。
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
+  const [photoLoaded, setPhotoLoaded] = useState(false)
+
+  // 登录态：主页是公开的，改配置要登录
+  const [authed, setAuthed] = useState(false)
+
+  // 自定义壁纸上传
+  const wallpaperFileRef = useRef<HTMLInputElement>(null)
+  const [wallpaperUploading, setWallpaperUploading] = useState(false)
+  const [wallpaperErr, setWallpaperErr] = useState('')
 
   // 翻页动画
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -922,74 +990,86 @@ function App() {
 
   /* ============ 壁纸 ============ */
 
-  const clearWallpaperFallbackTimer = () => {
-    if (wallpaperFallbackTimer.current !== null) {
-      window.clearTimeout(wallpaperFallbackTimer.current)
-      wallpaperFallbackTimer.current = null
-    }
-  }
-
+  // 默认背景是 CSS 画的，第一帧就在，永远不会白屏。这里只负责把照片
+  // （自定义图 / Bing 图）下载好再盖上去：先 new Image() 下全，下完才挂到
+  // <img> 上，所以真正贴上去的那一刻不会闪半张图。
+  //
+  // 打底的永远是默认背景，不管当前选的是 Bing 还是自定义：一层垫一层地换会
+  // 闪两次，不如从头到尾就一个底，图下完淡入一次。
+  //
+  // 不设「几秒没下完就放弃」的超时：Bing 慢就让它慢，什么时候下完什么时候
+  // 淡入，在那之前用户看到的是默认背景，页面照常能用。
   useEffect(() => {
     if (!config) return
+    const { mode, resolution, custom } = config.wallpaper
     let canceled = false
-    clearWallpaperFallbackTimer()
 
-    if (config.wallpaper.mode === 'default') {
-      setShowDefaultWallpaper(true)
-      setBackgroundReady(true)
-      setWallpaperLoaded(false)
-      setWallpaperUrl(null)
-      return
+    // 换模式时先把旧图摘掉，露出默认背景，等新图下完再淡入
+    setPhotoUrl(null)
+    setPhotoLoaded(false)
+
+    if (mode === 'default' || (mode === 'custom' && !custom)) return
+
+    // 下完才算数：onload 里才 setPhotoUrl，此时图已在缓存里，
+    // <img> 挂上去立刻可解码，opacity 0 → 1 是一次真正的渐显。
+    const preload = (url: string) => {
+      const image = new Image()
+      image.onload = () => {
+        if (!canceled) setPhotoUrl(url)
+      }
+      image.src = url
     }
 
-    setShowDefaultWallpaper(false)
-    setBackgroundReady(false)
-    setWallpaperLoaded(false)
-    wallpaperFallbackTimer.current = window.setTimeout(() => {
-      if (canceled) return
-      canceled = true
-      setWallpaperLoaded(false)
-      setWallpaperUrl(null)
-      setShowDefaultWallpaper(true)
-      setBackgroundReady(true)
-      clearWallpaperFallbackTimer()
-    }, wallpaperFallbackMs)
+    if (mode === 'custom') {
+      preload(`/${custom}`)
+      return () => {
+        canceled = true
+      }
+    }
 
     api
-      .getBingWallpaper(config.wallpaper.resolution)
+      .getBingWallpaper(resolution)
       .then((data) => {
-        if (!data.url || canceled) return
-        const image = new Image()
-        image.onload = () => {
-          if (canceled) return
-          clearWallpaperFallbackTimer()
-          setShowDefaultWallpaper(false)
-          setWallpaperUrl(data.url)
-          setWallpaperLoaded(true)
-          setBackgroundReady(true)
-        }
-        image.onerror = () => {
-          if (!canceled) {
-            setShowDefaultWallpaper(true)
-            setBackgroundReady(true)
-          }
-          clearWallpaperFallbackTimer()
-        }
-        image.src = data.url
+        if (data.url && !canceled) preload(data.url)
       })
-      .catch(() => {
-        if (!canceled) {
-          setShowDefaultWallpaper(true)
-          setBackgroundReady(true)
-        }
-        clearWallpaperFallbackTimer()
-      })
+      .catch(() => undefined)
 
     return () => {
       canceled = true
-      clearWallpaperFallbackTimer()
     }
-  }, [config?.wallpaper.mode, config?.wallpaper.resolution])
+  }, [config?.wallpaper.mode, config?.wallpaper.resolution, config?.wallpaper.custom])
+
+  // 自定义的默认背景样式：塞进一个 <style>，选择器写两遍类名把特异度拉高，
+  // 这样能盖掉 App.css 里那条出厂规则，不用 !important。
+  // 空字符串就把 <style> 里的内容清掉，自动回到出厂那套。
+  useEffect(() => {
+    const css = config?.wallpaper.css ?? ''
+    let el = document.getElementById('ls-wallpaper-css') as HTMLStyleElement | null
+    if (!el) {
+      el = document.createElement('style')
+      el.id = 'ls-wallpaper-css'
+      document.head.appendChild(el)
+    }
+    // textContent 而不是 innerHTML：内容按纯文本进去，写什么标签都不会被当标签解析
+    el.textContent = css.trim() ? `.default-wallpaper.default-wallpaper{${css}}` : ''
+  }, [config?.wallpaper.css])
+
+  /* ============ 登录态 ============ */
+
+  useEffect(() => {
+    api
+      .getAuthStatus()
+      .then((s) => setAuthed(s.authed))
+      .catch(() => setAuthed(false))
+  }, [])
+
+  // 主页读是公开的，写要登录。改配置的入口先拦一道，
+  // 免得用户把表单填完了、提交时才被踢去登录页。
+  const requireLogin = () => {
+    if (authed) return true
+    api.gotoLogin()
+    return false
+  }
 
   /* ============ 翻页动画 ============ */
 
@@ -1170,9 +1250,33 @@ function App() {
 
   const setWallpaperMode = async (mode: WallpaperMode) => {
     if (!config) return
+    setWallpaperErr('')
+    // 选了「自定义」但还没传过图：直接弹文件框，传完在 onChange 里再切模式
+    if (mode === 'custom' && !config.wallpaper.custom) {
+      wallpaperFileRef.current?.click()
+      return
+    }
     const next = { ...config.wallpaper, mode }
     setConfig({ ...config, wallpaper: next })
     api.updateWallpaper(next).catch(() => reload())
+  }
+
+  // 传一张自己的壁纸：先传文件拿到路径，再把路径写进配置并切到 custom。
+  // 旧图由后端在保存成功后删掉，这里不用管。
+  const pickWallpaperFile = async (file: File) => {
+    if (!config) return
+    setWallpaperErr('')
+    setWallpaperUploading(true)
+    try {
+      const path = await api.uploadWallpaper(file)
+      const next = { ...config.wallpaper, mode: 'custom' as WallpaperMode, custom: path }
+      await api.updateWallpaper(next)
+      setConfig({ ...config, wallpaper: next })
+    } catch (e) {
+      setWallpaperErr(e instanceof Error ? e.message : '上传失败')
+    } finally {
+      setWallpaperUploading(false)
+    }
   }
   const setWallpaperResolution = async (resolution: WallpaperResolution) => {
     if (!config) return
@@ -1189,6 +1293,18 @@ function App() {
     blurDebounceRef.current = window.setTimeout(() => {
       api.updateWallpaper(next).catch(() => reload())
     }, 300)
+  }
+
+  // 敲一个字就更新 config，背景立刻跟着变（预览就是页面本身）；存盘攒一下再发
+  const cssDebounceRef = useRef<number | null>(null)
+  const setWallpaperCss = (css: string) => {
+    if (!config) return
+    const next = { ...config.wallpaper, css }
+    setConfig({ ...config, wallpaper: next })
+    if (cssDebounceRef.current !== null) window.clearTimeout(cssDebounceRef.current)
+    cssDebounceRef.current = window.setTimeout(() => {
+      api.updateWallpaper(next).catch(() => reload())
+    }, 500)
   }
 
   const setLayoutMode = async (m: LayoutMode) => {
@@ -1551,7 +1667,7 @@ function App() {
 
   if (!config) {
     return (
-      <main className="default-wallpaper grid min-h-screen place-items-center text-white">
+      <main className="default-wallpaper home-shell relative grid min-h-screen place-items-center">
         {loadErr ? (
           <div className="text-center">
             <div className="text-lg">加载失败</div>
@@ -1565,24 +1681,25 @@ function App() {
   }
 
   return (
+    // 照片盖上来了就切白字（.on-photo），没照片时是淡色默认背景，用深字
     <main
-      className={`${showDefaultWallpaper ? 'default-wallpaper' : 'bg-transparent'} relative min-h-screen ${isScrollMode ? '' : 'overflow-hidden'
-        } text-white`}
+      className={`home-shell relative min-h-screen ${isScrollMode ? '' : 'overflow-hidden'} ${photoLoaded ? 'on-photo' : ''
+        }`}
     >
-      {wallpaperUrl && (
+      {/* 最底层：默认背景，一直在。照片没下完（或压根没配照片）时看到的就是它 */}
+      <div className="default-wallpaper fixed inset-0" />
+
+      {/* 上面一层：自定义图 / Bing 图，下完了才挂上来，700ms 淡入 */}
+      {photoUrl && (
         <img
-          src={wallpaperUrl}
+          src={photoUrl}
           alt=""
-          onLoad={() => {
-            clearWallpaperFallbackTimer()
-            setWallpaperLoaded(true)
-          }}
+          onLoad={() => setPhotoLoaded(true)}
           onError={() => {
-            clearWallpaperFallbackTimer()
-            setWallpaperLoaded(false)
-            setWallpaperUrl(null)
+            setPhotoLoaded(false)
+            setPhotoUrl(null)
           }}
-          className={`fixed inset-0 h-full w-full object-cover transition-opacity duration-700 ${wallpaperLoaded ? 'opacity-100' : 'opacity-0'
+          className={`fixed inset-0 h-full w-full object-cover transition-opacity duration-700 ${photoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
           style={{
             filter: `blur(${config.wallpaper.blur}px)`,
@@ -1590,12 +1707,9 @@ function App() {
           }}
         />
       )}
-      {wallpaperLoaded && <div className="fixed inset-0 bg-black/10" />}
+      {photoLoaded && <div className="fixed inset-0 bg-black/10" />}
 
-      <section
-        className={`relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-12 transition-opacity duration-500 min-[2000px]:pt-16 ${backgroundReady ? 'opacity-100' : 'opacity-0'
-          }`}
-      >
+      <section className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-12 min-[2000px]:pt-16">
         <Clock showTime={config.showTime} title={config.title} />
 
         {/* 搜索框 */}
@@ -1745,7 +1859,7 @@ function App() {
                     setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, categoryId: category.id })
                   }}
                 >
-                  <h3 className="mb-4 px-2 text-sm font-semibold uppercase tracking-wider text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
+                  <h3 className="wp-section mb-4 px-2 text-sm font-semibold uppercase tracking-wider">
                     {category.name}
                   </h3>
                   <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
@@ -1775,7 +1889,7 @@ function App() {
                   setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, categoryId: '' })
                 }}
               >
-                <h3 className="mb-4 px-2 text-sm font-semibold uppercase tracking-wider text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.65)]">
+                <h3 className="wp-section mb-4 px-2 text-sm font-semibold uppercase tracking-wider">
                   未分类
                 </h3>
                 <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
@@ -1806,8 +1920,7 @@ function App() {
       {/* 翻页模式应用层 */}
       {!isScrollMode && (
         <div
-          className={`fixed inset-x-0 top-[14rem] bottom-24 z-20 transition-opacity duration-500 min-[2000px]:top-[19rem] ${backgroundReady ? 'opacity-100' : 'opacity-0'
-            }`}
+          className="fixed inset-x-0 top-[14rem] bottom-24 z-20 min-[2000px]:top-[19rem]"
           onContextMenu={(e) => {
             e.preventDefault()
             const page = appPages[appPage] ?? []
@@ -1874,13 +1987,13 @@ function App() {
             className="pointer-events-none fixed left-0 top-0 z-50 will-change-transform"
           >
             <div
-              className="flex w-24 flex-col items-center gap-2 text-white"
+              className="flex w-24 flex-col items-center gap-2"
               style={{ transform: 'translate(-50%, -50%) scale(1.12)', transformOrigin: 'center' }}
             >
               <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
                 <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
               </div>
-              <span className="max-w-24 truncate text-sm font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">{app.name}</span>
+              <span className="wp-label max-w-24 truncate text-sm font-medium">{app.name}</span>
             </div>
           </div>
         )
@@ -1898,8 +2011,7 @@ function App() {
                   type="button"
                   data-dot-index={index}
                   onClick={() => goToAppPage(index, 'x')}
-                  className={`h-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${active ? 'w-6 bg-white' : 'w-2'
-                    }`}
+                  className={`wp-dot h-2 rounded-full ${active ? 'is-active w-6' : 'w-2'}`}
                   title={`第 ${index + 1} 页`}
                 />
               )
@@ -1907,7 +2019,7 @@ function App() {
             <button
               type="button"
               onClick={addNewPage}
-              className="ml-1 grid h-5 w-5 place-items-center rounded-full bg-white/30 text-white shadow-md ring-1 ring-white/40 backdrop-blur-md transition hover:bg-white/55"
+              className="wp-chip ml-1 grid h-5 w-5 place-items-center rounded-full backdrop-blur-md"
               title="新建页面"
             >
               <Plus className="h-3 w-3" />
@@ -1923,8 +2035,7 @@ function App() {
                   type="button"
                   data-dot-index={index}
                   onClick={() => goToAppPage(index, allowVertical ? 'y' : 'x')}
-                  className={`w-2 rounded-full bg-white/55 shadow-md transition-all duration-300 hover:bg-white ${active ? 'h-6 bg-white' : 'h-2'
-                    }`}
+                  className={`wp-dot w-2 rounded-full ${active ? 'is-active h-6' : 'h-2'}`}
                   title={`第 ${index + 1} 页`}
                 />
               )
@@ -1932,7 +2043,7 @@ function App() {
             <button
               type="button"
               onClick={addNewPage}
-              className="mt-1 grid h-5 w-5 place-items-center rounded-full bg-white/30 text-white shadow-md ring-1 ring-white/40 backdrop-blur-md transition hover:bg-white/55"
+              className="wp-chip mt-1 grid h-5 w-5 place-items-center rounded-full backdrop-blur-md"
               title="新建页面"
             >
               <Plus className="h-3 w-3" />
@@ -1954,7 +2065,7 @@ function App() {
                 onClick={() => {
                   const app = contextMenu.app
                   setContextMenu(null)
-                  setAppForm({ open: true, initial: app })
+                  if (requireLogin()) setAppForm({ open: true, initial: app })
                 }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100"
               >
@@ -1978,11 +2089,11 @@ function App() {
             <button
               type="button"
               onClick={() => {
-                if (contextMenu.pagedOrder !== undefined) {
-                  pendingAddSlotRef.current = contextMenu.pagedOrder
-                }
+                const pagedOrder = contextMenu.pagedOrder
                 const defaultCategoryId = contextMenu.categoryId
                 setContextMenu(null)
+                if (!requireLogin()) return
+                if (pagedOrder !== undefined) pendingAddSlotRef.current = pagedOrder
                 setAppForm({ open: true, defaultCategoryId })
               }}
               className="flex w-full items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100"
@@ -2049,42 +2160,96 @@ function App() {
 
                   <div>
                     <div className="mb-2 text-sm font-semibold text-slate-600">背景</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['bing', 'default'] as WallpaperMode[]).map((m) => (
+                    <div className="grid grid-cols-3 gap-2">
+                      {(['bing', 'custom', 'default'] as WallpaperMode[]).map((m) => (
                         <button
                           key={m}
                           type="button"
                           onClick={() => setWallpaperMode(m)}
-                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${config.wallpaper.mode === m
+                          className={`rounded-2xl px-3 py-3 text-sm font-semibold transition ${config.wallpaper.mode === m
                             ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/25'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                         >
-                          {m === 'bing' ? 'Bing 壁纸' : '默认背景'}
+                          {m === 'bing' ? 'Bing 壁纸' : m === 'custom' ? '自定义' : '默认背景'}
                         </button>
                       ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      Bing 壁纸每天换一张。选 Bing 或自定义时，图没下好前先显示默认背景，
+                      下好了自动换上。
                     </div>
                   </div>
 
-                  <div>
-                    <div className="mb-2 text-sm font-semibold text-slate-600">清晰度</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(['1080', 'uhd'] as WallpaperResolution[]).map((r) => (
+                  {/* 默认背景就是一段 CSS，交给用户自己改 */}
+                  {config.wallpaper.mode === 'default' && (
+                    <WallpaperCssEditor initial={config.wallpaper.css} onChange={setWallpaperCss} />
+                  )}
+
+                  {/* 自己传的图 */}
+                  <input
+                    ref={wallpaperFileRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/avif,image/bmp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      if (file) void pickWallpaperFile(file)
+                    }}
+                  />
+                  {config.wallpaper.mode === 'custom' && (
+                    <div>
+                      <div className="mb-2 text-sm font-semibold text-slate-600">我的壁纸</div>
+                      <div className="flex items-center gap-3 rounded-2xl bg-slate-100 p-3">
+                        {config.wallpaper.custom ? (
+                          <img
+                            src={`/${config.wallpaper.custom}`}
+                            alt=""
+                            className="h-16 w-28 shrink-0 rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-16 w-28 shrink-0 place-items-center rounded-xl bg-slate-200 text-slate-400">
+                            <ImageIcon className="h-6 w-6" />
+                          </div>
+                        )}
                         <button
-                          key={r}
                           type="button"
-                          onClick={() => setWallpaperResolution(r)}
-                          disabled={config.wallpaper.mode === 'default'}
-                          className={`rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45 ${config.wallpaper.resolution === r
-                            ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
+                          onClick={() => wallpaperFileRef.current?.click()}
+                          disabled={wallpaperUploading}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
                         >
-                          {r === '1080' ? '1080P' : '4K / UHD'}
+                          <Upload className="h-4 w-4" />
+                          {wallpaperUploading ? '上传中...' : '更换图片'}
                         </button>
-                      ))}
+                      </div>
+                      <div className="mt-2 text-xs text-slate-400">
+                        支持 jpg / png / webp / avif / bmp，单张不超过 20MB。只保留当前这一张。
+                      </div>
+                      {wallpaperErr && <div className="mt-2 text-xs text-rose-500">{wallpaperErr}</div>}
                     </div>
-                  </div>
+                  )}
+
+                  {config.wallpaper.mode === 'bing' && (
+                    <div>
+                      <div className="mb-2 text-sm font-semibold text-slate-600">清晰度</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['1080', 'uhd'] as WallpaperResolution[]).map((r) => (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => setWallpaperResolution(r)}
+                            className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${config.wallpaper.resolution === r
+                              ? 'bg-slate-800 text-white shadow-lg shadow-slate-800/20'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                          >
+                            {r === '1080' ? '1080P' : '4K / UHD'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <label className="block">
                     <div className="mb-2 flex items-center justify-between text-sm font-semibold text-slate-600">
@@ -2403,8 +2568,10 @@ function App() {
       <div className="fixed bottom-7 right-7 z-30 flex flex-col gap-3">
         <button
           type="button"
-          onClick={() => setAppForm({ open: true })}
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25"
+          onClick={() => {
+            if (requireLogin()) setAppForm({ open: true })
+          }}
+          className="wp-chip grid h-11 w-11 place-items-center rounded-full backdrop-blur-md"
           title="添加应用"
         >
           <Plus className="h-5 w-5" />
@@ -2412,22 +2579,25 @@ function App() {
         <button
           type="button"
           onClick={cycleNetworkPrefer}
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25"
+          className="wp-chip grid h-11 w-11 place-items-center rounded-full backdrop-blur-md"
           title={`当前: ${networkPreferLabel[networkPrefer]}, 点击切换`}
         >
           <HomeIcon className="h-5 w-5" />
         </button>
         <button
           type="button"
-          onClick={() => setShowSettings((v) => !v)}
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25"
+          onClick={() => {
+            // 没登录就别开面板了，面板里每一项都是写操作
+            if (showSettings || requireLogin()) setShowSettings((v) => !v)
+          }}
+          className="wp-chip grid h-11 w-11 place-items-center rounded-full backdrop-blur-md"
           title="Home 设置"
         >
           <Settings className="h-5 w-5" />
         </button>
         <a
           href="/linkstar/"
-          className="grid h-11 w-11 place-items-center rounded-full bg-white/15 text-white shadow-lg ring-1 ring-white/20 backdrop-blur-md transition hover:bg-white/25"
+          className="wp-chip grid h-11 w-11 place-items-center rounded-full backdrop-blur-md"
           title="打开后台"
         >
           <ExternalLink className="h-5 w-5" />

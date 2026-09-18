@@ -32,9 +32,15 @@ type Config struct {
 
 // 背景
 type Wallpaper struct {
-	Mode       string `json:"mode"`       // default / bing
-	Resolution string `json:"resolution"` // 1080 / uhd
+	Mode       string `json:"mode"`       // default / bing / custom
+	Resolution string `json:"resolution"` // 1080 / uhd，只对 bing 有意义
 	Blur       int    `json:"blur"`       // 0-12
+	// Custom 自己上传的壁纸，形如 data/wallpaper/xxx.jpg。
+	// 和 Mode 分开存：切到 bing 再切回来不用重新上传。
+	Custom string `json:"custom"`
+	// CSS 默认背景的样式，前端 .default-wallpaper 那条规则的大括号内容。
+	// 空 = 用内置的那套渐变。只有登录后才能改，前端拿它塞进一个 <style>。
+	CSS string `json:"css"`
 }
 
 // 搜索

@@ -13,3 +13,4 @@ bin/
 core/bin/
 *.exe
 *.syso
+*.exe~

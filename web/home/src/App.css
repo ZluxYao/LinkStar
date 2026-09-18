@@ -1,8 +1,130 @@
+/* 默认背景：纯 CSS，没有一次网络请求，第一帧就有画面。
+   Bing / 自定义壁纸都盖在它上面，它负责「永远不白屏」这件事。
+   淡色调，用多层径向渐变叠出来，比单条直线渐变有层次，放到 4K 也不糊。
+
+   ⚠️ 下面这几行还有一份拷贝在 App.tsx 的 defaultWallpaperCss，
+   用来给「背景样式」编辑框打底和恢复默认，改这边要同步改那边。
+   用户改过样式的话，App.tsx 会往 <head> 塞一条
+   .default-wallpaper.default-wallpaper{...}（类名写两遍，特异度更高）盖住这里。 */
 .default-wallpaper {
-  background:
-    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.35), transparent 28rem),
-    radial-gradient(circle at 80% 10%, rgba(14, 165, 233, 0.28), transparent 24rem),
-    linear-gradient(135deg, #0f172a 0%, #1e3a8a 48%, #0f766e 100%);
+  background-color: #eaf0fa;
+  background-image:
+    /* 顶上一片亮，把标题和搜索框托出来 */
+    radial-gradient(120% 78% at 50% -14%, rgba(255, 255, 255, 0.95), transparent 60%),
+    radial-gradient(58% 54% at 10% 16%, rgba(147, 197, 253, 0.52), transparent 66%),
+    radial-gradient(52% 48% at 88% 10%, rgba(165, 243, 252, 0.48), transparent 66%),
+    radial-gradient(56% 58% at 84% 88%, rgba(216, 191, 254, 0.46), transparent 66%),
+    radial-gradient(50% 52% at 12% 92%, rgba(167, 243, 208, 0.44), transparent 66%),
+    linear-gradient(168deg, #f8faff 0%, #e6edfb 42%, #eef3fb 72%, #f6f3fc 100%);
+}
+
+/* 大面积渐变在 8bit 屏上会出现一圈圈色阶，铺一层极淡的噪点把它打散。
+   SVG 噪声是内联的，不走网络；只画一次，不做动画。 */
+.default-wallpaper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.1;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* ============ 壁纸上的前景色 ============
+   默认背景是淡的，字和按钮得是深的；一旦盖上照片（Bing / 自定义），照片深浅
+   不定，还是白字加深描边最稳。所以 <main> 上挂 .home-shell，照片淡入时加
+   .on-photo，下面这些跟着照片同样的 700ms 一起换，不会「啪」地跳一下色。
+
+   注意：这些规则不在 @layer 里，而 Tailwind 的工具类在 layer 内，
+   所以同样特异度下这里胜出——不用写 !important。 */
+.home-shell {
+  color: #1e293b;
+  transition: color 700ms ease;
+}
+.home-shell.on-photo {
+  color: #fff;
+}
+
+/* 标题 / 时钟 */
+.wp-title {
+  text-shadow: 0 2px 10px rgba(255, 255, 255, 0.9);
+  transition: color 700ms ease, text-shadow 700ms ease;
+}
+.on-photo .wp-title {
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.65);
+}
+
+/* 图标下面的应用名 */
+.wp-label {
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
+  transition: color 700ms ease, text-shadow 700ms ease;
+}
+.on-photo .wp-label {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
+
+/* 分类小标题，比正文再淡一档 */
+.wp-section {
+  color: #475569;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85);
+  transition: color 700ms ease, text-shadow 700ms ease;
+}
+.on-photo .wp-section {
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+/* 右下角那排圆按钮、翻页条上的加号：白玻璃在淡背景上看不见，换成深玻璃 */
+.wp-chip {
+  background-color: rgba(15, 23, 42, 0.07);
+  color: #334155;
+  box-shadow:
+    inset 0 0 0 1px rgba(15, 23, 42, 0.1),
+    0 10px 15px -3px rgba(15, 23, 42, 0.12);
+  transition: background-color 200ms ease, color 700ms ease, box-shadow 700ms ease;
+}
+.wp-chip:hover {
+  background-color: rgba(15, 23, 42, 0.14);
+}
+.on-photo .wp-chip {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+    0 10px 15px -3px rgba(0, 0, 0, 0.25);
+}
+.on-photo .wp-chip:hover {
+  background-color: rgba(255, 255, 255, 0.25);
+}
+
+/* 翻页小圆点 */
+.wp-dot {
+  background-color: rgba(15, 23, 42, 0.28);
+  box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.12);
+  transition: all 300ms ease;
+}
+.wp-dot:hover,
+.wp-dot.is-active {
+  background-color: rgba(15, 23, 42, 0.62);
+}
+.on-photo .wp-dot {
+  background-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.25);
+}
+.on-photo .wp-dot:hover,
+.on-photo .wp-dot.is-active {
+  background-color: #fff;
+}
+
+/* 拖图标时高亮的那个空槽 */
+.wp-drop {
+  background-color: rgba(15, 23, 42, 0.06);
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.18);
+}
+.on-photo .wp-drop {
+  background-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.4);
 }
 
 @keyframes app-slide-in-from-right {

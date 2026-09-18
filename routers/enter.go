@@ -44,6 +44,8 @@ func Run(webFS fs.FS) {
 
 	// 用户上传的图标静态目录
 	r.Static("/data/icon", "data/icon")
+	// 用户上传的自定义壁纸
+	r.Static("/data/wallpaper", "data/wallpaper")
 
 	// 服务索引显式入口：/go/{服务名}/... → 307 到该服务当前的洞
 	PortalRouters(r)

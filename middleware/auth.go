@@ -21,20 +21,27 @@ func AuthMiddleware(c *gin.Context) {
 		return
 	}
 
-	// 桌面免登录通道：仅 wails webview 携带 secret，CLI 构建 secret 为空永不匹配
-	if secret := c.GetHeader(DesktopSecretHeader); secret != "" && auth.MatchDesktopSecret(secret) {
-		c.Next()
-		return
-	}
-
-	// token 校验：Authorization: Bearer <token>
-	if token := bearerToken(c); token != "" && auth.Runtime.ValidateToken(token) {
+	if IsAuthed(c) {
 		c.Next()
 		return
 	}
 
 	res.FailUnauthorized(c)
 	c.Abort()
+}
+
+// IsAuthed 这次请求有没有登录。和 AuthMiddleware 放行用的是同一套判断，
+// 公开接口（比如 auth/status）想知道当前是不是登录态时复用它，
+// 免得两边各写一份、改一处忘另一处。
+func IsAuthed(c *gin.Context) bool {
+	// 桌面免登录通道：仅 wails webview 携带 secret，CLI 构建 secret 为空永不匹配
+	if secret := c.GetHeader(DesktopSecretHeader); secret != "" && auth.MatchDesktopSecret(secret) {
+		return true
+	}
+
+	// token 校验：Authorization: Bearer <token>
+	token := bearerToken(c)
+	return token != "" && auth.Runtime.ValidateToken(token)
 }
 
 func bearerToken(c *gin.Context) string {

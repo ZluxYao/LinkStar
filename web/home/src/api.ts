@@ -35,6 +35,19 @@ interface ApiResponse<T> {
   msg: string
 }
 
+// 后台的登录 / 首次设置密码页面
+const LOGIN_URL = '/linkstar/'
+
+// 后端约定：HTTP 一律 200，登录态写在 body 的 code 里
+const CODE_UNAUTHORIZED = 401
+const CODE_NEED_INIT = 428
+
+/** 去登录。token 过期了就顺手清掉，不然回来还是拿着张废票 */
+export function gotoLogin() {
+  localStorage.removeItem(TOKEN_KEY)
+  window.location.href = LOGIN_URL
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (init?.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
@@ -48,6 +61,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, { ...init, headers })
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   const json = (await resp.json()) as ApiResponse<T>
+  // 主页是公开的，读不用登录，写要。写到一半发现没登录（或 token 过期了）
+  // 就直接去登录页，不要让用户对着一个「操作失败」猜发生了什么。
+  if (json.code === CODE_UNAUTHORIZED || json.code === CODE_NEED_INIT) {
+    gotoLogin()
+    throw new Error(json.msg || '未登录')
+  }
   if (json.code !== 0) throw new Error(json.msg || `code=${json.code}`)
   return json.data
 }
@@ -55,6 +74,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const get = <T,>(path: string) => request<T>(path)
 const send = <T,>(method: string, path: string, body?: unknown) =>
   request<T>(path, { method, body: body === undefined ? undefined : JSON.stringify(body) })
+
+// ============ 登录态 ============
+// authed 由后端按这次请求带的 token / 桌面 secret 判定，
+// 比前端只看 localStorage 里有没有 token 准——过期的 token 也是有。
+export interface AuthStatus {
+  initialized: boolean
+  authed: boolean
+}
+export const getAuthStatus = () => get<AuthStatus>('/auth/status')
 
 // ============ Home Config ============
 // 防御: Go 序列化空切片有时会变 null,这里统一兜底成空数组
@@ -69,6 +97,15 @@ export async function getConfig(): Promise<HomeConfig> {
 
 // ============ 主页装饰 ============
 export const updateWallpaper = (body: Wallpaper) => send<unknown>('PUT', '/home/wallpaper', body)
+
+// 上传自定义壁纸，返回相对路径如 data/wallpaper/xxx.jpg
+export async function uploadWallpaper(file: File): Promise<string> {
+  const form = new FormData()
+  form.append('file', file)
+  const data = await request<{ path: string }>('/home/wallpaper/upload', { method: 'POST', body: form })
+  return data.path
+}
+
 export const updateLayout = (layoutMode: LayoutMode) => send<unknown>('PUT', '/home/layout', { layoutMode })
 export const updateNetwork = (networkPrefer: NetworkPrefer) => send<unknown>('PUT', '/home/network', { networkPrefer })
 
