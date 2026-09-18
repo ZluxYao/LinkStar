@@ -78,6 +78,10 @@ async function request<T>(
 
 // ===================== Auth =====================
 
+// MIN_PASSWORD_LENGTH 和后端 auth.MinPasswordLength 保持一致。
+// 这里没有用户名，别人只能一串一串地试密码，长度就是唯一的门槛。
+export const MIN_PASSWORD_LENGTH = 8
+
 export const getAuthStatus = () =>
   request<{ initialized: boolean }>('/api/auth/status')
 
@@ -93,8 +97,9 @@ export const login = (password: string) =>
     body: JSON.stringify({ password }),
   })
 
+// 改完密码旧 token 全部作废，后端会回一个新的，记得存下来顶替旧的
 export const changePassword = (oldPassword: string, newPassword: string) =>
-  request<unknown>('/api/auth/password', {
+  request<{ token: string }>('/api/auth/password', {
     method: 'PUT',
     body: JSON.stringify({ oldPassword, newPassword }),
   })

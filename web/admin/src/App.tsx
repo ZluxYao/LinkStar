@@ -6,6 +6,7 @@ import { Ddns } from './pages/Ddns'
 import { Logs } from './pages/Logs'
 import { Placeholder } from './pages/Placeholder'
 import { ReverseProxy } from './pages/ReverseProxy'
+import { Settings } from './pages/Settings'
 import { Stun } from './pages/Stun'
 import { Login, Setup } from './pages/Auth'
 import { findNav } from './layout/nav'
@@ -76,6 +77,8 @@ function App() {
         return <Cert />
       case 'reverse-proxy':
         return <ReverseProxy />
+      case 'settings':
+        return <Settings />
       case 'logs':
         return <Logs />
       default: {

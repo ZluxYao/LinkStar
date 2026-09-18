@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { LockKeyhole, ShieldCheck } from 'lucide-react'
-import { login, setupPassword, setToken } from '../lib/api'
+import { MIN_PASSWORD_LENGTH, login, setupPassword, setToken } from '../lib/api'
 
 export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('')
@@ -49,8 +49,8 @@ export function Setup({ onSuccess }: { onSuccess: () => void }) {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (password.length < 6) {
-      setError('密码至少 6 位')
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`密码至少 ${MIN_PASSWORD_LENGTH} 位`)
       return
     }
     if (password !== confirm) {
@@ -77,7 +77,12 @@ export function Setup({ onSuccess }: { onSuccess: () => void }) {
       subtitle="首次使用，请设置管理员密码"
     >
       <form onSubmit={submit} className="space-y-4">
-        <PasswordField value={password} onChange={setPassword} placeholder="设置密码（至少 6 位）" autoFocus />
+        <PasswordField
+          value={password}
+          onChange={setPassword}
+          placeholder={`设置密码（至少 ${MIN_PASSWORD_LENGTH} 位）`}
+          autoFocus
+        />
         <PasswordField value={confirm} onChange={setConfirm} placeholder="确认密码" />
         {error && <p className="text-sm text-rose-500">{error}</p>}
         <SubmitButton loading={loading}>设置并进入</SubmitButton>

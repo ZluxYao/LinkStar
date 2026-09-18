@@ -14,10 +14,12 @@ type ChangePasswordRequest struct {
 	NewPassword string `json:"newPassword"`
 }
 
-// ChangePasswordView 受保护：校验旧密码后更新
+// ChangePasswordView 受保护：校验旧密码后更新。
+// 改完所有旧 token 都失效，所以这里回一个新 token 让当前页面接着用。
 func (AuthApi) ChangePasswordView(c *gin.Context) {
 	cr := middleware.GetBindRequest[ChangePasswordRequest](c)
-	if err := auth.Runtime.ChangePassword(cr.OldPassword, cr.NewPassword); err != nil {
+	token, err := auth.Runtime.ChangePassword(cr.OldPassword, cr.NewPassword)
+	if err != nil {
 		if errors.Is(err, auth.ErrPasswordBusy) {
 			res.FailTooManyRequests(c)
 			return
@@ -25,5 +27,5 @@ func (AuthApi) ChangePasswordView(c *gin.Context) {
 		res.FailWithMsg(err.Error(), c)
 		return
 	}
-	res.OkWithMsg("密码已更新", c)
+	res.Ok(gin.H{"token": token}, "密码已更新", c)
 }
