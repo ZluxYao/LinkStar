@@ -542,7 +542,7 @@ function SiteModal({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <div className={labelCls}>端口</div>
           <input
@@ -1021,7 +1021,8 @@ export function ReverseProxy() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* 手机上列太窄会把中文压成一列一个字，给张表一个下限，窄屏改成横向滚动 */}
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="bg-slate-50/60 text-xs text-slate-500">
                   <th className="px-5 py-2.5 text-left font-medium">域名</th>

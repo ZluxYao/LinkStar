@@ -141,7 +141,10 @@ export function Logs() {
         ) : (
           <ul className="divide-y divide-slate-100 border-t border-slate-100">
             {rows.map((r, i) => (
-              <li key={`${r.time}-${i}`} className="flex gap-3 px-5 py-2 hover:bg-slate-50/70">
+              <li
+                key={`${r.time}-${i}`}
+                className="flex flex-wrap items-start gap-x-3 gap-y-1 px-4 py-2 hover:bg-slate-50/70 sm:flex-nowrap sm:px-5"
+              >
                 <span className="shrink-0 pt-0.5 font-mono text-[11px] text-slate-400">{r.time || '—'}</span>
                 <span
                   className={`h-fit shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${
@@ -150,7 +153,8 @@ export function Logs() {
                 >
                   {r.level || 'log'}
                 </span>
-                <span className="min-w-0 flex-1">
+                {/* 手机上一行塞不下时间+级别+正文，正文就单独占一行，别被挤成一列一个字 */}
+                <span className="w-full min-w-0 sm:w-auto sm:flex-1">
                   <span className="block whitespace-pre-wrap break-all text-xs text-slate-700">{r.message}</span>
                   {r.caller && (
                     <span className="mt-0.5 block break-all font-mono text-[10px] text-slate-400">{r.caller}</span>

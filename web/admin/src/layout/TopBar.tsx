@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, HelpCircle, LogOut, Search } from 'lucide-react'
+import { Bell, HelpCircle, LogOut, Menu, Search } from 'lucide-react'
 import type { PageKey } from '../types'
 import { clearToken, isDesktop } from '../lib/api'
 import { findNav } from './nav'
 
 interface TopBarProps {
   active: PageKey
+  /** 窄屏上拉出侧边栏抽屉 */
+  onMenu: () => void
 }
 
 const pageMeta: Partial<Record<PageKey, { subtitle: string }>> = {
@@ -14,7 +16,7 @@ const pageMeta: Partial<Record<PageKey, { subtitle: string }>> = {
   ddns: { subtitle: '动态域名解析与多服务商同步' },
 }
 
-export function TopBar({ active }: TopBarProps) {
+export function TopBar({ active, onMenu }: TopBarProps) {
   const nav = findNav(active)
   const meta = pageMeta[active]
 
@@ -46,15 +48,28 @@ export function TopBar({ active }: TopBarProps) {
   }
 
   return (
-    <header className="flex h-16 items-center gap-4 border-b border-slate-200/70 bg-white/70 px-8 backdrop-blur">
-      <div className="flex-1">
-        <div className="text-base font-bold text-slate-800">{nav?.label ?? ''}</div>
+    <header className="flex h-16 items-center gap-2 border-b border-slate-200/70 bg-white/70 px-4 backdrop-blur sm:gap-4 sm:px-6 lg:px-8">
+      {/* 汉堡：只有窄屏才有，侧边栏这时候是抽屉 */}
+      <button
+        type="button"
+        onClick={onMenu}
+        title="菜单"
+        className="-ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 lg:hidden"
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-base font-bold text-slate-800">{nav?.label ?? ''}</div>
+        {/* 副标题在手机上占不下，藏起来 */}
         {meta?.subtitle && (
-          <div className="mt-0.5 text-xs text-slate-500">{meta.subtitle}</div>
+          <div className="mt-0.5 hidden truncate text-xs text-slate-500 sm:block">
+            {meta.subtitle}
+          </div>
         )}
       </div>
 
-      <div className="relative w-72">
+      <div className="relative hidden w-72 lg:block">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         <input
           placeholder="搜索设备、服务、域名..."
@@ -64,7 +79,7 @@ export function TopBar({ active }: TopBarProps) {
 
       <button
         type="button"
-        className="relative grid h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100"
+        className="relative hidden h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 sm:grid"
         title="通知"
       >
         <Bell className="h-4.5 w-4.5" />
@@ -74,7 +89,7 @@ export function TopBar({ active }: TopBarProps) {
       </button>
       <button
         type="button"
-        className="grid h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100"
+        className="hidden h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 sm:grid"
         title="帮助"
       >
         <HelpCircle className="h-4.5 w-4.5" />
@@ -86,14 +101,15 @@ export function TopBar({ active }: TopBarProps) {
           onClick={canLogout ? () => setMenuOpen((v) => !v) : undefined}
           aria-haspopup={canLogout || undefined}
           aria-expanded={canLogout ? menuOpen : undefined}
-          className={`flex items-center gap-2 rounded-full bg-white px-1 py-1 ring-1 transition ${
+          className={`flex shrink-0 items-center gap-2 rounded-full bg-white p-1 ring-1 transition ${
             menuOpen ? 'ring-slate-300 bg-slate-50' : 'ring-slate-200'
           } ${canLogout ? 'hover:bg-slate-50' : 'cursor-default'}`}
         >
           <span className="grid h-7 w-7 place-items-center rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-xs font-bold text-white">
             A
           </span>
-          <span className="pr-3 text-sm font-semibold text-slate-700">admin</span>
+          {/* 手机上只留头像，名字藏掉 */}
+          <span className="hidden pr-2 text-sm font-semibold text-slate-700 sm:inline">admin</span>
         </button>
 
         {menuOpen && (

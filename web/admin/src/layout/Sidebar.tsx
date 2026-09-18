@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import logo from '../assets/logo.png'
 import { navGroups } from './nav'
 import { getVersion } from '../lib/api'
@@ -7,9 +8,12 @@ import type { PageKey } from '../types'
 interface SidebarProps {
   active: PageKey
   onChange: (key: PageKey) => void
+  /** 窄屏抽屉是否拉出来了；lg 以上忽略 */
+  open: boolean
+  onClose: () => void
 }
 
-export function Sidebar({ active, onChange }: SidebarProps) {
+export function Sidebar({ active, onChange, open, onClose }: SidebarProps) {
   const [version, setVersion] = useState('0.5.4')
 
   useEffect(() => {
@@ -23,11 +27,23 @@ export function Sidebar({ active, onChange }: SidebarProps) {
   }, [])
 
   return (
-    <aside className="flex h-screen w-60 shrink-0 flex-col border-r border-slate-200/70 bg-white/80 backdrop-blur">
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-60 shrink-0 flex-col border-r border-slate-200/70 bg-white/95 backdrop-blur transition-transform duration-200 lg:static lg:z-auto lg:translate-x-0 lg:bg-white/80 ${
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+      }`}
+    >
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-5">
         <img src={logo} alt="LinkStar" className="h-9 w-9" />
         <span className="text-lg font-bold tracking-tight text-slate-800">linkstar</span>
+        <button
+          type="button"
+          onClick={onClose}
+          title="关闭菜单"
+          className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 lg:hidden"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-4">

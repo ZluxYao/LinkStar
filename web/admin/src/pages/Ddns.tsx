@@ -194,7 +194,7 @@ function ProviderModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑服务商' : '添加服务商'}</div>
           <button
@@ -376,7 +376,7 @@ function RecordModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-lg rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑解析记录' : '添加解析记录'}</div>
           <button
@@ -480,7 +480,7 @@ function RecordModal({
             />
           </label>
 
-          <div className="col-span-2 grid grid-cols-2 gap-2">
+          <div className="col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
               <input
                 type="checkbox"
@@ -567,7 +567,7 @@ function SettingsModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">DDNS 设置</div>
           <button
@@ -949,8 +949,9 @@ export function Ddns() {
           </button>
         </div>
 
+        {/* 手机上列太窄会把中文压成一列一个字，给张表一个下限，窄屏改成横向滚动 */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="bg-slate-50/60 text-xs text-slate-500">
                 <th className="px-5 py-2.5 text-left font-medium">域名</th>

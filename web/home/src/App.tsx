@@ -100,6 +100,25 @@ function groupByCategory(apps: AppView[], categories: Category[]) {
 
 /* ============ 基础组件 ============ */
 
+// 手机上一行摆不下 8 个图标。这里只改「排成几列」，pageSize 不动——
+// 应用的位置存的是 page*pageSize+slot，pageSize 一变，同一个应用在手机和
+// 电脑上就会落到不同的页和格子里，手机上拖一下会把电脑上的排列搅乱。
+// 所以每页还是 40 个格子，手机上排成 4 列 10 行，竖着滚。
+const narrowQuery = '(max-width: 639px)'
+const narrowCols = 4
+
+function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(narrowQuery).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(narrowQuery)
+    const onChange = () => setNarrow(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return narrow
+}
+
 function Clock({ showTime, title }: { showTime: boolean; title: string }) {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -110,8 +129,8 @@ function Clock({ showTime, title }: { showTime: boolean; title: string }) {
   const time = now.toLocaleTimeString('zh-CN', { hour12: false })
   const date = now.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'long' })
   return (
-    <div className="wp-title flex items-end justify-center gap-3">
-      <h1 className="text-5xl font-black tracking-tight">{title || 'LinkStar'}</h1>
+    <div className="wp-title flex items-end justify-center gap-2 sm:gap-3">
+      <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{title || 'LinkStar'}</h1>
       {showTime && (
         <div className="mb-1 text-left">
           <div className="text-2xl font-bold leading-none">{time}</div>
@@ -217,9 +236,9 @@ function AppIcon({
       onClick={handleClick}
       onContextMenu={(e) => onContextMenu(e, app)}
       style={onPointerDown ? { touchAction: 'none' } : undefined}
-      className={`group flex w-24 flex-col items-center gap-2 outline-none transition-opacity ${ghostClass}`}
+      className={`group flex w-18 flex-col items-center gap-2 outline-none transition-opacity sm:w-24 ${ghostClass}`}
     >
-      <div className="relative grid h-18 w-18 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl min-[2000px]:h-19 min-[2000px]:w-19">
+      <div className="relative grid h-16 w-16 place-items-center overflow-hidden rounded-2xl shadow-lg transition duration-200 group-hover:-translate-y-1 group-hover:scale-105 group-hover:shadow-2xl sm:h-18 sm:w-18 min-[2000px]:h-19 min-[2000px]:w-19">
         <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
         {app.online === true && (
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-emerald-400" />
@@ -228,7 +247,9 @@ function AppIcon({
           <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white bg-slate-400" />
         )}
       </div>
-      <span className="wp-label max-w-24 truncate text-sm font-medium">{app.name}</span>
+      <span className="wp-label max-w-18 truncate text-xs font-medium sm:max-w-24 sm:text-sm">
+        {app.name}
+      </span>
     </button>
   )
 }
@@ -236,6 +257,7 @@ function AppIcon({
 function PagedGrid({
   page,
   pageIndex,
+  cols,
   interactive,
   draggingAppId,
   hoverSlot,
@@ -247,6 +269,8 @@ function PagedGrid({
 }: {
   page: (AppView | null)[]
   pageIndex: number
+  /** 排成几列。格子编号（pagedOrder）跟这个无关，只影响怎么摆 */
+  cols: number
   interactive: boolean
   draggingAppId: string | null
   hoverSlot: number | null
@@ -256,15 +280,22 @@ function PagedGrid({
   onIconPointerDown?: (e: React.PointerEvent<HTMLButtonElement>, app: AppView) => void
   suppressClickRef?: { current: boolean }
 }) {
+  // 少于 8 列时（手机）一页 40 个格子要排 10 行，全画出来就是一大片空白加一根
+  // 没必要的滚动条。只画到最后一个有图标的那行，再多留一行当拖拽落点。
+  const lastUsed = page.reduce((m, slot, i) => (slot ? i : m), -1)
+  const shown =
+    cols >= pageCols
+      ? page
+      : page.slice(0, Math.min(page.length, (Math.floor(lastUsed / cols) + 2) * cols))
   return (
     <div
-      className="grid h-full w-full content-start justify-items-center gap-x-14 gap-y-6 px-2 pb-4 pt-4"
+      className="grid min-h-full w-full content-start justify-items-center gap-x-2 gap-y-5 px-1 pb-4 pt-4 sm:gap-x-14 sm:gap-y-6 sm:px-2"
       style={{
-        gridTemplateColumns: `repeat(${pageCols}, minmax(0, 1fr))`,
-        gridTemplateRows: `repeat(${pageRows}, minmax(0, auto))`,
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${Math.ceil(shown.length / cols)}, minmax(0, auto))`,
       }}
     >
-      {page.map((slot, slotIdx) => {
+      {shown.map((slot, slotIdx) => {
         const absPO = pageIndex * pageSize + slotIdx + 1
         const isHover =
           interactive && draggingAppId !== null && hoverSlot === absPO && slot?.id !== draggingAppId
@@ -282,7 +313,7 @@ function PagedGrid({
                 }
                 : undefined
             }
-            className={`flex h-24 w-full items-center justify-center rounded-2xl transition-colors duration-100 ${isHover ? 'wp-drop' : ''
+            className={`flex h-22 w-full items-center justify-center rounded-2xl transition-colors duration-100 sm:h-24 ${isHover ? 'wp-drop' : ''
               }`}
           >
             {slot ? (
@@ -528,7 +559,7 @@ function AppFormModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑应用' : '添加常用网站'}</div>
           <button
@@ -713,7 +744,7 @@ function SearchEngineFormModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-3xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑搜索引擎' : '添加搜索引擎'}</div>
           <button
@@ -940,8 +971,13 @@ function App() {
 
   const layoutMode = config?.layoutMode ?? 'paged-free'
   const isScrollMode = layoutMode === 'scroll'
-  const allowHorizontal = layoutMode === 'paged-horizontal' || layoutMode === 'paged-free'
-  const allowVertical = layoutMode === 'paged-vertical' || layoutMode === 'paged-free'
+  const narrow = useNarrow()
+  const gridCols = narrow ? narrowCols : pageCols
+  // 手机上一页有 10 行，装不下，得竖着滚；这时候上下划就不能再拿去翻页了，
+  // 本来只设了上下翻页的用户，在手机上改成左右翻。
+  const allowHorizontal =
+    layoutMode === 'paged-horizontal' || layoutMode === 'paged-free' || (narrow && layoutMode === 'paged-vertical')
+  const allowVertical = !narrow && (layoutMode === 'paged-vertical' || layoutMode === 'paged-free')
   const networkPrefer = config?.networkPrefer ?? 'wanV4'
 
   const sortedEngines = useMemo(
@@ -1709,12 +1745,12 @@ function App() {
       )}
       {photoLoaded && <div className="fixed inset-0 bg-black/10" />}
 
-      <section className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-12 min-[2000px]:pt-16">
+      <section className="relative mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-8 sm:px-6 sm:py-12 min-[2000px]:pt-16">
         <Clock showTime={config.showTime} title={config.title} />
 
         {/* 搜索框 */}
         <div
-          className="relative mx-auto mt-10 h-16 w-full max-w-3xl cursor-text rounded-[1.75rem] bg-white px-5 text-slate-700 shadow-2xl"
+          className="relative mx-auto mt-6 h-14 w-full max-w-3xl cursor-text rounded-[1.75rem] bg-white px-4 text-slate-700 shadow-2xl sm:mt-10 sm:h-16 sm:px-5"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
               event.preventDefault()
@@ -1783,10 +1819,11 @@ function App() {
 
           {showEngines && (
             <div
-              className="absolute left-0 right-0 top-[4.75rem] z-40 rounded-[2rem] bg-white px-8 py-7 shadow-2xl ring-1 ring-slate-200"
+              className="absolute left-0 right-0 top-[4.75rem] z-40 rounded-[2rem] bg-white px-5 py-6 shadow-2xl ring-1 ring-slate-200 sm:px-8 sm:py-7"
               onMouseDown={(e) => e.preventDefault()}
             >
-              <div className="grid grid-cols-4 gap-x-5 gap-y-5 md:grid-cols-6 lg:grid-cols-8">
+              {/* 图标本身是 w-16 定宽，手机上 4 列放不下 gap-5，会顶出右边 */}
+              <div className="grid grid-cols-4 justify-items-center gap-x-3 gap-y-5 sm:gap-x-5 md:grid-cols-6 lg:grid-cols-8">
                 {sortedEngines.map((item) => (
                   <SearchEngineIcon
                     key={item.id}
@@ -1816,7 +1853,7 @@ function App() {
           )}
 
           {showHistory && config.searchHistory.length > 0 && (
-            <div className="absolute left-8 right-8 top-24 z-30 overflow-hidden rounded-2xl bg-white p-2 shadow-xl ring-1 ring-slate-200">
+            <div className="absolute left-4 right-4 top-[4.75rem] z-30 overflow-hidden rounded-2xl bg-white p-2 shadow-xl ring-1 ring-slate-200 sm:left-8 sm:right-8 sm:top-24">
               <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
                 <span>历史搜索</span>
                 <button
@@ -1862,7 +1899,7 @@ function App() {
                   <h3 className="wp-section mb-4 px-2 text-sm font-semibold uppercase tracking-wider">
                     {category.name}
                   </h3>
-                  <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
+                  <div className="grid min-h-[5rem] grid-cols-4 content-start justify-items-center gap-x-3 gap-y-8 px-2 sm:grid-cols-6 lg:grid-cols-8">
                     {apps.map((app) => (
                       <AppIcon
                         key={app.id}
@@ -1892,7 +1929,7 @@ function App() {
                 <h3 className="wp-section mb-4 px-2 text-sm font-semibold uppercase tracking-wider">
                   未分类
                 </h3>
-                <div className="grid min-h-[5rem] grid-cols-8 content-start justify-items-center gap-x-3 gap-y-8 px-2">
+                <div className="grid min-h-[5rem] grid-cols-4 content-start justify-items-center gap-x-3 gap-y-8 px-2 sm:grid-cols-6 lg:grid-cols-8">
                   {grouped.uncategorized.map((app) => (
                     <AppIcon
                       key={app.id}
@@ -1920,7 +1957,7 @@ function App() {
       {/* 翻页模式应用层 */}
       {!isScrollMode && (
         <div
-          className="fixed inset-x-0 top-[14rem] bottom-24 z-20 min-[2000px]:top-[19rem]"
+          className="fixed inset-x-0 top-[10.5rem] bottom-24 z-20 sm:top-[14rem] min-[2000px]:top-[19rem]"
           onContextMenu={(e) => {
             e.preventDefault()
             const page = appPages[appPage] ?? []
@@ -1929,15 +1966,16 @@ function App() {
             setContextMenu({ kind: 'add', x: e.clientX, y: e.clientY, pagedOrder })
           }}
         >
-          <div ref={appsPagerRef} className="relative mx-auto h-full w-full max-w-5xl select-none overflow-hidden px-6">
+          <div ref={appsPagerRef} className="relative mx-auto h-full w-full max-w-5xl select-none overflow-hidden px-3 sm:px-6">
             {appSlide && (
               <div
                 key={`out-${appSlide.from}-${appSlide.axis}-${appSlide.dir}`}
-                className={`absolute inset-x-6 inset-y-0 ${getSlideOutClass(appSlide.axis, appSlide.dir)}`}
+                className={`absolute inset-x-3 inset-y-0 overflow-y-auto overscroll-contain sm:inset-x-6 sm:overflow-visible ${getSlideOutClass(appSlide.axis, appSlide.dir)}`}
               >
                 <PagedGrid
                   page={appPages[appSlide.from] ?? []}
                   pageIndex={appSlide.from}
+                  cols={gridCols}
                   interactive={false}
                   draggingAppId={null}
                   hoverSlot={null}
@@ -1952,11 +1990,12 @@ function App() {
             )}
             <div
               key={`in-${appPage}-${appSlide?.axis ?? 'static'}-${appSlide?.dir ?? 0}`}
-              className={`absolute inset-x-6 inset-y-0 ${appSlide ? getSlideInClass(appSlide.axis, appSlide.dir) : ''}`}
+              className={`absolute inset-x-3 inset-y-0 overflow-y-auto overscroll-contain sm:inset-x-6 sm:overflow-visible ${appSlide ? getSlideInClass(appSlide.axis, appSlide.dir) : ''}`}
             >
               <PagedGrid
                 page={appPages[appPage] ?? []}
                 pageIndex={appPage}
+                cols={gridCols}
                 interactive={!appSlide}
                 draggingAppId={pagedDragSource?.id ?? null}
                 hoverSlot={pagedHoverSlot}
@@ -1987,22 +2026,25 @@ function App() {
             className="pointer-events-none fixed left-0 top-0 z-50 will-change-transform"
           >
             <div
-              className="flex w-24 flex-col items-center gap-2"
+              className="flex w-18 flex-col items-center gap-2 sm:w-24"
               style={{ transform: 'translate(-50%, -50%) scale(1.12)', transformOrigin: 'center' }}
             >
-              <div className="relative grid h-17 w-17 place-items-center overflow-hidden rounded-2xl shadow-2xl min-[2000px]:h-18 min-[2000px]:w-18">
+              <div className="relative grid h-15 w-15 place-items-center overflow-hidden rounded-2xl shadow-2xl sm:h-17 sm:w-17 min-[2000px]:h-18 min-[2000px]:w-18">
                 <IconPreview icon={app.icon} fallback={app.name} color={app.color} className="h-full w-full" />
               </div>
-              <span className="wp-label max-w-24 truncate text-sm font-medium">{app.name}</span>
+              <span className="wp-label max-w-18 truncate text-xs font-medium sm:max-w-24 sm:text-sm">
+                {app.name}
+              </span>
             </div>
           </div>
         )
       })()}
 
-      {/* 翻页指示器 */}
+      {/* 翻页指示器。手机上一律左右翻页，点点就摆下面一横排——
+          竖排贴在左边会压住第一列图标 */}
       {!isScrollMode &&
-        (layoutMode === 'paged-horizontal' ? (
-          <div className="fixed bottom-7 left-1/2 z-30 flex -translate-x-1/2 flex-row items-center gap-2.5">
+        (layoutMode === 'paged-horizontal' || narrow ? (
+          <div className="fixed bottom-[4.5rem] left-1/2 z-30 flex -translate-x-1/2 flex-row items-center gap-2.5 sm:bottom-7">
             {appPages.map((_, index) => {
               const active = index === appPage
               return (
@@ -2055,7 +2097,12 @@ function App() {
       {contextMenu && (
         <div
           className="fixed z-50 min-w-32 overflow-hidden rounded-xl bg-white text-sm text-slate-700 shadow-2xl ring-1 ring-slate-200"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          /* 手机屏窄，长按最右边那列图标时菜单会整个跑到屏幕外，按坐标夹一下。
+             菜单最多两行，宽度就是 min-w-32 那点 */
+          style={{
+            left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 136)),
+            top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 88)),
+          }}
           onClick={(e) => e.stopPropagation()}
         >
           {contextMenu.kind === 'app' ? (
@@ -2113,9 +2160,10 @@ function App() {
             if (e.target === e.currentTarget) setShowSettings(false)
           }}
         >
-          <div className="flex h-[32rem] w-full max-w-3xl overflow-hidden rounded-3xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200 min-[2000px]:h-[44rem] min-[2000px]:max-w-5xl min-[2000px]:text-lg">
-            <aside className="flex w-48 shrink-0 flex-col gap-1 border-r border-slate-100 bg-slate-50/80 p-4 min-[2000px]:w-64 min-[2000px]:p-5">
-              <div className="mb-3 px-2 text-base font-bold text-slate-800 min-[2000px]:text-lg">Home 设置</div>
+          {/* 手机上左边那条 192px 的侧栏会把右边挤成一列一个字，改成顶上一排横着的标签 */}
+          <div className="flex h-[32rem] max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white text-slate-700 shadow-2xl ring-1 ring-slate-200 sm:flex-row min-[2000px]:h-[44rem] min-[2000px]:max-w-5xl min-[2000px]:text-lg">
+            <aside className="flex shrink-0 flex-row gap-1 overflow-x-auto border-b border-slate-100 bg-slate-50/80 p-3 sm:w-48 sm:flex-col sm:border-b-0 sm:border-r sm:p-4 min-[2000px]:w-64 min-[2000px]:p-5">
+              <div className="mb-3 hidden px-2 text-base font-bold text-slate-800 sm:block min-[2000px]:text-lg">Home 设置</div>
               {(
                 [
                   { id: 'appearance' as const, name: '外观', icon: ImageIcon },
@@ -2131,7 +2179,7 @@ function App() {
                     key={tab.id}
                     type="button"
                     onClick={() => setSettingsTab(tab.id)}
-                    className={`flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition min-[2000px]:gap-3 min-[2000px]:px-4 min-[2000px]:py-2.5 min-[2000px]:text-base ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
+                    className={`flex shrink-0 items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition min-[2000px]:gap-3 min-[2000px]:px-4 min-[2000px]:py-2.5 min-[2000px]:text-base ${active ? 'bg-blue-500 text-white shadow-md shadow-blue-500/20' : 'text-slate-600 hover:bg-slate-200/60'
                       }`}
                   >
                     <Icon className="h-4 w-4 min-[2000px]:h-5 min-[2000px]:w-5" />
@@ -2141,7 +2189,7 @@ function App() {
               })}
             </aside>
 
-            <div className="relative flex-1 overflow-y-auto p-6">
+            <div className="relative flex-1 overflow-y-auto p-4 sm:p-6">
               <button
                 type="button"
                 onClick={() => setShowSettings(false)}
@@ -2496,7 +2544,9 @@ function App() {
                         return (
                           <div
                             key={item.id}
-                            className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2"
+                            /* 手机上一行放不下「图标+名字+网址+三个按钮」，网址会被挤成十来个像素。
+                               让按钮那组整体换到第二行，名字和网址留够宽度 */
+                            className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-slate-50 px-3 py-2"
                           >
                             <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200 min-[2000px]:h-12 min-[2000px]:w-12">
                               {item.icon ? (
@@ -2507,36 +2557,38 @@ function App() {
                                 </div>
                               )}
                             </div>
-                            <div className="min-w-0 flex-1">
+                            <div className="min-w-0 flex-1 basis-40">
                               <div className="truncate text-sm font-semibold text-slate-700">{item.name}</div>
                               <div className="truncate text-xs text-slate-400">{item.url}</div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => setDefaultEngine(item.id)}
-                              className={`rounded-md px-2 py-1 text-xs font-medium transition ${isDefault
-                                ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/20'
-                                : 'text-slate-500 hover:bg-slate-200'
-                                }`}
-                            >
-                              {isDefault ? '默认' : '设为默认'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEngineForm({ open: true, initial: item })}
-                              className="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
-                              title="编辑"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeEngine(item.id)}
-                              className="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition hover:bg-rose-100 hover:text-rose-600"
-                              title="删除"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="ml-auto flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setDefaultEngine(item.id)}
+                                className={`rounded-md px-2 py-1 text-xs font-medium transition ${isDefault
+                                  ? 'bg-blue-500 text-white shadow-sm shadow-blue-500/20'
+                                  : 'text-slate-500 hover:bg-slate-200'
+                                  }`}
+                              >
+                                {isDefault ? '默认' : '设为默认'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEngineForm({ open: true, initial: item })}
+                                className="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+                                title="编辑"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => removeEngine(item.id)}
+                                className="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition hover:bg-rose-100 hover:text-rose-600"
+                                title="删除"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         )
                       })}
@@ -2565,7 +2617,8 @@ function App() {
       )}
 
       {/* 右下浮动按钮组 */}
-      <div className="fixed bottom-7 right-7 z-30 flex flex-col gap-3">
+      {/* 手机上竖着贴右边会压住最右那列图标，改成底部一横排 */}
+      <div className="fixed bottom-5 left-1/2 z-30 flex -translate-x-1/2 flex-row gap-3 sm:bottom-7 sm:left-auto sm:right-7 sm:translate-x-0 sm:flex-col">
         <button
           type="button"
           onClick={() => {

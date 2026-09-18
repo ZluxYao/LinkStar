@@ -108,7 +108,7 @@ function DeviceModal({
         if (e.target === e.currentTarget) onCancel()
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+      <div className="max-h-full w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
         <div className="mb-5 flex items-center justify-between">
           <div className="text-base font-bold text-slate-800">{initial ? '编辑设备' : '添加设备'}</div>
           <button

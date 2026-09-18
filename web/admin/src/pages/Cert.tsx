@@ -435,7 +435,7 @@ function CertModal({
                 )}
               </label>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="block">
                   <div className={labelText}>联系邮箱（可选）</div>
                   <input
@@ -862,8 +862,9 @@ export function Cert() {
           />
         </div>
 
+        {/* 手机上列太窄会把中文压成一列一个字，给张表一个下限，窄屏改成横向滚动 */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[820px] text-sm">
             <thead>
               <tr className="bg-slate-50/60 text-xs text-slate-500">
                 <th className="px-5 py-2.5 text-left font-medium">名称</th>
