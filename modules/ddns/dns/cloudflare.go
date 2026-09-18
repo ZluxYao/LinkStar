@@ -19,6 +19,9 @@ type Cloudflare struct {
 	httpClient *http.Client
 }
 
+// Cloudflare 支持 ACME DNS-01
+var _ ACMEDNSProvider = (*Cloudflare)(nil)
+
 // CloudflareRecordsResp records
 type CloudflareRecordsResp struct {
 	CloudflareStatus
@@ -168,6 +171,118 @@ func (cf *Cloudflare) modify(record CloudflareRecord, zoneID string, ipAddr stri
 		return fmt.Errorf("更新记录返回失败：%v", Status.Messages)
 	}
 	return nil
+}
+
+// cloudflareTXTRecord TXT 记录的创建载荷。
+// 刻意不复用 CloudflareRecord：它带 proxied 字段，而 TXT 不可代理，
+// Cloudflare 对 TXT 记录带 proxied 会报错。
+type cloudflareTXTRecord struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	TTL     int    `json:"ttl"`
+	Comment string `json:"comment,omitempty"`
+}
+
+// acmeTXTTTL ACME 挑战记录用最短 TTL，缩短传播与清理时间
+const acmeTXTTTL = 60
+
+// AddTXTRecord 追加一条 TXT 记录（ACME DNS-01 用）。
+//
+// 注意这里是无条件 create，不做「查到就改」——同一个 _acme-challenge 名下
+// 可能需要并存多条挑战值（如 example.com 与 *.example.com 同单签发）。
+func (cf *Cloudflare) AddTXTRecord(domain string, fqdn string, value string) error {
+	zoneID, err := cf.zoneID(domain)
+	if err != nil {
+		return err
+	}
+
+	record := cloudflareTXTRecord{
+		Name:    fqdn,
+		Type:    "TXT",
+		Content: value,
+		TTL:     acmeTXTTTL,
+		Comment: "LinkStar ACME challenge",
+	}
+
+	var status CloudflareStatus
+	err = cf.request(
+		"POST",
+		fmt.Sprintf(zonesAPI+"/%s/dns_records", zoneID),
+		record,
+		&status,
+	)
+	if err != nil {
+		return fmt.Errorf("新建 TXT 记录失败: %w", err)
+	}
+	if !status.Success {
+		return fmt.Errorf("新建 TXT 记录返回失败: %v", status.Messages)
+	}
+	return nil
+}
+
+// RemoveTXTRecord 按 name + content 精确删除 TXT 记录。
+// 按值匹配是为了不误删同名下另一条仍在验证中的挑战记录。
+func (cf *Cloudflare) RemoveTXTRecord(domain string, fqdn string, value string) error {
+	zoneID, err := cf.zoneID(domain)
+	if err != nil {
+		return err
+	}
+
+	params := url.Values{}
+	params.Set("type", "TXT")
+	params.Set("name", fqdn)
+	params.Set("content", value)
+	params.Set("per_page", "50")
+
+	var records CloudflareRecordsResp
+	err = cf.request(
+		"GET",
+		fmt.Sprintf(zonesAPI+"/%s/dns_records?%s", zoneID, params.Encode()),
+		nil,
+		&records,
+	)
+	if err != nil {
+		return fmt.Errorf("查询 TXT 记录失败: %w", err)
+	}
+	if !records.Success {
+		return fmt.Errorf("查询 TXT 记录返回失败: %v", records.Messages)
+	}
+
+	for _, rec := range records.Result {
+		// 服务端过滤之外再自查一遍，避免误删
+		if rec.Content != value {
+			continue
+		}
+		var status CloudflareStatus
+		if err := cf.request(
+			"DELETE",
+			fmt.Sprintf(zonesAPI+"/%s/dns_records/%s", zoneID, rec.ID),
+			nil,
+			&status,
+		); err != nil {
+			return fmt.Errorf("删除 TXT 记录失败: %w", err)
+		}
+		if !status.Success {
+			return fmt.Errorf("删除 TXT 记录返回失败: %v", status.Messages)
+		}
+	}
+	return nil
+}
+
+// zoneID 查出主域名对应的 zone ID
+func (cf *Cloudflare) zoneID(domain string) (string, error) {
+	zones, err := cf.getZones(domain)
+	if err != nil {
+		return "", fmt.Errorf("查询 zone 失败: %w", err)
+	}
+	if !zones.Success {
+		return "", fmt.Errorf("查询 zone 返回失败: %v", zones.Messages)
+	}
+	if len(zones.Result) == 0 {
+		return "", fmt.Errorf("未找到域名 %s 对应的 zone", domain)
+	}
+	return zones.Result[0].ID, nil
 }
 
 // 获取域名 zone 信息

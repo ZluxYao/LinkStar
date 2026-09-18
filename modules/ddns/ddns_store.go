@@ -20,6 +20,18 @@ func (r *DDNSRuntime) Snapshot() model.DDNSConfig {
 	return cfg
 }
 
+// FindProvider 按 ID 取一份服务商配置的拷贝
+func (r *DDNSRuntime) FindProvider(id uint) (model.DDNSProvider, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, p := range r.Config.Providers {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return model.DDNSProvider{}, false
+}
+
 // Update 在写锁内执行 mutator 并持久化，mutator 返回错误时不落盘
 func (r *DDNSRuntime) Update(fn func(cfg *model.DDNSConfig) error) error {
 	r.mu.Lock()

@@ -22,6 +22,12 @@ type StunServiceAddViewRequest struct {
 	UseUPnP        bool   `json:"useUpnp"`        // 是否启用 UPnP 自动端口映射 (默认 true)
 	UPnPMappedPort uint16 `json:"upnpMappedPort"` // UPnP 实际映射成功的端口号
 
+	// 对外访问
+	Domain       string `json:"domain"`       // 对外域名，如 fw.example.com；留空回落公网 IP
+	TLSTerminate bool   `json:"tlsTerminate"` // 由 LinkStar 在洞口终结 TLS（仅 TCP）
+	CertID       uint   `json:"certId"`       // 绑定证书 ID，0 表示按 SNI 自动匹配
+	BackendHTTPS bool   `json:"backendHttps"` // 转发给内网时也用 HTTPS（tls.Dial），仅在 TLSTerminate 时成立
+
 	Enabled     bool   `json:"enabled"`     // 服务是否启用 (默认 true)
 	Description string `json:"description"` // 服务描述信息 (可选)
 
@@ -53,6 +59,8 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 	}
 
 	// 构建新服务
+	domain, tlsTerminate, certID := normalizeTLSFields(cr.Protocol, cr.Domain, cr.TLSTerminate, cr.CertID)
+	domain = fillDomainFromCert(domain, tlsTerminate, certID)
 	newService := model.Service{
 		ID:             maxID + 1,
 		Name:           cr.Name,
@@ -61,6 +69,10 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 		Https:          cr.Https,
 		UseUPnP:        cr.UseUPnP,
 		UPnPMappedPort: cr.UPnPMappedPort,
+		Domain:         domain,
+		TLSTerminate:   tlsTerminate,
+		CertID:         certID,
+		BackendHTTPS:   normalizeBackendHTTPS(cr.Protocol, cr.BackendHTTPS, tlsTerminate),
 		Enabled:        cr.Enabled,
 		Description:    cr.Description,
 		WebHookConfig:  cr.WebHookConfig,

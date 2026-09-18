@@ -51,3 +51,51 @@ func BuildClient(p model.DDNSProvider) DNSProvider {
 		return nil
 	}
 }
+
+// BuildACMEClient 构建支持 ACME DNS-01 的客户端。
+// 服务商未实现 ACMEDNSProvider 时返回 nil，调用方据此提示用户改用其他方式。
+func BuildACMEClient(p model.DDNSProvider) ACMEDNSProvider {
+	c := BuildClient(p)
+	if c == nil {
+		return nil
+	}
+	acmeClient, ok := c.(ACMEDNSProvider)
+	if !ok {
+		return nil
+	}
+	return acmeClient
+}
+
+// SupportsACMEDNS 该服务商类型是否支持 DNS-01（给前端做能力展示用）
+func SupportsACMEDNS(t model.DNSProviderType) bool {
+	switch t {
+	case model.DNSProviderCloudflare:
+		return true
+	default:
+		return false
+	}
+}
+
+// BuildRedirectClient 构建支持入口重定向规则同步的客户端。
+// 服务商未实现 RedirectRuleProvider 时返回 nil，调用方据此提示用户换服务商。
+func BuildRedirectClient(p model.DDNSProvider) RedirectRuleProvider {
+	c := BuildClient(p)
+	if c == nil {
+		return nil
+	}
+	redirectClient, ok := c.(RedirectRuleProvider)
+	if !ok {
+		return nil
+	}
+	return redirectClient
+}
+
+// SupportsRedirectRule 该服务商类型是否支持入口重定向（给前端做能力展示用）
+func SupportsRedirectRule(t model.DNSProviderType) bool {
+	switch t {
+	case model.DNSProviderCloudflare:
+		return true
+	default:
+		return false
+	}
+}

@@ -3,7 +3,6 @@ package home
 import (
 	"fmt"
 	"linkstar/modules/stun"
-	stunModel "linkstar/modules/stun/model"
 )
 
 // AppView 给前端的统一视图,屏蔽 stun/static 来源差异
@@ -65,71 +64,26 @@ func stunAddresses(app App) (AppAddresses, *bool) {
 	var addrs AppAddresses
 	var online *bool
 
-	device, service := findStunDeviceService(app.StunDeviceID, app.StunServiceID)
+	device, service := stun.FindDeviceService(app.StunDeviceID, app.StunServiceID)
 	if device == nil || service == nil {
 		// stun 那边已经没了但 hook 还没跑到（极少数情况）
 		falseVal := false
 		return addrs, &falseVal
 	}
 
-	scheme := "http://"
-	if service.Https {
-		scheme = "https://"
-	}
-
-	// LAN: 设备内网 IP + 内网端口
+	// LAN: 设备内网 IP + 内网端口。内网是直连，协议只取决于服务本身，
+	// 与洞口是否终结 TLS 无关，所以这里和 WAN 的 scheme 会不一样。
 	if device.IP != "" && service.InternalPort != 0 {
-		addrs.LAN = fmt.Sprintf("%s%s:%d", scheme, device.IP, service.InternalPort)
+		addrs.LAN = fmt.Sprintf("%s://%s:%d", stun.InternalScheme(service), device.IP, service.InternalPort)
 	}
 
-	// WANv4: 公网 IPv4 + 外部端口
-	publicIP := stun.Runtime.Network.PublicIP
-	externalPort := externalPortFromScheduler(app.StunDeviceID, app.StunServiceID)
-	if externalPort == 0 {
-		externalPort = service.UPnPMappedPort
-	}
-	if publicIP != "" && externalPort != 0 {
-		addrs.WANv4 = fmt.Sprintf("%s%s:%d", scheme, publicIP, externalPort)
-	}
+	// WANv4: 服务域名（留空回落公网 IP）+ 实时外部端口
+	addrs.WANv4 = stun.ServiceEndpoint(app.StunDeviceID, service).URL()
 
 	// 在线状态：以 scheduler 当前阶段为准
-	if stun.Runtime.Scheduler != nil {
-		if ev, ok := stun.Runtime.Scheduler.Get(app.StunDeviceID, app.StunServiceID); ok {
-			alive := ev.Phase == stun.PhaseRunning
-			online = &alive
-		} else {
-			falseVal := false
-			online = &falseVal
-		}
+	if alive, known := stun.ServiceOnline(app.StunDeviceID, app.StunServiceID); known {
+		online = &alive
 	}
 
 	return addrs, online
-}
-
-func findStunDeviceService(deviceID, serviceID uint) (*stunModel.Device, *stunModel.Service) {
-	for i := range stun.Runtime.Config.Devices {
-		device := &stun.Runtime.Config.Devices[i]
-		if device.DeviceID != deviceID {
-			continue
-		}
-		for j := range device.Services {
-			svc := &device.Services[j]
-			if svc.ID == serviceID {
-				return device, svc
-			}
-		}
-		return device, nil
-	}
-	return nil, nil
-}
-
-func externalPortFromScheduler(deviceID, serviceID uint) uint16 {
-	if stun.Runtime.Scheduler == nil {
-		return 0
-	}
-	ev, ok := stun.Runtime.Scheduler.Get(deviceID, serviceID)
-	if !ok {
-		return 0
-	}
-	return ev.ExternalPort
 }

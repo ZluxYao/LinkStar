@@ -7,6 +7,7 @@ import (
 	"linkstar/modules/webhook"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,6 +81,8 @@ type serviceEntry struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
+	deviceID    uint   // 所属设备 ID
+	serviceID   uint   // 服务 ID
 	deviceName  string // 设备名
 	serviceName string // 服务名
 
@@ -95,10 +98,12 @@ type serviceEntry struct {
 }
 
 // newServiceEntry 创建服务实例
-func newServiceEntry(cancel context.CancelFunc, deviceName, serviceName string) *serviceEntry {
+func newServiceEntry(cancel context.CancelFunc, deviceID, serviceID uint, deviceName, serviceName string) *serviceEntry {
 	return &serviceEntry{
 		cancel:      cancel,
 		done:        make(chan struct{}),
+		deviceID:    deviceID,
+		serviceID:   serviceID,
 		deviceName:  deviceName,
 		serviceName: serviceName,
 		phase:       PhaseProbing,
@@ -378,7 +383,7 @@ func (s *Scheduler) StartService(device *model.Device, service *model.Service) {
 
 	// 重建服务
 	ctx, cancel := context.WithCancel(context.Background())
-	entry := newServiceEntry(cancel, device.Name, service.Name)
+	entry := newServiceEntry(cancel, device.DeviceID, service.ID, device.Name, service.Name)
 
 	// 二次检查：waitEntry 期间另一方可能已注册了相同 key
 	s.mu.Lock()
@@ -557,6 +562,11 @@ func buildSTUNRequest(device *model.Device, service *model.Service) STUNRequest 
 		Protocol:      service.Protocol,
 		UseUPnP:       service.UseUPnP,
 		WebhookConfig: service.WebHookConfig,
+
+		// UDP 洞口不支持终结 TLS（那是 DTLS，另一回事）
+		TLSTerminate: service.TLSTerminate && !strings.EqualFold(service.Protocol, "udp"),
+		CertID:       service.CertID,
+		BackendHTTPS: service.BackendHTTPS,
 	}
 }
 

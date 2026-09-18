@@ -12,8 +12,11 @@ import (
 
 	"linkstar/core"
 	"linkstar/modules/auth"
+	"linkstar/modules/cert"
 	"linkstar/modules/ddns"
+	"linkstar/modules/ddns/dns"
 	"linkstar/modules/home"
+	"linkstar/modules/proxy"
 	"linkstar/modules/stun"
 	"linkstar/modules/webhook"
 	"linkstar/routers"
@@ -101,6 +104,8 @@ func isLinkStarBackendReady() bool {
 
 // startModulesInBackground 后台并发初始化各业务模块，互不阻塞。
 func startModulesInBackground() {
+	registerCertDNSSolver()
+
 	initModule := func(name string, fn func() error) {
 		go func() {
 			logrus.Infof("%s 模块开始初始化", name)
@@ -115,6 +120,30 @@ func startModulesInBackground() {
 	initModule("Auth", auth.InitAuth)
 	initModule("Home", home.InitHome)
 	initModule("Webhook", webhook.InitWebhook)
+	// Cert 排在 STUN 前面：洞口终结 TLS 时要用它的证书
+	initModule("Cert", cert.InitCert)
 	initModule("STUN", stun.InitSTUN)
 	initModule("DDNS", ddns.DDNSInit)
+	initModule("Proxy", proxy.InitProxy)
+}
+
+// registerCertDNSSolver 把 DDNS 的 TXT 写入能力注入证书模块。
+//
+// modules/ddns 已经 import 了 modules/stun，而 stun 要 import cert，
+// 所以 cert 必须是叶子包、不能直接 import ddns。cert 只定义一个窄接口，
+// 由这里（同时能看见两边）在启动时注入实现，依赖图保持无环。
+//
+// 工厂体内部到真正签发时才会调用 ddns，所以此处同步注册不依赖 DDNS 已初始化。
+func registerCertDNSSolver() {
+	cert.RegisterDNSSolverFactory(func(id uint) (cert.TXTWriter, error) {
+		p, ok := ddns.Runtime.FindProvider(id)
+		if !ok {
+			return nil, fmt.Errorf("DNS 服务商 %d 不存在，请先在 DDNS 里配置", id)
+		}
+		w := dns.BuildACMEClient(p)
+		if w == nil {
+			return nil, fmt.Errorf("服务商 %s 暂不支持 DNS-01", p.Type)
+		}
+		return w, nil
+	})
 }

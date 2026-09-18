@@ -17,13 +17,16 @@ import {
   RotateCw,
   Server,
   Send,
+  ShieldCheck,
   Trash2,
+  TriangleAlert,
   Wifi,
   X,
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import * as api from '../lib/api'
 import type {
+  Certificate,
   NatDetectResult,
   NatTypeInfo,
   StunConfig,
@@ -166,7 +169,14 @@ interface ServiceFormState {
   protocol: 'TCP' | 'UDP'
   upnpMappedPort: string
   useUpnp: boolean
+  /** 只管链接展示成 http:// 还是 https://，不影响转发 */
   https: boolean
+  domain: string
+  tlsTerminate: boolean
+  /** 证书 ID，'0' 表示按域名自动匹配 */
+  certId: string
+  /** 转发给内网时也用 tls.Dial，等价 nginx 的 proxy_pass https://；仅在 tlsTerminate 时成立 */
+  backendHttps: boolean
   enabled: boolean
   showOnHome: boolean
   description: string
@@ -196,10 +206,60 @@ const emptyService: ServiceFormState = {
   upnpMappedPort: '0',
   useUpnp: true,
   https: false,
+  domain: '',
+  tlsTerminate: false,
+  certId: '0',
+  backendHttps: false,
   enabled: true,
   showOnHome: false,
   description: '',
   webhookconfig: emptyWebhook,
+}
+
+/** *.zlux.top 这种通配证书挑不出具体主机名——用哪个标签只能由用户决定 */
+function isWildcardDomain(d: string) {
+  return d.startsWith('*.')
+}
+
+/** 和后端 utils/domain.Match 同一套语义：通配只覆盖恰好多一层标签的名字 */
+function matchCertDomain(pattern: string, name: string) {
+  if (!name) return false
+  if (!isWildcardDomain(pattern)) return pattern === name
+  const suffix = pattern.slice(1) // ".zlux.top"
+  if (!name.endsWith(suffix)) return false
+  const label = name.slice(0, name.length - suffix.length)
+  return label !== '' && !label.includes('.')
+}
+
+/** 选中的证书覆盖哪些域名。certId 为 0（按 SNI 自动匹配）时是所有启用证书的并集 */
+function certDomainsOf(certs: Certificate[], certId: string): string[] {
+  const id = Number(certId) || 0
+  if (id !== 0) return certs.find((c) => c.id === id)?.domains ?? []
+  return certs.filter((c) => c.enabled).flatMap((c) => c.domains)
+}
+
+/**
+ * pickCertDomain 从证书上挑一个能直接当「对外域名」用的具体域名。
+ *
+ * 终结 TLS 时证书是按域名签的，而对外域名留空会回落公网 IP——IP 不发 SNI
+ * （RFC 6066），证书也不可能覆盖 IP，首页链接和 /go 跳转就会带用户去一个
+ * 必然报 ERR_CERT_COMMON_NAME_INVALID 的地址。证书上既然写着域名，
+ * 就直接填上，不该让用户自己去证书页抄一遍。
+ *
+ * 挑不出来时返回空串（通配证书、或自签这种压根没有域名的证书）。
+ */
+function pickCertDomain(certs: Certificate[], certId: string): string {
+  const concrete = (c?: Certificate) => c?.domains?.find((d) => !isWildcardDomain(d)) || ''
+
+  const id = Number(certId) || 0
+  if (id !== 0) return concrete(certs.find((c) => c.id === id))
+
+  // 按 SNI 自动匹配：兜底证书是 SNI 落空时真正会用上的那张，优先看它；
+  // 它没有具体域名（自签）时，只有唯一一张带域名的证书才好替用户做主
+  const withDomain = certs.filter((c) => c.enabled && c.domains.some((d) => !isWildcardDomain(d)))
+  const fallback = concrete(certs.find((c) => c.enabled && c.isDefault))
+  if (fallback) return fallback
+  return withDomain.length === 1 ? concrete(withDomain[0]) : ''
 }
 
 function normalizeWebhook(cfg?: Partial<WebhookConfig>): WebhookConfig {
@@ -244,6 +304,10 @@ function ServiceModal({
       upnpMappedPort: String(initial.upnpMappedPort || 0),
       useUpnp: !!initial.useUpnp,
       https: !!initial.https,
+      domain: initial.domain || '',
+      tlsTerminate: !!initial.tlsTerminate,
+      certId: String(initial.certId || 0),
+      backendHttps: !!initial.backendHttps,
       enabled: initial.enabled !== false,
       showOnHome: initialShowOnHome,
       description: initial.description || '',
@@ -259,6 +323,39 @@ function ServiceModal({
   const [templateBusy, setTemplateBusy] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
+  const [certs, setCerts] = useState<Certificate[]>([])
+
+  // 证书列表拿不到不该拦住整个服务表单，失败就当没有证书
+  useEffect(() => {
+    let alive = true
+    api
+      .getCertList()
+      .then((list) => alive && setCerts(list))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // 老服务可能是「已经终结 TLS、对外域名却空着」的状态（那时候还没这条约束）。
+  // 证书列表是异步来的，等它到位再补，且只补空的——用户自己填过的不动。
+  useEffect(() => {
+    if (certs.length === 0) return
+    setForm((p) => {
+      if (!p.tlsTerminate || p.protocol === 'UDP' || p.domain.trim()) return p
+      const filled = pickCertDomain(certs, p.certId)
+      return filled ? { ...p, domain: filled } : p
+    })
+  }, [certs])
+
+  const tlsOn = form.tlsTerminate && form.protocol !== 'UDP'
+  const certDomains = useMemo(() => certDomainsOf(certs, form.certId), [certs, form.certId])
+  const domainValue = form.domain.trim().toLowerCase()
+  // 绑定了一张带域名的证书却不填对外域名，生成出来的地址必然是证书盖不住的公网 IP。
+  // 正常情况下 pickCertDomain 已经自动填好了，走到这里只剩通配证书——
+  // *.zlux.top 用哪个标签只有用户知道，替他猜不如让他填。
+  const domainRequired = tlsOn && Number(form.certId) !== 0 && certDomains.length > 0
+  const domainCovered = certDomains.some((d) => matchCertDomain(d, domainValue))
 
   const refreshWebhookTemplates = useCallback(async () => {
     setTemplatesLoading(true)
@@ -386,10 +483,19 @@ function ServiceModal({
       setErr('请填写有效的内网端口(1-65535)')
       return
     }
+    if (domainRequired && !domainValue) {
+      setErr(
+        `请填写对外域名：绑定的证书覆盖 ${certDomains.join('、')}，留空会回落到公网 IP，证书盖不住 IP，浏览器会报证书错误`,
+      )
+      return
+    }
     setErr('')
     setBusy(true)
     try {
-      await onSubmit(form)
+      // UDP 没有洞口 TLS 一说，先勾选过再改协议的情况在这里抹掉
+      await onSubmit(
+        form.protocol === 'UDP' ? { ...form, tlsTerminate: false, certId: '0' } : form,
+      )
     } catch (e) {
       setErr(e instanceof Error ? e.message : '操作失败')
       setBusy(false)
@@ -485,13 +591,20 @@ function ServiceModal({
 
               <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  { key: 'useUpnp' as const, label: '启用 UPnP' },
-                  { key: 'https' as const, label: 'HTTPS 服务' },
-                  { key: 'enabled' as const, label: '启用服务' },
-                  { key: 'showOnHome' as const, label: '主页显示' },
+                  { key: 'useUpnp' as const, label: '启用 UPnP', hint: '' },
+                  {
+                    key: 'https' as const,
+                    label: '链接显示 https',
+                    // 这个勾只改链接长什么样。真正决定「怎么连内网」的是下面对外访问里的
+                    // 「转发给内网时也用 HTTPS」——两者必须让人一眼看出区别。
+                    hint: '只影响首页/卡片上的链接写成 http:// 还是 https://，不改变转发行为',
+                  },
+                  { key: 'enabled' as const, label: '启用服务', hint: '' },
+                  { key: 'showOnHome' as const, label: '主页显示', hint: '' },
                 ].map((opt) => (
                   <label
                     key={opt.key}
+                    title={opt.hint || undefined}
                     className="flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"
                   >
                     <input
@@ -503,6 +616,166 @@ function ServiceModal({
                     {opt.label}
                   </label>
                 ))}
+              </div>
+
+              {/* 对外访问：域名 + 洞口终结 TLS。洞是 LinkStar 自己 Accept 的，
+                  所以可以直接在洞口把 TLS 终结掉，外部看到的就是 https:// */}
+              <div className="col-span-2 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                  <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
+                  对外访问
+                </div>
+
+                <label className="block">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-xs font-semibold text-slate-500">对外域名</span>
+                    {tlsOn && certDomains.length > 0 ? (
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
+                        终结 TLS 时必填
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">可选</span>
+                    )}
+                  </div>
+                  <input
+                    value={form.domain}
+                    onChange={(e) => setForm((p) => ({ ...p, domain: e.target.value }))}
+                    placeholder={
+                      tlsOn ? '如 fw.example.com；必须是证书覆盖的域名' : '如 fw.example.com；留空则用公网 IP'
+                    }
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  />
+                  <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                    该域名需要解析到你的公网 IP（可在 DDNS 页面配一条记录）。
+                    多个服务共用同一域名不同端口时，Cookie 按 RFC 6265 §8.5 不做端口隔离，会话会互相覆盖——
+                    建议每个服务用独立子域名。
+                  </div>
+                </label>
+
+                {/* 终结 TLS = 洞口出示证书，而证书是按域名签的。对外域名留空会回落公网 IP，
+                    IP 不发 SNI（RFC 6066）、证书也不可能覆盖 IP，首页链接和 /go 跳转就会
+                    带用户去一个必报 ERR_CERT_COMMON_NAME_INVALID 的地址。 */}
+                {tlsOn && certDomains.length > 0 && !domainValue && (
+                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
+                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      证书覆盖的是{' '}
+                      <span className="font-mono font-semibold">{certDomains.join('、')}</span>
+                      ，这里留空就会回落到公网 IP。证书盖不住 IP，用 IP 访问必报
+                      ERR_CERT_COMMON_NAME_INVALID——填一个证书覆盖的域名。
+                    </span>
+                  </div>
+                )}
+
+                {tlsOn && certDomains.length > 0 && domainValue && !domainCovered && (
+                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
+                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>
+                      <span className="font-mono font-semibold">{domainValue}</span> 不在证书覆盖范围内（
+                      {certDomains.join('、')}），浏览器会报 ERR_CERT_COMMON_NAME_INVALID。
+                    </span>
+                  </div>
+                )}
+
+                <label
+                  className={`flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200 ${
+                    form.protocol === 'UDP' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={form.protocol === 'UDP'}
+                    checked={form.tlsTerminate && form.protocol !== 'UDP'}
+                    onChange={(e) =>
+                      setForm((p) => ({
+                        ...p,
+                        tlsTerminate: e.target.checked,
+                        // 不终结就没有「LinkStar 怎么拨内网」这回事，洞是纯管道，
+                        // 留着这个勾会变成双层 TLS
+                        backendHttps: e.target.checked ? p.backendHttps : false,
+                        // 终结要出示证书，证书按域名签，对外域名就不能再空着回落 IP。
+                        // 证书上有现成的具体域名就直接填上；用户已经填了的不动
+                        domain:
+                          e.target.checked && !p.domain.trim()
+                            ? pickCertDomain(certs, p.certId)
+                            : p.domain,
+                      }))
+                    }
+                    className="h-3.5 w-3.5"
+                  />
+                  由 LinkStar 在洞口终结 TLS（外部访问变成 https://）
+                </label>
+
+                {form.protocol === 'UDP' && (
+                  <div className="flex gap-2 text-[11px] leading-relaxed text-amber-600">
+                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    UDP 洞口不支持终结 TLS，那是 DTLS，是另一套协议。
+                  </div>
+                )}
+
+                {form.tlsTerminate && form.protocol !== 'UDP' && (
+                  <label className="block">
+                    <div className="mb-1 text-xs font-semibold text-slate-500">使用证书</div>
+                    <select
+                      value={form.certId}
+                      onChange={(e) =>
+                        setForm((p) => ({
+                          ...p,
+                          certId: e.target.value,
+                          // 换证书时对外域名还空着，就用新证书上的域名补上
+                          domain: p.domain.trim() ? p.domain : pickCertDomain(certs, e.target.value),
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                    >
+                      <option value="0">自动（按 SNI 域名匹配，匹配不上用默认证书）</option>
+                      {certs.map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          {c.name}
+                          {c.domains.length > 0 ? ` — ${c.domains.join('、')}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                      {certs.length === 0
+                        ? '还没有证书，先去「证书」页添加一张，否则握手会失败。'
+                        : '证书续期时只热替换内存里的指针，洞不会断，也不用重启穿透。'}
+                    </div>
+                  </label>
+                )}
+
+                {/* 「转发给内网时也用 HTTPS」只有在洞口终结了 TLS 时才成立：
+                    那时 LinkStar 才真的要解密再加密一遍。洞口不终结时洞是纯字节管道，
+                    LinkStar 一个字节都不解析，浏览器的 TLS 直达内网服务——
+                    这时再让它 tls.Dial 就是双层 TLS，浏览器必报 ERR_SSL_PROTOCOL_ERROR。
+                    所以这里做成父子关系，让那个组合压根勾不出来。 */}
+                {form.tlsTerminate && form.protocol !== 'UDP' && (
+                  <div className="ml-4 border-l-2 border-slate-200 pl-3">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={form.backendHttps}
+                        onChange={(e) => setForm((p) => ({ ...p, backendHttps: e.target.checked }))}
+                        className="h-3.5 w-3.5"
+                      />
+                      转发给内网时也用 HTTPS（内网服务自己带证书就勾）
+                    </label>
+                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                      {form.backendHttps
+                        ? '相当于 nginx 的 proxy_pass https://，自签证书不校验。内网其实是明文时会连不上。'
+                        : '相当于 nginx 的 proxy_pass http://。绝大多数自建服务都是明文，保持不勾即可。'}
+                    </div>
+                  </div>
+                )}
+
+                {!form.tlsTerminate && form.protocol !== 'UDP' && (
+                  <div className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 ring-1 ring-slate-200">
+                    不终结时洞口是纯管道，只搬字节不拆包。
+                    <span className="font-semibold">内网服务自己是 HTTPS 也不用在这里填</span>
+                    ——浏览器直接和它握手，用的就是它那张证书，外面照样是{' '}
+                    <span className="font-mono">https://</span>。
+                  </div>
+                )}
               </div>
 
               <label className="col-span-2 block">
@@ -1141,6 +1414,10 @@ export function Stun() {
       upnpMappedPort: Number(form.upnpMappedPort) || 0,
       useUpnp: form.useUpnp,
       https: form.https,
+      domain: form.domain.trim().toLowerCase(),
+      tlsTerminate: form.tlsTerminate,
+      certId: Number(form.certId) || 0,
+      backendHttps: form.backendHttps,
       enabled: form.enabled,
       description: form.description.trim(),
       webhookconfig: {
@@ -1213,7 +1490,11 @@ export function Stun() {
       window.setTimeout(() => alert(`SSH 连接命令已复制：\n\n${cmd}`), 100)
       return
     }
-    const scheme = svc.https ? 'https://' : 'http://'
+    // 和后端 PublicScheme 保持一致：洞口终结 TLS 时外部就是 https；
+    // 不终结却勾了「转发给内网时也用 HTTPS」时洞口在替内网加密，外面那一段是明文，
+    // 写成 https:// 会直接给出一个 ERR_SSL_PROTOCOL_ERROR 的链接
+    const scheme =
+      svc.tlsTerminate || (!svc.backendHttps && svc.https) ? 'https://' : 'http://'
     window.open(`${scheme}${addr}`, '_blank', 'noopener,noreferrer')
   }
 
@@ -1411,8 +1692,9 @@ export function Stun() {
                   const phase = status?.phaseStr || 'STOPPED'
                   const running = phase === 'RUNNING'
                   const externalPort = status?.externalPort ?? 0
-                  const fullAddr =
-                    externalPort > 0 && config.publicIP ? `${config.publicIP}:${externalPort}` : ''
+                  // 配了对外域名就用域名——终结 TLS 时证书是按域名签的，用 IP 访问必然报证书错
+                  const externalHost = svc.domain || config.publicIP
+                  const fullAddr = externalPort > 0 && externalHost ? `${externalHost}:${externalPort}` : ''
                   const inHome = homeSet.has(key)
                   const lastError = status?.lastError || ''
                   const restartCount = status?.restartCount ?? 0
@@ -1468,12 +1750,39 @@ export function Stun() {
                               </span>
                             )}
                             {svc.https && (
-                              <span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                              <span
+                                className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600"
+                                title="链接按 https:// 展示（不影响转发）"
+                              >
                                 HTTPS
+                              </span>
+                            )}
+                            {svc.backendHttps && (
+                              <span
+                                className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-600"
+                                title="洞口终结 TLS 后，再用 HTTPS 转发给内网（proxy_pass https://）"
+                              >
+                                内网 TLS
+                              </span>
+                            )}
+                            {svc.tlsTerminate && (
+                              <span
+                                className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-600"
+                                title="LinkStar 在洞口终结 TLS"
+                              >
+                                TLS 终结
                               </span>
                             )}
                           </span>
                         </div>
+                        {svc.domain && (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="shrink-0 text-slate-500">对外域名</span>
+                            <span className="truncate font-mono text-slate-700" title={svc.domain}>
+                              {svc.domain}
+                            </span>
+                          </div>
+                        )}
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500">内部端口</span>
                           <span className="font-mono font-semibold text-slate-700">{svc.internalPort}</span>

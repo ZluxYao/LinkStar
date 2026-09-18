@@ -22,6 +22,12 @@ type StunServiceUpdateViewRequest struct {
 	UseUPnP        bool   `json:"useUpnp"`
 	UPnPMappedPort uint16 `json:"upnpMappedPort"`
 
+	// 对外访问
+	Domain       string `json:"domain"`       // 对外域名，如 fw.example.com；留空回落公网 IP
+	TLSTerminate bool   `json:"tlsTerminate"` // 由 LinkStar 在洞口终结 TLS（仅 TCP）
+	CertID       uint   `json:"certId"`       // 绑定证书 ID，0 表示按 SNI 自动匹配
+	BackendHTTPS bool   `json:"backendHttps"` // 转发给内网时也用 HTTPS（tls.Dial），仅在 TLSTerminate 时成立
+
 	Enabled     bool   `json:"enabled"`
 	Description string `json:"description"`
 
@@ -65,6 +71,9 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.Https = cr.Https
 	svc.UseUPnP = cr.UseUPnP
 	svc.UPnPMappedPort = cr.UPnPMappedPort
+	svc.Domain, svc.TLSTerminate, svc.CertID = normalizeTLSFields(cr.Protocol, cr.Domain, cr.TLSTerminate, cr.CertID)
+	svc.Domain = fillDomainFromCert(svc.Domain, svc.TLSTerminate, svc.CertID)
+	svc.BackendHTTPS = normalizeBackendHTTPS(cr.Protocol, cr.BackendHTTPS, svc.TLSTerminate)
 	svc.Enabled = cr.Enabled
 	svc.Description = cr.Description
 	svc.WebHookConfig = cr.WebHookConfig

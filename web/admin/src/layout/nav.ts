@@ -6,7 +6,6 @@ import {
   Repeat,
   Settings,
   ShieldCheck,
-  Users,
   Waves,
   type LucideIcon,
 } from 'lucide-react'
@@ -40,9 +39,9 @@ export const navGroups: NavGroup[] = [
   {
     title: '系统与管理',
     items: [
-      { key: 'user', label: '用户管理', icon: Users },
       { key: 'settings', label: '系统设置', icon: Settings },
-      { key: 'audit', label: '日志审计', icon: FileText },
+      // 这里读的是 logs/ 下的运行日志，不是「谁在什么时候改了什么」的审计流水，别叫审计
+      { key: 'logs', label: '运行日志', icon: FileText },
       { key: 'notify', label: '通知设置', icon: Bell },
     ],
   },

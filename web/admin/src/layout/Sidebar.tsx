@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Sparkles } from 'lucide-react'
 import logo from '../assets/logo.png'
 import { navGroups } from './nav'
 import { getVersion } from '../lib/api'
@@ -74,23 +73,6 @@ export function Sidebar({ active, onChange }: SidebarProps) {
           </div>
         ))}
       </nav>
-
-      {/* 推荐配置 CTA */}
-      <div className="m-3 rounded-2xl bg-gradient-to-br from-blue-50 via-indigo-50 to-violet-50 p-4 ring-1 ring-blue-100/80">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-blue-600">
-          <Sparkles className="h-3.5 w-3.5" />
-          推荐配置
-        </div>
-        <div className="mt-1 text-[11px] leading-relaxed text-slate-500">
-          一键完成 DDNS + 证书 + 反代
-        </div>
-        <button
-          type="button"
-          className="mt-3 w-full rounded-lg bg-gradient-to-r from-blue-500 to-indigo-500 px-3 py-2 text-xs font-semibold text-white shadow-md shadow-blue-500/25 transition hover:shadow-lg"
-        >
-          开始配置向导
-        </button>
-      </div>
 
       <div className="px-5 pb-4 text-[11px] text-slate-400">
         © 2026 linkstar

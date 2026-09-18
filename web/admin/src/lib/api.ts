@@ -1,4 +1,20 @@
-import type { DdnsConfig, DdnsProvider, DdnsRecord, NatTypeInfo, StunConfig, WebhookConfig, WebhookTemplate } from '../types'
+import type {
+  AcmeProvider,
+  Certificate,
+  CertSource,
+  DdnsConfig,
+  DdnsProvider,
+  DdnsRecord,
+  LogEntry,
+  NatTypeInfo,
+  ProxyConfig,
+  ProxyEntry,
+  ProxyProbeResult,
+  ProxySite,
+  StunConfig,
+  WebhookConfig,
+  WebhookTemplate,
+} from '../types'
 
 interface ApiResponse<T> {
   code: number
@@ -84,6 +100,25 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
   })
 
 export const getVersion = () => request<{ version: string }>('/api/version')
+
+// ===================== 运行日志 =====================
+
+export const getLogDays = () => request<string[]>('/api/system/log/days')
+
+export const getLogs = (params: {
+  day: string
+  file?: 'info' | 'err'
+  level?: string
+  keyword?: string
+  limit?: number
+}) => {
+  const q = new URLSearchParams({ day: params.day })
+  if (params.file) q.set('file', params.file)
+  if (params.level) q.set('level', params.level)
+  if (params.keyword) q.set('keyword', params.keyword)
+  if (params.limit) q.set('limit', String(params.limit))
+  return request<{ list: LogEntry[]; truncated: boolean }>(`/api/system/log?${q}`)
+}
 
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
 
@@ -185,7 +220,16 @@ export interface StunServicePayload {
   protocol: string
   upnpMappedPort: number
   useUpnp: boolean
+  /** 仅影响链接展示成 http:// 还是 https://，不改变转发行为 */
   https: boolean
+  /** 对外域名，留空回落公网 IP */
+  domain: string
+  /** 由 LinkStar 在洞口终结 TLS，仅 TCP 有效 */
+  tlsTerminate: boolean
+  /** 绑定证书 ID，0 表示按 SNI 自动匹配 */
+  certId: number
+  /** 内网服务本身就说 TLS（自签也算），转发时用 tls.Dial */
+  backendHttps: boolean
   enabled: boolean
   description: string
   webhookconfig?: WebhookConfig
@@ -308,4 +352,136 @@ export const deleteWebhookTemplate = (id: string) =>
   request<unknown>('/api/webhook/template/delete', {
     method: 'DELETE',
     body: JSON.stringify({ id }),
+  })
+
+// ===================== 证书 =====================
+
+export const getCertList = () =>
+  request<{ list: Certificate[]; count: number }>('/api/cert/list').then((r) => r.list ?? [])
+
+/** DNS-01 可选服务商，复用 DDNS 里已配好凭证的那些 */
+export const getCertProviders = () =>
+  request<{ list: AcmeProvider[]; count: number }>('/api/cert/providers').then((r) => r.list ?? [])
+
+export interface CertPayload {
+  name: string
+  source: CertSource
+  domains: string[]
+  enabled: boolean
+  isDefault: boolean
+  certFile: string
+  keyFile: string
+  acme: {
+    directory: string
+    email: string
+    providerId: number
+    httpPort: number
+    eabKeyId: string
+    /** 留空表示沿用原值 */
+    eabHmac: string
+    renewDays: number
+  }
+}
+
+export const addCert = (body: CertPayload) =>
+  request<Certificate>('/api/cert/create', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateCert = (body: CertPayload & { id: number }) =>
+  request<Certificate>('/api/cert/update', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const deleteCert = (id: number) =>
+  request<unknown>('/api/cert/remove', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  })
+
+/** 粘贴 PEM 文本上传 */
+export const uploadCertPEM = (id: number, certPem: string, keyPem: string) =>
+  request<Certificate>('/api/cert/upload', {
+    method: 'POST',
+    body: JSON.stringify({ id, certPem, keyPem }),
+  })
+
+/** 立即签发/续期。ACME 全流程要几分钟，接口只负责启动，结果靠刷新列表看 */
+export const issueCert = (id: number) =>
+  request<unknown>('/api/cert/issue', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  })
+
+// ===================== 反向代理 =====================
+
+/** 入口设置 + 监听状态 + 站点表 */
+export const getProxyConfig = () => request<ProxyConfig>('/api/proxy/config')
+
+export interface EntryPayload {
+  enabled: boolean
+  /** HTTP 入口端口，0 = 不开 */
+  httpPort: number
+  /** HTTPS 入口端口，0 = 不开 */
+  httpsPort: number
+  /** 0 表示按 SNI 自动匹配 */
+  certId: number
+  /** 主域名，如 zlux.top；留空则站点必须写全域名 */
+  baseDomain: string
+}
+
+export const saveProxyEntry = (body: EntryPayload) =>
+  request<ProxyEntry>('/api/proxy/entry', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+/** 单独一个接口：它即点即生效，不该顺带把监听重开一遍 */
+export const setProxyAccessLog = (enabled: boolean) =>
+  request<unknown>('/api/proxy/accesslog', {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  })
+
+export interface ProxySitePayload {
+  hosts: string[]
+  pathPrefix: string
+  stripPrefix: boolean
+  backend: string
+  backendHttps: boolean
+  /** 单独占一个端口；0 = 挂在默认入口上 */
+  listenPort: number
+  /** 对外走 HTTPS */
+  https: boolean
+  /** 0 表示按 SNI 自动匹配 */
+  certId: number
+  enabled: boolean
+  description: string
+}
+
+export const addProxySite = (body: ProxySitePayload) =>
+  request<ProxySite>('/api/proxy/site', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const updateProxySite = (body: ProxySitePayload & { id: number }) =>
+  request<ProxySite>('/api/proxy/site', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
+
+export const deleteProxySite = (id: number) =>
+  request<unknown>('/api/proxy/site', {
+    method: 'DELETE',
+    body: JSON.stringify({ id }),
+  })
+
+/** 立即拨一次后端。不要求先保存，填到一半就能点 */
+export const testProxySite = (body: ProxySitePayload) =>
+  request<ProxyProbeResult>('/api/proxy/site/test', {
+    method: 'POST',
+    body: JSON.stringify(body),
   })

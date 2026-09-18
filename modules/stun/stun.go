@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
+
+	"linkstar/modules/cert"
 
 	"github.com/libp2p/go-reuseport"
 	"github.com/pion/stun"
@@ -178,6 +181,14 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 	go func() {
 		targetAddr := fmt.Sprintf("%s:%d", req.TargetIP, req.InternalPort) // 构建目标ip+端口
 		if protocol == "tcp" {
+			// 转发选项只构造一次，被这个洞上所有连接共享。
+			// tls.Config 里的 GetCertificate 每次握手实时回调，
+			// 因此证书续期后新连接自动用上新证书，不需要重启洞。
+			opt := ForwardOptions{BackendHTTPS: req.BackendHTTPS}
+			if req.TLSTerminate {
+				opt.TLSConfig = cert.Runtime.Manager.ServerTLSConfig(req.CertID)
+			}
+
 			for {
 				clientConn, err := tcpListener.Accept()
 				if err != nil {
@@ -188,7 +199,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 					}
 					return
 				}
-				go ForwardTCP(clientConn, targetAddr, protocol) //转发到对应的内网服务
+				go ForwardTCP(clientConn, targetAddr, protocol, opt) //转发到对应的内网服务
 			}
 		} else {
 			buf := make([]byte, 65535)
@@ -427,7 +438,8 @@ func tcpStunHealthCheck(ctx context.Context, publicIP string, expectedPublicPort
 
 // TCP检查是否存活
 func tcpConnectCheck(host string, port int, timeout time.Duration) bool {
-	addr := fmt.Sprintf("%s:%d", host, port)
+	// JoinHostPort 而不是 "%s:%d"：IPv6 字面量必须带方括号
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
 	conn, err := net.DialTimeout("tcp", addr, timeout)
 	if err != nil {
 		return false

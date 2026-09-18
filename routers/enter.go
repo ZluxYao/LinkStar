@@ -36,11 +36,17 @@ func Run(webFS fs.FS) {
 	protected := g.Group("", middleware.AuthMiddleware)
 	StunRouters(protected)
 	DdnsRouters(protected)
+	CertRouters(protected)
+	ProxyRouters(protected)
 	WebhookRouters(protected)
 	HomeRoutersProtected(protected)
+	SystemRoutersProtected(protected)
 
 	// 用户上传的图标静态目录
 	r.Static("/data/icon", "data/icon")
+
+	// 服务索引显式入口：/go/{服务名}/... → 307 到该服务当前的洞
+	PortalRouters(r)
 
 	// 剥掉 路径 前缀
 	adminFS, _ := fs.Sub(webFS, "web/admin/dist")
@@ -80,6 +86,13 @@ func Run(webFS fs.FS) {
 				c.FileFromFS(filePath, http.FS(homeFS))
 				return
 			}
+		}
+
+		// 裸路径服务索引：linkstar.zlux.top/fw → 307 到 fw 当前的洞。
+		// 必须排在静态文件命中之后——否则一个叫 favicon.ico 的服务名
+		// 会把真实静态资源顶掉；没有同名服务则继续走前端 SPA 兜底。
+		if TryPortal(c) {
+			return
 		}
 
 		data, _ := fs.ReadFile(homeFS, "index.html")

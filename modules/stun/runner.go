@@ -13,6 +13,13 @@ type STUNRequest struct {
 	Protocol      string
 	UseUPnP       bool
 	WebhookConfig webhook.WebhookConfig
+
+	// TLSTerminate 是否由 LinkStar 在洞口终结 TLS（仅 TCP 有效）
+	TLSTerminate bool
+	// CertID 绑定的证书；0 表示按 SNI / 默认证书自动匹配
+	CertID uint
+	// BackendHTTPS 拨内网时用 tls.Dial（等价 nginx 的 proxy_pass https://），只在终结 TLS 时成立
+	BackendHTTPS bool
 }
 
 // 定义STUN 状态类型

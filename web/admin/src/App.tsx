@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { AppShell } from './layout/AppShell'
+import { Cert } from './pages/Cert'
 import { Dashboard } from './pages/Dashboard'
 import { Ddns } from './pages/Ddns'
+import { Logs } from './pages/Logs'
 import { Placeholder } from './pages/Placeholder'
+import { ReverseProxy } from './pages/ReverseProxy'
 import { Stun } from './pages/Stun'
 import { Login, Setup } from './pages/Auth'
 import { findNav } from './layout/nav'
@@ -69,6 +72,12 @@ function App() {
         return <Stun />
       case 'ddns':
         return <Ddns />
+      case 'cert':
+        return <Cert />
+      case 'reverse-proxy':
+        return <ReverseProxy />
+      case 'logs':
+        return <Logs />
       default: {
         const item = findNav(page)
         return <Placeholder name={item?.label ?? page} />
