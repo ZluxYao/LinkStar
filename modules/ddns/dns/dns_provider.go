@@ -44,6 +44,12 @@ type RedirectRuleProvider interface {
 	SyncRedirectRule(zoneDomain, ruleKey, ruleLabel, entryHost, targetURL string) (keepPath bool, entryWarn string, err error)
 	// RemoveRedirectRule 删除 ruleKey 对应的规则；规则本来就不存在时返回 nil
 	RemoveRedirectRule(zoneDomain, ruleKey string) error
+	// RemoveEntryRecord 删掉当初替入口域名建的那条记录，返回是否真的删了。
+	//
+	// 语义要求：只能删实现自己建的那条（靠备注之类的标记认），用户手建的同名记录
+	// 一律不动——删 DNS 记录没有撤销，而少删一条只是留个没用的记录在那。
+	// 认不出来、查不了，都按「不删」处理。
+	RemoveEntryRecord(zoneDomain, entryHost string) (removed bool, err error)
 	// InspectEntryRecord 只读地看一眼入口域名那条记录现在什么样，不改任何东西
 	InspectEntryRecord(zoneDomain, entryHost string) (EntryRecordState, error)
 }

@@ -318,7 +318,7 @@ func CleanupLandingRecord(host string) {
 func domainInUse(host string) bool {
 	for _, dev := range Runtime.Config.Devices {
 		for _, svc := range dev.Services {
-			if strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(svc.Domain), "."), host) {
+			if sameHost(svc.Domain, host) {
 				return true
 			}
 		}
@@ -333,9 +333,70 @@ func CleanupRedirect(cfg model.RedirectConfig, deviceID, serviceID uint) {
 	if !cfg.Enabled || strings.TrimSpace(cfg.EntryHost) == "" {
 		return
 	}
-	go func() {
-		if err := RemoveRedirectConfig(cfg, deviceID, serviceID); err != nil {
-			logrus.WithError(err).Warnf("服务已删除，但入口重定向规则没清掉：%s", redirectRuleKey(deviceID, serviceID))
+	// 入口域名那条记录删不删，得看还有没有别的服务用着同一个入口。
+	// 这个判断必须现在做完：下面是甩出去的 goroutine，等它跑起来的时候，
+	// 配置可能已经被别的请求改过了。
+	dropEntryRecord := !entryHostInUse(cfg.EntryHost)
+
+	go cleanupRedirectNow(cfg, deviceID, serviceID, dropEntryRecord)
+}
+
+// cleanupRedirectNow 真正去服务商那边收拾的那一段，同步跑。
+//
+// 单独拆出来只为一件事：这里的先后顺序有讲究，得能直接测。
+func cleanupRedirectNow(cfg model.RedirectConfig, deviceID, serviceID uint, dropEntryRecord bool) {
+	if err := RemoveRedirectConfig(cfg, deviceID, serviceID); err != nil {
+		logrus.WithError(err).Warnf("服务已删除，但入口重定向规则没清掉：%s", redirectRuleKey(deviceID, serviceID))
+		return // 规则还在就别删记录：少了那条记录，规则连执行的机会都没有
+	}
+	if !dropEntryRecord {
+		return
+	}
+	removed, err := removeEntryRecord(cfg)
+	if err != nil {
+		logrus.WithError(err).Warnf("服务已删除，但入口域名 %s 的记录没清掉", cfg.EntryHost)
+		return
+	}
+	if removed {
+		logrus.Infof("服务已删除，顺带清掉入口域名的记录：%s", cfg.EntryHost)
+	}
+}
+
+// removeEntryRecord 把当初替入口域名建的那条占位记录收回去。
+//
+// 规则没了这条记录就纯属多余：它指向 192.0.2.1，访问的人看到的是 Cloudflare 的错误页。
+func removeEntryRecord(cfg model.RedirectConfig) (bool, error) {
+	syncer, err := buildRedirectSyncer(cfg.ProviderID)
+	if err != nil {
+		return false, err
+	}
+	return syncer.RemoveEntryRecord(redirectZone(cfg), strings.TrimSpace(cfg.EntryHost))
+}
+
+// entryHostInUse 还有没有别的服务开着重定向、用着这个入口域名。
+//
+// 和 domainInUse 一样，得在服务已经从配置里摘掉、存过盘之后再问。
+//
+// 只算开着的：关掉重定向的服务在服务商那边本来就没有规则，那条记录对它没用；
+// 以后真要再打开，同步时会自己把记录补回来。
+func entryHostInUse(host string) bool {
+	if strings.TrimSpace(host) == "" {
+		return false
+	}
+	for _, dev := range Runtime.Config.Devices {
+		for _, svc := range dev.Services {
+			if svc.Redirect.Enabled && sameHost(svc.Redirect.EntryHost, host) {
+				return true
+			}
 		}
-	}()
+	}
+	return false
+}
+
+// sameHost 两个域名算不算同一个：前后空白、末尾的点、大小写都不算数
+func sameHost(a, b string) bool {
+	return strings.EqualFold(
+		strings.TrimSuffix(strings.TrimSpace(a), "."),
+		strings.TrimSuffix(strings.TrimSpace(b), "."),
+	)
 }

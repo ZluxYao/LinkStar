@@ -298,6 +298,50 @@ func (cf *Cloudflare) findEntryRecord(zoneID, entryHost string) (*CloudflareReco
 	return nil, "", nil
 }
 
+// RemoveEntryRecord 服务删了，把当初替入口域名建的那条占位记录也收回去。
+//
+// 不收的话，DNS 里会剩一条指向 192.0.2.1 的已代理记录：规则已经没了，
+// 访问这个域名的人撞上的是 Cloudflare 的错误页，而 LinkStar 这边什么都不显示——
+// 因为这个服务在它眼里早就不存在了。
+//
+// 这里比 ensureEntryRecord 严格一档：那边看见内容是占位地址就肯替用户把小黄云打开，
+// 这边必须备注也对得上才删。按权限报错里的提示自己手建那条记录的用户，内容同样是
+// 192.0.2.1 却没有备注，那是他的东西（何况那种情况下 Token 本来就没有 DNS 权限，
+// 也删不动）。删 DNS 记录没有撤销，宁可留一条没用的让他自己删。
+func (cf *Cloudflare) RemoveEntryRecord(zoneDomain, entryHost string) (bool, error) {
+	entryHost = strings.TrimSuffix(strings.TrimSpace(entryHost), ".")
+	if entryHost == "" {
+		return false, nil
+	}
+
+	zoneID, err := cf.zoneID(zoneDomain)
+	if err != nil {
+		return false, err
+	}
+
+	rec, warn, err := cf.findEntryRecord(zoneID, entryHost)
+	if err != nil {
+		return false, err
+	}
+	if warn != "" {
+		// 记录查不了（多半是 Token 没有 DNS 权限）。查不清楚就别动手
+		return false, errors.New(warn)
+	}
+	if rec == nil || rec.Comment != entryRecordComment {
+		return false, nil
+	}
+
+	var status CloudflareStatus
+	if err := cf.request("DELETE",
+		fmt.Sprintf("%s/%s/dns_records/%s", zonesAPI, zoneID, rec.ID), nil, &status); err != nil {
+		return false, fmt.Errorf("删除入口域名 %s 的记录失败: %w", entryHost, err)
+	}
+	if !status.Success {
+		return false, fmt.Errorf("删除入口域名 %s 的记录返回失败: %v", entryHost, status.Messages)
+	}
+	return true, nil
+}
+
 // InspectEntryRecord 只看不改：入口域名那条记录现在到底在不在、开没开小黄云。
 //
 // 这条记录不归 DDNS 管（内容永远是那个占位地址，不会变），所以别处没人盯着它；
