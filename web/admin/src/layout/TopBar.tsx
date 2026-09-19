@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, HelpCircle, LogOut, Menu, Search } from 'lucide-react'
+import { LogOut, Menu } from 'lucide-react'
 import type { PageKey } from '../types'
 import { clearToken, isDesktop } from '../lib/api'
 import { findNav } from './nav'
@@ -68,32 +68,6 @@ export function TopBar({ active, onMenu }: TopBarProps) {
           </div>
         )}
       </div>
-
-      <div className="relative hidden w-72 lg:block">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-        <input
-          placeholder="搜索设备、服务、域名..."
-          className="h-9 w-full rounded-full border border-slate-200 bg-white pl-9 pr-3 text-sm text-slate-600 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-        />
-      </div>
-
-      <button
-        type="button"
-        className="relative hidden h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 sm:grid"
-        title="通知"
-      >
-        <Bell className="h-4.5 w-4.5" />
-        <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
-          3
-        </span>
-      </button>
-      <button
-        type="button"
-        className="hidden h-9 w-9 place-items-center rounded-full text-slate-500 transition hover:bg-slate-100 sm:grid"
-        title="帮助"
-      >
-        <HelpCircle className="h-4.5 w-4.5" />
-      </button>
 
       <div className="relative" ref={menuRef}>
         <button
