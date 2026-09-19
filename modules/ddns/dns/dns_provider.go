@@ -33,13 +33,15 @@ type ACMEDNSProvider interface {
 // 自然失败，上层据此提示「该服务商暂不支持入口重定向」。
 //
 // 语义要求：实现必须是「读-改-写」并逐字保留用户自己写的规则，
-// 只认领 description 等于 ruleKey 的那一条。
+// 只认领 ruleKey 对应的那一条。规则名允许在 ruleKey 后面再挂一截给人看的文字，
+// 但认领只能看 ruleKey 那一段——否则服务一改名，上一条规则就成了没人认领的孤儿。
 type RedirectRuleProvider interface {
 	// SyncRedirectRule 让 entryHost 重定向到 targetURL。
+	// ruleLabel 是规则名里给人看的那半截（一般是服务名），可以为空，不参与认领。
 	// keepPath 表示是否用上了保留原始路径的写法；服务商不支持时降级为 false。
 	// entryWarn 非空表示规则写好了，但入口域名那条 DNS 记录没能确认——
 	// 规则本身没失败，可少了那条记录访问依旧不通，上层必须把这句话摆到用户面前。
-	SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL string) (keepPath bool, entryWarn string, err error)
+	SyncRedirectRule(zoneDomain, ruleKey, ruleLabel, entryHost, targetURL string) (keepPath bool, entryWarn string, err error)
 	// RemoveRedirectRule 删除 ruleKey 对应的规则；规则本来就不存在时返回 nil
 	RemoveRedirectRule(zoneDomain, ruleKey string) error
 	// InspectEntryRecord 只读地看一眼入口域名那条记录现在什么样，不改任何东西

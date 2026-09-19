@@ -64,7 +64,7 @@ const existingRulesJSON = `[
 // 这个测试守的就是「用户手写的规则一条不少、一个字段不改」。
 func TestMergePreservesForeignRules(t *testing.T) {
 	existing := mustRules(t, existingRulesJSON)
-	newRule, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521", false)
+	newRule, err := buildRedirectRule("linkstar:entry-5", "群晖", "fn.example.com", "https://example.com:34521", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +75,10 @@ func TestMergePreservesForeignRules(t *testing.T) {
 		t.Fatalf("合并后应有 3 条规则，实际 %d 条", len(got))
 	}
 
-	// 顺序必须保持：规则是按顺序求值的，挪位置会改变用户的匹配行为
-	wantDesc := []string{"把老博客地址转到新站", "linkstar:entry-5", "另一条用户规则"}
+	// 顺序必须保持：规则是按顺序求值的，挪位置会改变用户的匹配行为。
+	// 中间那条老版本写的规则名还是光秃秃的 linkstar:entry-5，这里必须被
+	// 就地换成带服务名的新名字——认不出来就会在旁边多出一条重复规则。
+	wantDesc := []string{"把老博客地址转到新站", "linkstar:entry-5 | 群晖", "另一条用户规则"}
 	for i, want := range wantDesc {
 		if got := field(t, got[i], "description"); got != want {
 			t.Errorf("第 %d 条规则 description = %q，期望 %q", i, got, want)
@@ -117,7 +119,7 @@ func TestMergePreservesForeignRules(t *testing.T) {
 
 func TestMergeAppendsWhenAbsent(t *testing.T) {
 	existing := mustRules(t, existingRulesJSON)
-	newRule, err := buildRedirectRule("linkstar:entry-9", "new.example.com", "https://example.com:22222", true)
+	newRule, err := buildRedirectRule("linkstar:entry-9", "", "new.example.com", "https://example.com:22222", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +138,7 @@ func TestMergeAppendsWhenAbsent(t *testing.T) {
 }
 
 func TestMergeOnEmptyRuleset(t *testing.T) {
-	newRule, err := buildRedirectRule("linkstar:entry-1", "fn.example.com", "https://example.com:1", false)
+	newRule, err := buildRedirectRule("linkstar:entry-1", "", "fn.example.com", "https://example.com:1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +172,7 @@ func TestRemoveOnlyTouchesOwnRule(t *testing.T) {
 
 func TestBuildRedirectRule(t *testing.T) {
 	// 端口会漂，永久重定向会被浏览器永久缓存——只能用 307
-	rule, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521", false)
+	rule, err := buildRedirectRule("linkstar:entry-5", "", "fn.example.com", "https://example.com:34521", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,13 +188,63 @@ func TestBuildRedirectRule(t *testing.T) {
 	}
 
 	// 保留路径走动态表达式
-	dyn, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521/", true)
+	dyn, err := buildRedirectRule("linkstar:entry-5", "", "fn.example.com", "https://example.com:34521/", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dynParams := string(dyn["action_parameters"])
 	if !strings.Contains(dynParams, `concat(\"https://example.com:34521\", http.request.uri.path)`) {
 		t.Errorf("动态目标表达式不对（尾斜杠也应剥掉）：%s", dynParams)
+	}
+}
+
+// TestRuleDescriptionKeepsKeyStable 规则名后面挂服务名，认领只看前面那段。
+//
+// 守的是「服务改名不会在 Cloudflare 那边多出一条孤儿规则」：认领要是连
+// 服务名一起比，改一次名就认不出上一条，旧规则留在那儿继续把人送到
+// 一个早就没了的端口，而两边都不报错。
+func TestRuleDescriptionKeepsKeyStable(t *testing.T) {
+	cases := []struct {
+		name     string
+		label    string
+		wantDesc string
+	}{
+		{"带服务名", "群晖", "linkstar:1-2 | 群晖"},
+		{"没名字就只剩 key", "  ", "linkstar:1-2"},
+		{"名字里的竖线和换行洗掉", "群晖 | NAS\n备用", "linkstar:1-2 | 群晖 NAS 备用"},
+		{"名字太长就截断", strings.Repeat("长", 100), "linkstar:1-2 | " + strings.Repeat("长", ruleLabelMaxRunes)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			desc := composeRuleDescription("linkstar:1-2", c.label)
+			if desc != c.wantDesc {
+				t.Fatalf("规则名 = %q，期望 %q", desc, c.wantDesc)
+			}
+			rule, err := buildRedirectRule("linkstar:1-2", c.label, "fn.example.com", "https://example.com:1", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := ruleKeyOf(rule); got != "linkstar:1-2" {
+				t.Fatalf("认领用的 key = %q，期望 linkstar:1-2", got)
+			}
+		})
+	}
+
+	// 改名之后还得认得出上一条，否则就是多写一条、旧的成孤儿
+	old := mustRules(t, `[{"description":"linkstar:1-2 | 旧名字","action":"redirect"}]`)
+	renamed, err := buildRedirectRule("linkstar:1-2", "新名字", "fn.example.com", "https://example.com:1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := mergeRedirectRule(old, "linkstar:1-2", renamed)
+	if len(got) != 1 {
+		t.Fatalf("改名后应就地替换，实际变成 %d 条", len(got))
+	}
+	if d := field(t, got[0], "description"); d != "linkstar:1-2 | 新名字" {
+		t.Fatalf("改名没生效：%q", d)
+	}
+	if _, removed := removeRedirectRule(got, "linkstar:1-2"); !removed {
+		t.Fatal("带服务名的规则应该也能按 key 删掉")
 	}
 }
 

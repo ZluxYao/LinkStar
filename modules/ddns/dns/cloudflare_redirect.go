@@ -55,7 +55,7 @@ type cfRulesetPut struct {
 //
 // entryWarn 是「规则写好了，但入口域名那条 DNS 记录没能确认」。规则本身是成功的，
 // 所以不当失败处理；但也绝不能咽下去——少了那条记录，访问就是不通。
-func (cf *Cloudflare) SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL string) (bool, string, error) {
+func (cf *Cloudflare) SyncRedirectRule(zoneDomain, ruleKey, ruleLabel, entryHost, targetURL string) (bool, string, error) {
 	if err := guardRedirectLoop(entryHost, targetURL); err != nil {
 		return false, "", err
 	}
@@ -78,7 +78,7 @@ func (cf *Cloudflare) SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL
 	}
 
 	// 先试保留路径的动态写法
-	dynamic, err := buildRedirectRule(ruleKey, entryHost, targetURL, true)
+	dynamic, err := buildRedirectRule(ruleKey, ruleLabel, entryHost, targetURL, true)
 	if err != nil {
 		return false, entryWarn, err
 	}
@@ -89,7 +89,7 @@ func (cf *Cloudflare) SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL
 
 	// 失败原因无法可靠区分（套餐限制？表达式语法？权限？），
 	// 所以一律退回静态写法再试一次：能用总比整条入口不可用强。
-	static, err := buildRedirectRule(ruleKey, entryHost, targetURL, false)
+	static, err := buildRedirectRule(ruleKey, ruleLabel, entryHost, targetURL, false)
 	if err != nil {
 		return false, entryWarn, err
 	}
@@ -418,13 +418,13 @@ func guardRedirectLoop(entryHost, targetURL string) error {
 //
 // 这是整个功能唯一有数据丢失风险的地方：PUT 会整体替换 rules 数组，
 // 所以用户在 Cloudflare 后台手写的规则必须一条不少、一个字段不改地回去。
-// LinkStar 只认领 description 等于 ruleKey 的那一条。
+// LinkStar 只认领规则名前半截等于 ruleKey 的那一条。
 func mergeRedirectRule(existing []cfRule, ruleKey string, newRule cfRule) []cfRule {
 	out := make([]cfRule, 0, len(existing)+1)
 	replaced := false
 
 	for _, r := range existing {
-		if ruleDescription(r) != ruleKey {
+		if ruleKeyOf(r) != ruleKey {
 			out = append(out, sanitizeRule(r)) // 别人的规则，原样放回
 			continue
 		}
@@ -449,7 +449,7 @@ func removeRedirectRule(existing []cfRule, ruleKey string) ([]cfRule, bool) {
 	out := make([]cfRule, 0, len(existing))
 	removed := false
 	for _, r := range existing {
-		if ruleDescription(r) == ruleKey {
+		if ruleKeyOf(r) == ruleKey {
 			removed = true
 			continue
 		}
@@ -482,8 +482,49 @@ func ruleDescription(r cfRule) string {
 	return s
 }
 
+// ruleDescSep 规则名里「认领用的 key」和「给人看的服务名」之间的分隔
+const ruleDescSep = " | "
+
+// ruleLabelMaxRunes 服务名在规则名里最多留这么长。
+// Cloudflare 的 description 有长度上限，名字起得离谱也不该让整条规则写不进去。
+const ruleLabelMaxRunes = 64
+
+// composeRuleDescription 拼规则名：linkstar:1-2 | 群晖。
+//
+// 前半截是认领用的，一个字都不能变；后半截只给人看，在 Cloudflare 后台
+// 一眼能认出哪条对应哪个服务。服务名里的分隔符和换行得洗掉，
+// 不然拆回来的时候会把名字的一部分当成 key。
+func composeRuleDescription(ruleKey, ruleLabel string) string {
+	label := strings.Map(func(r rune) rune {
+		if r == '|' || r == '\n' || r == '\r' || r == '\t' {
+			return ' '
+		}
+		return r
+	}, ruleLabel)
+	label = strings.TrimSpace(strings.Join(strings.Fields(label), " "))
+	if label == "" {
+		return ruleKey
+	}
+	if runes := []rune(label); len(runes) > ruleLabelMaxRunes {
+		label = string(runes[:ruleLabelMaxRunes])
+	}
+	return ruleKey + ruleDescSep + label
+}
+
+// ruleKeyOf 从规则名里取出认领用的那一段。
+//
+// 老版本写进去的规则名就是光秃秃一个 linkstar:1-2，没有分隔符，
+// 整条就是 key——所以升级上来的用户不会多出一条重复规则。
+func ruleKeyOf(r cfRule) string {
+	desc := ruleDescription(r)
+	if i := strings.Index(desc, ruleDescSep); i >= 0 {
+		return desc[:i]
+	}
+	return desc
+}
+
 // buildRedirectRule 造一条「入口域名 → 落地地址」的 307 规则
-func buildRedirectRule(ruleKey, entryHost, targetURL string, keepPath bool) (cfRule, error) {
+func buildRedirectRule(ruleKey, ruleLabel, entryHost, targetURL string, keepPath bool) (cfRule, error) {
 	target := map[string]any{}
 	if keepPath {
 		// 保留用户进来时的路径：fn.example.com/library/x → example.com:34521/library/x
@@ -495,7 +536,7 @@ func buildRedirectRule(ruleKey, entryHost, targetURL string, keepPath bool) (cfR
 
 	rule := map[string]any{
 		"action":      "redirect",
-		"description": ruleKey,
+		"description": composeRuleDescription(ruleKey, ruleLabel),
 		"enabled":     true,
 		"expression":  fmt.Sprintf("(http.host eq %s)", strconv.Quote(entryHost)),
 		"action_parameters": map[string]any{

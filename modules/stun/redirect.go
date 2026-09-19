@@ -86,12 +86,23 @@ func ensureLandingRecord(cfg model.RedirectConfig, target string) (host string, 
 // ErrRedirectNotConfigured 这个服务没开入口重定向
 var ErrRedirectNotConfigured = errors.New("这个服务没有开启入口重定向")
 
-// redirectRuleKey 服务商那边这条规则的名字。
+// redirectRuleKey 服务商那边靠什么认出这条规则是 LinkStar 写的。
 //
 // 用 ID 不用服务名：服务一改名，名字就对不上了，上一条规则会变成没人认领的孤儿，
 // 继续把访问的人送到一个早就没了的端口。ID 不会变，改名不影响。
 func redirectRuleKey(deviceID, serviceID uint) string {
 	return fmt.Sprintf("linkstar:%d-%d", deviceID, serviceID)
+}
+
+// redirectRuleLabel 规则名后面跟的那半截，只给人看。
+//
+// 光有 linkstar:1-2，用户去 Cloudflare 后台看见一排规则根本分不出哪条是哪个服务。
+// 认领仍旧只看前面的 key，所以这里改名不会把旧规则变成孤儿。
+func redirectRuleLabel(svc *model.Service) string {
+	if svc == nil {
+		return ""
+	}
+	return strings.TrimSpace(svc.Name)
 }
 
 // redirectZone 这条入口属于哪个主域名。
@@ -178,6 +189,7 @@ func SyncRedirect(deviceID, serviceID uint) (RedirectSyncResult, error) {
 	out.KeepPath, out.EntryWarn, err = syncer.SyncRedirectRule(
 		redirectZone(cfg),
 		redirectRuleKey(deviceID, serviceID),
+		redirectRuleLabel(svc),
 		strings.TrimSpace(cfg.EntryHost),
 		out.Target,
 	)

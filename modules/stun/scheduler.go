@@ -686,6 +686,7 @@ func (s *Scheduler) syncServiceRedirect(entry *serviceEntry, key string, req STU
 			keepPath, entryWarn, err = syncer.SyncRedirectRule(
 				redirectZone(cfg),
 				redirectRuleKey(entry.deviceID, entry.serviceID),
+				redirectRuleLabel(svc),
 				strings.TrimSpace(cfg.EntryHost),
 				target,
 			)
