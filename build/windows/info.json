@@ -1,15 +1,19 @@
 {
   "fixed": {
-    "file_version": "0.1.0"
+    "file_version": "0.6.2",
+    "product_version": "0.6.2"
   },
   "info": {
-    "0000": {
-      "ProductVersion": "0.1.0",
+    "0409": {
+      "FileVersion": "0.6.2",
+      "ProductVersion": "0.6.2",
+      "OriginalFilename": "linkstar-desktop.exe",
+      "InternalName": "linkstar",
       "CompanyName": "LinkStar",
-      "FileDescription": "LinkStar desktop application",
+      "FileDescription": "LinkStar 桌面控制台",
       "LegalCopyright": "Copyright 2026 LinkStar",
       "ProductName": "LinkStar",
-      "Comments": "LinkStar desktop control panel"
+      "Comments": "LinkStar 桌面控制台"
     }
   }
 }

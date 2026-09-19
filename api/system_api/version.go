@@ -6,7 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const Version = "0.5.4"
+const Version = "0.6.2"
 
 type VersionResponse struct {
 	Version string `json:"version"`
