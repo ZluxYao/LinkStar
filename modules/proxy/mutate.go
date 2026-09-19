@@ -79,7 +79,7 @@ func normalizeSite(in model.Site, base string) (model.Site, error) {
 		if h == "" {
 			continue
 		}
-		// 先挑毛病再补主域名：写成 nas:8080 的话补完会变成 nas:8080.zlux.top，
+		// 先挑毛病再补主域名：写成 nas:8080 的话补完会变成 nas:8080.example.com，
 		// 报错时把那个怪东西原样甩给用户只会更难懂
 		if strings.ContainsAny(h, "/:") {
 			return out, fmt.Errorf("域名 %s 只填域名本身，不要带协议、端口或路径", h)
@@ -156,7 +156,7 @@ func schemeLabel(https bool) string {
 	return "HTTP"
 }
 
-// expandHost 用主域名把前缀补成完整域名：配了 zlux.top 之后，nas → nas.zlux.top。
+// expandHost 用主域名把前缀补成完整域名：配了 example.com 之后，nas → nas.example.com。
 //
 // 判据是「有没有点」：带点的当成用户已经写全了，原样保留——
 // 他完全可能同时代理另一个域名下的服务，不该被主域名绑死。
@@ -251,7 +251,7 @@ func SetEntry(in EntrySettings) error {
 
 	base := domain.Normalize(in.BaseDomain)
 	if strings.ContainsAny(base, "/:*") {
-		return errors.New("主域名只填域名本身，形如 zlux.top")
+		return errors.New("主域名只填域名本身，形如 example.com")
 	}
 
 	return Runtime.Update(func(cfg *model.ProxyConfig) error {

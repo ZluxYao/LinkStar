@@ -19,14 +19,14 @@ func site(id uint, host, prefix, backend string) model.Site {
 
 func TestRouterMatch(t *testing.T) {
 	r := NewRouter([]model.Site{
-		site(1, "fn.zlux.top", "", "192.168.1.10:8080"),
-		site(2, "nas.zlux.top", "", "192.168.1.20:5000"),
-		site(3, "nas.zlux.top", "/photo", "192.168.1.20:5001"),
-		site(4, "nas.zlux.top", "/photo/raw", "192.168.1.20:5002"),
-		site(5, "*.zlux.top", "", "192.168.1.30:80"),
-		{ID: 6, Hosts: []string{"off.zlux.top"}, Backend: "192.168.1.40:80", Enabled: false},
+		site(1, "fn.example.com", "", "192.168.1.10:8080"),
+		site(2, "nas.example.com", "", "192.168.1.20:5000"),
+		site(3, "nas.example.com", "/photo", "192.168.1.20:5001"),
+		site(4, "nas.example.com", "/photo/raw", "192.168.1.20:5002"),
+		site(5, "*.example.com", "", "192.168.1.30:80"),
+		{ID: 6, Hosts: []string{"off.example.com"}, Backend: "192.168.1.40:80", Enabled: false},
 		// 一个站点挂两个域名：裸域 + www，两个都该落到同一条上
-		{ID: 7, Hosts: []string{"blog.zlux.top", "www.blog.zlux.top"}, Backend: "192.168.1.50:2368", Enabled: true},
+		{ID: 7, Hosts: []string{"blog.example.com", "www.blog.example.com"}, Backend: "192.168.1.50:2368", Enabled: true},
 	})
 
 	cases := []struct {
@@ -35,31 +35,31 @@ func TestRouterMatch(t *testing.T) {
 		path string
 		want uint // 0 = 期望不命中
 	}{
-		{"精确 Host", "fn.zlux.top", "/", 1},
+		{"精确 Host", "fn.example.com", "/", 1},
 		// 洞是高位端口，浏览器一定会带上，不剥端口这条就废了
-		{"Host 带端口", "fn.zlux.top:34521", "/", 1},
-		{"大写 Host", "FN.Zlux.Top", "/", 1},
-		{"Host 带尾点", "fn.zlux.top.", "/", 1},
+		{"Host 带端口", "fn.example.com:34521", "/", 1},
+		{"大写 Host", "FN.Example.Com", "/", 1},
+		{"Host 带尾点", "fn.example.com.", "/", 1},
 
-		{"同 Host 无前缀兜底", "nas.zlux.top", "/", 2},
-		{"最长前缀优先", "nas.zlux.top", "/photo/a.jpg", 3},
-		{"更长的前缀再优先", "nas.zlux.top", "/photo/raw/a.dng", 4},
-		{"前缀本身", "nas.zlux.top", "/photo", 3},
+		{"同 Host 无前缀兜底", "nas.example.com", "/", 2},
+		{"最长前缀优先", "nas.example.com", "/photo/a.jpg", 3},
+		{"更长的前缀再优先", "nas.example.com", "/photo/raw/a.dng", 4},
+		{"前缀本身", "nas.example.com", "/photo", 3},
 		// /photo 不能吃掉 /photobooth，否则加新服务就会被老规则抢走
-		{"前缀必须卡在分隔处", "nas.zlux.top", "/photobooth", 2},
+		{"前缀必须卡在分隔处", "nas.example.com", "/photobooth", 2},
 
-		{"通配兜底", "other.zlux.top", "/", 5},
-		// 精确站点不该被 *.zlux.top 抢走
-		{"精确优先于通配", "fn.zlux.top", "/", 1},
+		{"通配兜底", "other.example.com", "/", 5},
+		// 精确站点不该被 *.example.com 抢走
+		{"精确优先于通配", "fn.example.com", "/", 1},
 		// 通配只吃一层，裸域和多层都不算
-		{"通配不匹配裸域", "zlux.top", "/", 0},
-		{"通配不匹配多层", "a.b.zlux.top", "/", 0},
+		{"通配不匹配裸域", "example.com", "/", 0},
+		{"通配不匹配多层", "a.b.example.com", "/", 0},
 
 		// 一条站点挂多个域名，每个都要能进来
-		{"多域名·第一个", "blog.zlux.top", "/", 7},
-		{"多域名·第二个", "www.blog.zlux.top", "/", 7},
+		{"多域名·第一个", "blog.example.com", "/", 7},
+		{"多域名·第二个", "www.blog.example.com", "/", 7},
 
-		{"禁用的站点不生效", "off.zlux.top", "/", 5}, // 落到通配上
+		{"禁用的站点不生效", "off.example.com", "/", 5}, // 落到通配上
 		{"Host 为空", "", "/", 0},
 		{"完全不相干的域名", "example.com", "/", 0},
 	}
@@ -85,7 +85,7 @@ func TestRouterMatch(t *testing.T) {
 
 func TestNewRouterSkipsIncomplete(t *testing.T) {
 	r := NewRouter([]model.Site{
-		site(1, "a.zlux.top", "", ""), // 没有后端，转发不到任何地方
+		site(1, "a.example.com", "", ""), // 没有后端，转发不到任何地方
 		site(2, "  ", "", "  "),
 	})
 	if !r.Empty() {
@@ -97,7 +97,7 @@ func TestNewRouterSkipsIncomplete(t *testing.T) {
 // 这个端口上的请求不管 Host 写的什么都该转过去
 func TestRouterFallbackSite(t *testing.T) {
 	r := NewRouter([]model.Site{
-		{ID: 1, Hosts: []string{"nas.zlux.top"}, Backend: "192.168.1.20:5000", Enabled: true},
+		{ID: 1, Hosts: []string{"nas.example.com"}, Backend: "192.168.1.20:5000", Enabled: true},
 		{ID: 2, Backend: "127.0.0.1:3333", ListenPort: 666, Enabled: true}, // 不限域名
 	})
 
@@ -107,7 +107,7 @@ func TestRouterFallbackSite(t *testing.T) {
 		want uint
 	}{
 		// 写明域名的站点优先，兜底不能把它抢走
-		{"精确域名照样优先", "nas.zlux.top", 1},
+		{"精确域名照样优先", "nas.example.com", 1},
 		{"没配过的域名落到兜底", "随便什么.example.com", 2},
 		// 洞是按端口来的，外面可能直接敲 IP，根本没有域名可言
 		{"敲 IP 访问", "192.168.1.9:666", 2},

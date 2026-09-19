@@ -55,7 +55,7 @@ type Certificate struct {
 	ID        uint       `json:"id"`
 	Name      string     `json:"name"`      // 备注名
 	Source    CertSource `json:"source"`    // 来源
-	Domains   []string   `json:"domains"`   // 覆盖域名，如 ["zlux.top", "*.zlux.top"]
+	Domains   []string   `json:"domains"`   // 覆盖域名，如 ["example.com", "*.example.com"]
 	Enabled   bool       `json:"enabled"`   // 是否启用
 	IsDefault bool       `json:"isDefault"` // SNI 匹配不上时的兜底证书
 

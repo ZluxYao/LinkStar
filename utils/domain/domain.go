@@ -10,7 +10,7 @@ import "strings"
 // Normalize 把域名规整成可比较形式：去空格、去末尾根点、转小写。
 //
 // SNI、Host 头、用户在表单里填的域名都可能带大小写或末尾的点，
-// 比较前必须先过这里，否则 "Fw.Zlux.Top." 会匹配不上 "fw.zlux.top"。
+// 比较前必须先过这里，否则 "Fw.Example.Com." 会匹配不上 "fw.example.com"。
 func Normalize(name string) string {
 	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
 }

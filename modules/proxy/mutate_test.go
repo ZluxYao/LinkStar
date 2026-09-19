@@ -13,17 +13,17 @@ func TestNormalizeSiteHosts(t *testing.T) {
 		base string
 		want string // 逗号分隔；"!" 开头表示期望报错
 	}{
-		{"补主域名", []string{"nas"}, "zlux.top", "nas.zlux.top"},
-		{"写全了就不补", []string{"nas.other.com"}, "zlux.top", "nas.other.com"},
-		{"多个域名各补各的", []string{"nas", "www.nas.zlux.top"}, "zlux.top", "nas.zlux.top,www.nas.zlux.top"},
-		{"统一小写", []string{"NAS.Zlux.Top"}, "", "nas.zlux.top"},
+		{"补主域名", []string{"nas"}, "example.com", "nas.example.com"},
+		{"写全了就不补", []string{"nas.other.com"}, "example.com", "nas.other.com"},
+		{"多个域名各补各的", []string{"nas", "www.nas.example.com"}, "example.com", "nas.example.com,www.nas.example.com"},
+		{"统一小写", []string{"NAS.Example.Com"}, "", "nas.example.com"},
 		{"空行丢掉", []string{"a.com", "", "  "}, "", "a.com"},
-		// 补完再去重：nas 和 nas.zlux.top 补完是同一个，留一个就行
-		{"补完撞上了要去重", []string{"nas", "nas.zlux.top"}, "zlux.top", "nas.zlux.top"},
-		{"通配也补", []string{"*"}, "zlux.top", "*.zlux.top"},
+		// 补完再去重：nas 和 nas.example.com 补完是同一个，留一个就行
+		{"补完撞上了要去重", []string{"nas", "nas.example.com"}, "example.com", "nas.example.com"},
+		{"通配也补", []string{"*"}, "example.com", "*.example.com"},
 		{"一个域名都没有，又没占端口", []string{"", " "}, "", "!"},
-		{"带端口要拦住", []string{"nas:8080"}, "zlux.top", "!"},
-		{"带协议要拦住", []string{"http://nas.zlux.top"}, "", "!"},
+		{"带端口要拦住", []string{"nas:8080"}, "example.com", "!"},
+		{"带协议要拦住", []string{"http://nas.example.com"}, "", "!"},
 	}
 
 	for _, c := range cases {
@@ -48,7 +48,7 @@ func TestNormalizeSiteHosts(t *testing.T) {
 // TestNormalizeSitePortForward 没填域名的站点：占了端口就放行，当端口转发使
 func TestNormalizeSitePortForward(t *testing.T) {
 	t.Run("占了端口就放行", func(t *testing.T) {
-		out, err := normalizeSite(model.Site{Backend: "127.0.0.1:3333", ListenPort: 666}, "zlux.top")
+		out, err := normalizeSite(model.Site{Backend: "127.0.0.1:3333", ListenPort: 666}, "example.com")
 		if err != nil {
 			t.Fatalf("填了端口就不该拦：%v", err)
 		}
@@ -62,7 +62,7 @@ func TestNormalizeSitePortForward(t *testing.T) {
 	})
 
 	t.Run("没端口也没域名才拦", func(t *testing.T) {
-		if _, err := normalizeSite(model.Site{Backend: "127.0.0.1:3333"}, "zlux.top"); err == nil {
+		if _, err := normalizeSite(model.Site{Backend: "127.0.0.1:3333"}, "example.com"); err == nil {
 			t.Fatal("挂默认入口又没有域名，应该拦住")
 		}
 	})

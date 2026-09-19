@@ -19,7 +19,7 @@ func TestSyncRecord(t *testing.T) {
 	cf := dns.NewCloudflare(token)
 
 	recordIpv4 := model.DDNSRecord{
-		Domain:       "zlux.top",
+		Domain:       "example.com",
 		SubDomain:    "test",
 		TTL:          60,
 		RecordType:   model.DNSRecordTypeA,

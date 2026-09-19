@@ -41,7 +41,7 @@ func fillDomainFromCert(domainName string, tlsTerminate bool, certID uint) strin
 
 // pickCertDomain 从证书里挑一个能直接当对外域名用的具体域名。
 //
-// 通配证书（*.zlux.top）挑不出来：用哪个标签只有用户知道，替他猜一个
+// 通配证书（*.example.com）挑不出来：用哪个标签只有用户知道，替他猜一个
 // 反而会让洞看起来配好了、实际指向一个他根本没解析过的名字。返回空串即可，
 // 前端那边会要求用户自己填。
 func pickCertDomain(certs []certmodel.Certificate, certID uint) string {

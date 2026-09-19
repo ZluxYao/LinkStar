@@ -12,7 +12,7 @@ import (
 // SiteSaveRequest 新增 / 修改一个站点，对应 nginx 的一个 server 块。ID 为 0 表示新增。
 type SiteSaveRequest struct {
 	ID uint `json:"id"`
-	// Hosts 域名，如 fn.zlux.top；支持 *.zlux.top 通配，可以填多个
+	// Hosts 域名，如 fn.example.com；支持 *.example.com 通配，可以填多个
 	Hosts []string `json:"hosts"`
 
 	PathPrefix  string `json:"pathPrefix"`  // 留空表示整站

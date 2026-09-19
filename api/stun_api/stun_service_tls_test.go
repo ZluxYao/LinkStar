@@ -10,8 +10,8 @@ import (
 // 而证书永远盖不住 IP，用户点首页链接只会看到 ERR_CERT_COMMON_NAME_INVALID。
 // 证书上写着域名就直接拿来用，挑不出具体名字时老老实实返回空让用户自己填。
 func TestPickCertDomain(t *testing.T) {
-	zlux := certmodel.Certificate{ID: 1, Enabled: true, Domains: []string{"zlux.top", "*.zlux.top"}}
-	wildcardOnly := certmodel.Certificate{ID: 2, Enabled: true, Domains: []string{"*.zlux.top"}}
+	siteCert := certmodel.Certificate{ID: 1, Enabled: true, Domains: []string{"example.com", "*.example.com"}}
+	wildcardOnly := certmodel.Certificate{ID: 2, Enabled: true, Domains: []string{"*.example.com"}}
 	selfSigned := certmodel.Certificate{ID: 3, Enabled: true, IsDefault: true}
 	other := certmodel.Certificate{ID: 4, Enabled: true, Domains: []string{"nas.example.com"}}
 
@@ -21,14 +21,14 @@ func TestPickCertDomain(t *testing.T) {
 		certID uint
 		want   string
 	}{
-		{"绑定的证书有具体域名", []certmodel.Certificate{zlux}, 1, "zlux.top"},
+		{"绑定的证书有具体域名", []certmodel.Certificate{siteCert}, 1, "example.com"},
 		{"通配证书挑不出标签，让用户自己填", []certmodel.Certificate{wildcardOnly}, 2, ""},
 		{"自签证书本来就没域名", []certmodel.Certificate{selfSigned}, 3, ""},
-		{"绑了一张不存在的证书", []certmodel.Certificate{zlux}, 9, ""},
-		{"自动匹配 + 兜底证书带域名", []certmodel.Certificate{other, {ID: 5, Enabled: true, IsDefault: true, Domains: []string{"zlux.top"}}}, 0, "zlux.top"},
-		{"自动匹配 + 兜底是自签，只有一张带域名的就用它", []certmodel.Certificate{selfSigned, zlux}, 0, "zlux.top"},
-		{"自动匹配 + 多张带域名，不替用户做主", []certmodel.Certificate{zlux, other}, 0, ""},
-		{"停用的证书不算数", []certmodel.Certificate{{ID: 6, Domains: []string{"off.zlux.top"}}, zlux}, 0, "zlux.top"},
+		{"绑了一张不存在的证书", []certmodel.Certificate{siteCert}, 9, ""},
+		{"自动匹配 + 兜底证书带域名", []certmodel.Certificate{other, {ID: 5, Enabled: true, IsDefault: true, Domains: []string{"example.com"}}}, 0, "example.com"},
+		{"自动匹配 + 兜底是自签，只有一张带域名的就用它", []certmodel.Certificate{selfSigned, siteCert}, 0, "example.com"},
+		{"自动匹配 + 多张带域名，不替用户做主", []certmodel.Certificate{siteCert, other}, 0, ""},
+		{"停用的证书不算数", []certmodel.Certificate{{ID: 6, Domains: []string{"off.example.com"}}, siteCert}, 0, "example.com"},
 		{"一张证书都没有", nil, 0, ""},
 	}
 

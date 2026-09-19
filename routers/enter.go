@@ -90,7 +90,7 @@ func Run(webFS fs.FS) {
 			}
 		}
 
-		// 裸路径服务索引：linkstar.zlux.top/fw → 307 到 fw 当前的洞。
+		// 裸路径服务索引：linkstar.example.com/fw → 307 到 fw 当前的洞。
 		// 必须排在静态文件命中之后——否则一个叫 favicon.ico 的服务名
 		// 会把真实静态资源顶掉；没有同名服务则继续走前端 SPA 兜底。
 		if TryPortal(c) {

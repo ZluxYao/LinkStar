@@ -20,7 +20,7 @@ func (e PublicEndpoint) Valid() bool {
 	return e.Host != "" && e.Port != 0
 }
 
-// URL 拼成 https://fw.zlux.top:34521 形式（不带末尾斜杠）
+// URL 拼成 https://fw.example.com:34521 形式（不带末尾斜杠）
 func (e PublicEndpoint) URL() string {
 	if !e.Valid() {
 		return ""

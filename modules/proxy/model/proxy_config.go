@@ -34,9 +34,9 @@ type ProxyConfig struct {
 	// AccessLog 访问日志，默认关
 	AccessLog bool `json:"accessLog"`
 
-	// BaseDomain 主域名，如 zlux.top。
+	// BaseDomain 主域名，如 example.com。
 	//
-	// 填了之后加站点只用写前缀：填 nas 就是 nas.zlux.top。
+	// 填了之后加站点只用写前缀：填 nas 就是 nas.example.com。
 	// 家里绝大多数人只有一个域名，让他在每一条站点上重复抄一遍没有意义。
 	BaseDomain string `json:"baseDomain"`
 

@@ -111,7 +111,7 @@ func (r *Router) groupFor(host string) *hostGroup {
 
 // Match 按 Host + 路径找一个站点。
 //
-// 精确 Host 优先于通配 Host——用户为某个名字单独写的站点不该被 *.zlux.top 抢走。
+// 精确 Host 优先于通配 Host——用户为某个名字单独写的站点不该被 *.example.com 抢走。
 // 都没中再看没填域名的站点，它才是最后兜底的那一层。
 func (r *Router) Match(hostHeader, path string) *siteEntry {
 	// Host 为空也要往下走：没填域名的站点本来就不看 Host，
@@ -237,7 +237,7 @@ func matchPrefix(prefix, path string) bool {
 
 // normalizeHostHeader 从 Host 头里取出域名部分。
 //
-// 反代不一定监听在 80/443，浏览器会把端口带在 Host 里（zlux.top:8080）；
+// 反代不一定监听在 80/443，浏览器会把端口带在 Host 里（example.com:8080）；
 // 而站点表里用户填的是纯域名，不剥端口就永远匹配不上。
 // IPv6 字面量形如 [::1]:8080，交给 SplitHostPort 处理。
 func normalizeHostHeader(hostHeader string) string {

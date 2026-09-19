@@ -18,9 +18,9 @@ import (
 // 端口一变还得靠 webhook 回写。现在只需要把 LinkStar 自己这一个洞暴露出去，
 // 其余服务全部由这里查表 307 过去，CF 规则从 N 条降到 1 条。
 //
-//	https://linkstar.zlux.top/fw   （CF 边缘，唯一一条重定向规则）
-//	   → https://ls.zlux.top:21313/fw   （LinkStar 自己的洞）
-//	   → 307 https://fw.zlux.top:34521/  （fw 的洞，LinkStar 在那儿终结 TLS）
+//	https://linkstar.example.com/fw   （CF 边缘，唯一一条重定向规则）
+//	   → https://ls.example.com:21313/fw   （LinkStar 自己的洞）
+//	   → 307 https://fw.example.com:34521/  （fw 的洞，LinkStar 在那儿终结 TLS）
 
 // PortalPrefix 显式入口前缀，避免服务名和前端路由/静态资源撞车时无路可走
 const PortalPrefix = "/go"
@@ -39,7 +39,7 @@ func PortalRouters(r *gin.Engine) {
 	})
 }
 
-// TryPortal 供 NoRoute 兜底调用，实现裸路径 linkstar.zlux.top/{服务名}。
+// TryPortal 供 NoRoute 兜底调用，实现裸路径 linkstar.example.com/{服务名}。
 // 命中并已响应返回 true；没有同名服务返回 false，由调用方继续走前端 SPA 兜底。
 //
 // 调用位置很关键：必须排在静态文件命中检查之后，否则一个叫 favicon.ico
