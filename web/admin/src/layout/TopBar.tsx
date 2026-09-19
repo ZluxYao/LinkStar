@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { LogOut, Menu } from 'lucide-react'
+import { Home, LogOut, Menu } from 'lucide-react'
 import type { PageKey } from '../types'
 import { clearToken, isDesktop } from '../lib/api'
 import { findNav } from './nav'
@@ -68,6 +68,17 @@ export function TopBar({ active, onMenu }: TopBarProps) {
           </div>
         )}
       </div>
+
+      {/* 回导航主页。整页跳转，不走前端路由 —— 导航主页是另一个应用，
+          跟后台不共用一份 JS。桌面版同理，webview 直接换地址就行 */}
+      <a
+        href="/"
+        title="回到导航主页"
+        className="flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 sm:px-2.5"
+      >
+        <Home className="h-4 w-4" />
+        <span className="hidden sm:inline">导航主页</span>
+      </a>
 
       <div className="relative" ref={menuRef}>
         <button

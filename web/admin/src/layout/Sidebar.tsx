@@ -32,10 +32,16 @@ export function Sidebar({ active, onChange, open, onClose }: SidebarProps) {
         open ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
       }`}
     >
-      {/* Logo */}
+      {/* Logo。点 logo 回导航主页，跟大部分后台一个习惯 */}
       <div className="flex h-16 items-center gap-2 px-5">
-        <img src={logo} alt="LinkStar" className="h-9 w-9" />
-        <span className="text-lg font-bold tracking-tight text-slate-800">linkstar</span>
+        <a
+          href="/"
+          title="回到导航主页"
+          className="-mx-1.5 flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-slate-100"
+        >
+          <img src={logo} alt="LinkStar" className="h-9 w-9" />
+          <span className="truncate text-lg font-bold tracking-tight text-slate-800">linkstar</span>
+        </a>
         <button
           type="button"
           onClick={onClose}
