@@ -154,6 +154,10 @@ func registerCertDNSSolver() {
 // 方向和上面那个一样：ddns 已经 import 了 stun，stun 不能反过来 import ddns，
 // 所以 stun 只声明一个窄接口，由这里在启动时注入实现。
 func registerSTUNRedirectSyncer() {
+	// STUN 一拿到公网 IP 就叫 DDNS 推一遍。两个模块是并排起的，DDNS 先跑那一轮
+	// 常常赶在 STUN 拿到 IP 之前，不叫的话域名会一直指着旧地址等下个周期。
+	stun.RegisterOnPublicIPChanged(func(string) { ddns.Runtime.TriggerSync() })
+
 	stun.RegisterRedirectSyncerFactory(func(id uint) (stun.RedirectSyncer, error) {
 		p, ok := ddns.Runtime.FindProvider(id)
 		if !ok {

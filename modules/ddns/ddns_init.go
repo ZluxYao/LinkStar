@@ -38,9 +38,7 @@ func DDNSInit() error {
 		return fmt.Errorf("初始化 DDNS 运行时失败: %w", err)
 	}
 
-	Runtime.Scheduler = NewScheduler()
-	Runtime.Scheduler.Start()
-	Runtime.Scheduler.Trigger()
+	Runtime.StartScheduler()
 
 	return nil
 }

@@ -76,6 +76,10 @@ func InitSTUN() error {
 	Runtime.Network.LocalIP = addrInfo.LocalIP
 	Runtime.Network.PublicIP = addrInfo.PublicIP
 
+	// DDNS 是和 STUN 并排起的，它先跑那一轮多半赶在这行之前，只能记一次失败。
+	// 这里回头叫它一声，就绪了立刻补一次，不用干等到下个周期。
+	go EmitPublicIPChanged(addrInfo.PublicIP)
+
 	syncRuntimeConfig()
 
 	// 5. 启动网络信息更新器

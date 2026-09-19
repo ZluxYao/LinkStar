@@ -81,12 +81,19 @@ func updateNetworkAddress(stunServer string) bool {
 
 	//如果发生网络变化更新NatRouter
 	if Runtime.Network.LocalIP != addrInfo.LocalIP || Runtime.Network.PublicIP != addrInfo.PublicIP {
+		publicChanged := Runtime.Network.PublicIP != addrInfo.PublicIP
+
 		// 更新网络信息
 		Runtime.Network.LocalIP = addrInfo.LocalIP
 		Runtime.Network.PublicIP = addrInfo.PublicIP
 
 		// 更新NatRouter
 		go updateNatRouter()
+
+		// 家宽 IP 换了，域名还指着上一个，立刻叫 DDNS 推一次，别等下个周期
+		if publicChanged {
+			go EmitPublicIPChanged(addrInfo.PublicIP)
+		}
 	}
 
 	return true

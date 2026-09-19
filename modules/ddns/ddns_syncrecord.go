@@ -84,6 +84,7 @@ func (r *DDNSRuntime) SyncRecordNow(id uint) error {
 
 	SyncRecord(client, &rec)
 	r.commitRecord(&rec)
+	r.noteSyncResult(rec.ID, rec.LastStatus != model.DDNSRecordStatusFailed)
 
 	if rec.LastStatus == model.DDNSRecordStatusFailed {
 		return fmt.Errorf("%s", rec.LastMessage)
@@ -94,7 +95,8 @@ func (r *DDNSRuntime) SyncRecordNow(id uint) error {
 // SyncRecord 同步记录:解析 IP -> 比对 -> 调服务商 API -> 回写状态
 func SyncRecord(client dns.DNSProvider, r *model.DDNSRecord) {
 
-	// 无论成功或者失败都标记"已经检测过了"，防止未更新再次加入队列更新
+	// 无论成功或者失败都记下「这一次试过了」，防止同一条记录被反复投进队列。
+	// 失败不会因此干等一整个间隔：调度器对失败的记录另有一套快重试，见 retryAfter。
 	r.LastCheckAt = time.Now()
 
 	// 1. 解析IP来源
@@ -144,8 +146,9 @@ func resolveIP(r *model.DDNSRecord) (ip string, err error) {
 		// 直接读 STUN 模块已探测好的 IP
 		ip := stun.Runtime.Network.PublicIP
 		if ip == "" {
-			// TODO 加一个备用获取可靠的STUN公网ip的函数去获取
-			return "", fmt.Errorf("STUN 公网 IP 暂未就绪")
+			// 开机头一两分钟正常：STUN 要先挑服务器再打一轮探测才有公网 IP。
+			// 拿到的那一刻 STUN 会回头触发一次同步，不用等到下个周期。
+			return "", fmt.Errorf("STUN 还没拿到公网 IP，拿到后会自动补上")
 		}
 		return ip, nil
 	case model.IPSourceWeb:
