@@ -2186,10 +2186,13 @@ export function Stun() {
   /**
    * 照着现有服务再开一个，只改要改的那几项。
    *
-   * 有三样不能照抄：
+   * 有四样不能照抄：
    * 入口域名两个服务共用一个，后同步的那个会把先前那条 Cloudflare 规则顶掉，
-   * 而且两边都不报错；UPnP 固定端口抄过来就是两个服务抢同一个外部端口；
-   * 名字一样的话列表上根本分不出谁是谁。
+   * 而且两边都不报错；webhook 的 URL 通常指着一条具体的记录或规则（CF 那份模板
+   * 的 URL 里就写死了 rule ID），抄过来就是两个服务轮流往同一条上写，
+   * 谁后跑谁说了算，两边还都显示「发送成功」——配置留着，开关默认关掉，
+   * 等用户把 URL 改成新的那条再自己打开；UPnP 固定端口抄过来就是两个服务抢
+   * 同一个外部端口；名字一样的话列表上根本分不出谁是谁。
    */
   const copyService = (deviceId: number, svc: StunService) => {
     const src = serviceToForm(svc, false)
@@ -2201,6 +2204,7 @@ export function Stun() {
         name: `${svc.name || '未命名服务'} 副本`,
         upnpMappedPort: '0',
         redirect: { ...src.redirect, enabled: false, entryHost: '' },
+        webhookconfig: { ...src.webhookconfig, enabled: false },
       },
     })
   }
