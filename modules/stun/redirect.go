@@ -35,6 +35,14 @@ func RegisterLandingRecordEnsurer(f func(providerID uint, zoneDomain, host strin
 	landingRecordEnsurer = f
 }
 
+// landingRecordReleaser 把当初自动补的那条 DDNS 记录收回去。同样由 app.go 注入。
+var landingRecordReleaser func(host string) (bool, error)
+
+// RegisterLandingRecordReleaser 注入「收回自动补的落地域名记录」的实现
+func RegisterLandingRecordReleaser(f func(host string) (bool, error)) {
+	landingRecordReleaser = f
+}
+
 // LandingRecordState 落地域名在 DDNS 那边由哪条记录管着、上次跑成什么样。
 //
 // 类型定义在这边而不是 ddns 那边：ddns import 了 stun，反过来会成环。
@@ -278,6 +286,44 @@ func RemoveRedirectConfig(cfg model.RedirectConfig, deviceID, serviceID uint) er
 		return err
 	}
 	return syncer.RemoveRedirectRule(redirectZone(cfg), redirectRuleKey(deviceID, serviceID))
+}
+
+// CleanupLandingRecord 服务被删掉时，把当初替它的落地域名自动补的那条 DDNS 记录也收回去。
+//
+// 必须在服务已经从配置里摘掉、并且存过盘之后再调：这里要靠「还有没有别的服务
+// 用着这个域名」来决定删不删，配置没更新的话查出来的就是删之前的样子。
+//
+// 同一个域名常常挂着好几个服务（一台机器上的 NAS、PVE、Alist 都用同一个域名），
+// 删掉其中一个就把记录删了，剩下那几个的公网 IP 就再没人维护——照样不报错，
+// 只是过几天家宽 IP 一变，全都访问不了。
+func CleanupLandingRecord(host string) {
+	host = strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if host == "" || landingRecordReleaser == nil {
+		return
+	}
+	if domainInUse(host) {
+		return
+	}
+	removed, err := landingRecordReleaser(host)
+	if err != nil {
+		logrus.WithError(err).Warnf("服务已删除，但落地域名 %s 的解析记录没清掉", host)
+		return
+	}
+	if removed {
+		logrus.Infof("服务已删除，顺带清掉自动添加的解析记录：%s", host)
+	}
+}
+
+// domainInUse 还有没有别的服务用着这个域名
+func domainInUse(host string) bool {
+	for _, dev := range Runtime.Config.Devices {
+		for _, svc := range dev.Services {
+			if strings.EqualFold(strings.TrimSuffix(strings.TrimSpace(svc.Domain), "."), host) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // CleanupRedirect 服务被删掉时顺手清掉它在服务商那边的规则。

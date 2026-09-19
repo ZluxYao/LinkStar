@@ -55,9 +55,30 @@ func (r *DDNSRuntime) EnsureLandingRecord(providerID uint, zoneDomain, host stri
 		// 小黄云必须关着：Cloudflare 的代理只转发 80/443 那几个端口，
 		// 而这里对外的是 28262 这种打洞打出来的端口，开了就连不上。
 		Proxied: false,
+		// 打上记号，服务删掉时才知道这条是自己补的、可以跟着删
+		AutoCreated: true,
 	})
 	if err != nil {
 		return false, fmt.Errorf("自动添加落地域名解析记录失败: %w", err)
+	}
+	return true, nil
+}
+
+// ReleaseLandingRecord 服务没了，把当初替它补的那条记录也收回去。
+//
+// 不收的话，DDNS 列表里会一直躺着一条谁也不认识的记录，每轮照常往服务商那边
+// 推 IP，维护着一个早就没有服务在听的域名。用户既不知道它是谁加的，
+// 也不知道能不能删。
+//
+// 只删自己加的那条：用户手动建的，或者建完又被他改过的（UpdateRecord 会把
+// AutoCreated 清掉），一律不动——同一个域名他可能还拿来干别的。
+func (r *DDNSRuntime) ReleaseLandingRecord(host string) (removed bool, err error) {
+	rec, ok := r.FindRecordByHost(host)
+	if !ok || !rec.AutoCreated {
+		return false, nil
+	}
+	if err := r.DeleteRecord(rec.ID); err != nil {
+		return false, err
 	}
 	return true, nil
 }

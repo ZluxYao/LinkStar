@@ -168,6 +168,7 @@ func registerSTUNRedirectSyncer() {
 
 	// 落地域名那条解析记录归 DDNS 管，同样反过来注入
 	stun.RegisterLandingRecordEnsurer(ddns.Runtime.EnsureLandingRecord)
+	stun.RegisterLandingRecordReleaser(ddns.Runtime.ReleaseLandingRecord)
 
 	// 界面上要显示落地域名归哪条记录管：状态在 DDNS 那边，翻译成 stun 认识的样子
 	stun.RegisterLandingRecordInspector(func(host string) (stun.LandingRecordState, bool) {

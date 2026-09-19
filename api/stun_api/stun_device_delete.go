@@ -34,10 +34,12 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	deletedServiceIDs := make([]uint, 0, len(stun.Runtime.Config.Devices[deviceIndex].Services))
 	// 入口重定向配置得在摘掉之前留一份，理由同 stun_service_delete.go
 	redirectCfgs := make(map[uint]model.RedirectConfig, len(stun.Runtime.Config.Devices[deviceIndex].Services))
+	landingHosts := make([]string, 0, len(stun.Runtime.Config.Devices[deviceIndex].Services))
 	for _, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
 		stun.Runtime.Scheduler.StopService(cr.DeviceID, svc.ID)
 		deletedServiceIDs = append(deletedServiceIDs, svc.ID)
 		redirectCfgs[svc.ID] = svc.Redirect
+		landingHosts = append(landingHosts, svc.Domain)
 	}
 
 	// 从切片中删除该设备
@@ -57,6 +59,10 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	for _, sid := range deletedServiceIDs {
 		stun.EmitServiceDeleted(cr.DeviceID, sid)
 		stun.CleanupRedirect(redirectCfgs[sid], cr.DeviceID, sid)
+	}
+	// 当初替这些域名自动加的 DDNS 记录也收回去，理由同 stun_service_delete.go
+	for _, host := range landingHosts {
+		stun.CleanupLandingRecord(host)
 	}
 
 	res.OkWithMsg("删除成功", c)

@@ -47,9 +47,10 @@ func (StunApi) StunServiceDeleteView(c *gin.Context) {
 	// 修复2：原版调用已删除的全局函数 stun.StopService，改为调度器实例方法
 	stun.Runtime.Scheduler.StopService(cr.DeviceID, cr.ServiceID)
 
-	// 入口重定向配置得在摘掉之前留一份：删完就查不到了，
+	// 入口重定向配置和落地域名都得在摘掉之前留一份：删完就查不到了，
 	// 而 Cloudflare 那条规则还在，继续把人送到一个没了的端口
 	redirectCfg := stun.Runtime.Config.Devices[deviceIndex].Services[serviceIndex].Redirect
+	landingHost := stun.Runtime.Config.Devices[deviceIndex].Services[serviceIndex].Domain
 
 	// 从切片中删除该服务
 	services := stun.Runtime.Config.Devices[deviceIndex].Services
@@ -67,6 +68,8 @@ func (StunApi) StunServiceDeleteView(c *gin.Context) {
 	// 通知订阅方（home 模块借此级联清掉对应卡片）
 	stun.EmitServiceDeleted(cr.DeviceID, cr.ServiceID)
 	stun.CleanupRedirect(redirectCfg, cr.DeviceID, cr.ServiceID)
+	// 当初替这个域名自动加的那条 DDNS 记录也收回去，别留一条谁也不认识的记录在那空转
+	stun.CleanupLandingRecord(landingHost)
 
 	res.OkWithMsg("删除成功", c)
 }

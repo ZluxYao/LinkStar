@@ -19,6 +19,8 @@ type RecordInput struct {
 	IPSourceArg  string
 	TTL          int
 	Proxied      bool
+	// AutoCreated 只有 EnsureLandingRecord 会置 true，界面上加的记录一律 false
+	AutoCreated bool
 }
 
 // ============ Provider 增删改 =============
@@ -178,6 +180,7 @@ func (r *DDNSRuntime) AddRecord(in RecordInput) (model.DDNSRecord, error) {
 			IPSourceArg:  in.IPSourceArg,
 			TTL:          in.TTL,
 			Proxied:      in.Proxied,
+			AutoCreated:  in.AutoCreated,
 			LastStatus:   model.DDNSRecordStatusPending,
 			CreatedAt:    now,
 			UpdatedAt:    now,
@@ -240,6 +243,9 @@ func (r *DDNSRuntime) UpdateRecord(id uint, in RecordInput) error {
 			rec.IPSourceArg = in.IPSourceArg
 			rec.TTL = in.TTL
 			rec.Proxied = in.Proxied
+			// 用户在界面上动过这条，它就归用户了：以后服务被删也不再跟着删。
+			// 宁可留下一条没人用的记录让他自己删，也不能替他删掉他改过的东西。
+			rec.AutoCreated = false
 			rec.UpdatedAt = time.Now()
 			found = true
 			break

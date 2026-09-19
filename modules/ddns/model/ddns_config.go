@@ -100,6 +100,12 @@ type DDNSRecord struct {
 	TTL          int           `json:"ttl"`         // ttl
 	Proxied      bool          `json:"proxied"`     // 小云朵代理
 
+	// AutoCreated 这条记录是 LinkStar 自己替某个服务的落地域名补的，不是用户加的。
+	//
+	// 只影响一件事：那个服务被删掉时，这条记录跟着删。用户自己加的绝不能动——
+	// 他可能拿同一个域名干别的。用户在界面上改过之后也不再算自动的（见 UpdateRecord）。
+	AutoCreated bool `json:"autoCreated"`
+
 	LastIP      string           `json:"lastIP"`      // 上次成功同步的 IP
 	LastStatus  DDNSRecordStatus `json:"lastStatus"`  // 上次同步状态,如 success/failed/skipped
 	LastMessage string           `json:"lastMessage"` // 上次同步结果或失败原因

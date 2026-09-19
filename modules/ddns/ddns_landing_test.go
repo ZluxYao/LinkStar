@@ -2,7 +2,10 @@ package ddns
 
 import (
 	"net"
+	"os"
 	"testing"
+
+	"linkstar/modules/ddns/model"
 )
 
 func TestSplitZone(t *testing.T) {
@@ -61,6 +64,51 @@ func TestRecordFQDN(t *testing.T) {
 		if got := recordFQDN(c.domain, c.sub); got != c.want {
 			t.Fatalf("recordFQDN(%q, %q) = %q，想要 %q", c.domain, c.sub, got, c.want)
 		}
+	}
+}
+
+// TestReleaseLandingRecord 服务删掉时只收回 LinkStar 自己补的那条。
+//
+// 反过来错了的代价不对称：少删一条，用户在列表里看见一条没用的记录，自己删掉就完了；
+// 多删一条，删掉的是用户手写的解析记录，他那个域名当场解析不到，而且没有回收站。
+func TestReleaseLandingRecord(t *testing.T) {
+	t.Chdir(t.TempDir()) // 删记录会落盘，别写进仓库
+	if err := os.MkdirAll("config", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &DDNSRuntime{}
+	r.Config = model.DDNSConfig{Records: []model.DDNSRecord{
+		{ID: 1, Domain: "example.com", SubDomain: "nas", RecordType: model.DNSRecordTypeA, AutoCreated: true},
+		{ID: 2, Domain: "example.com", SubDomain: "blog", RecordType: model.DNSRecordTypeA},
+	}}
+
+	// 用户自己加的那条：不能动
+	removed, err := r.ReleaseLandingRecord("blog.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed {
+		t.Fatal("用户自己加的记录被删了")
+	}
+
+	// 压根没这个域名：当没事发生，别报错
+	if removed, err := r.ReleaseLandingRecord("nothing.example.com"); err != nil || removed {
+		t.Fatalf("没这个域名时应该什么都不做，得到 removed=%v err=%v", removed, err)
+	}
+
+	// 自己补的那条：收回去
+	removed, err = r.ReleaseLandingRecord("nas.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("自动加的记录没被收回")
+	}
+
+	left := r.Snapshot().Records
+	if len(left) != 1 || left[0].ID != 2 {
+		t.Fatalf("剩下的记录不对：%+v", left)
 	}
 }
 
