@@ -14,7 +14,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onChange, open, onClose }: SidebarProps) {
-  const [version, setVersion] = useState('0.6.4')
+  const [version, setVersion] = useState('0.6.5')
 
   useEffect(() => {
     getVersion()
