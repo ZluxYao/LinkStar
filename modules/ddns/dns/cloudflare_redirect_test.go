@@ -2,8 +2,13 @@ package dns
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // mustRules 把一段 JSON 规则数组解析成 []cfRule
@@ -295,6 +300,117 @@ func TestShortCause(t *testing.T) {
 
 	if got := shortCause("短原因"); got != "短原因" {
 		t.Fatalf("本来就短的不该改动: %q", got)
+	}
+}
+
+// ==== 多个服务同时往一份规则集里写 ====
+
+// cfFakeAPI 够跑通一次 SyncRedirectRule 的假 Cloudflare：zone 查询、
+// 入口域名记录查询、规则集读写。规则集是有状态的，写进去下次就读得到。
+type cfFakeAPI struct {
+	mu        sync.Mutex
+	rules     []cfRule
+	readDelay time.Duration
+}
+
+func (f *cfFakeAPI) handler(t *testing.T) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		switch {
+		case r.URL.Path == "/zones":
+			fmt.Fprint(w, `{"success":true,"result":[{"id":"z1","name":"example.com"}]}`)
+
+		case strings.HasSuffix(r.URL.Path, "/dns_records"):
+			// 入口域名那条记录已经建好也开着小黄云，这个测试不关心它
+			fmt.Fprint(w, `{"success":true,"result":[{"id":"rec1","type":"A",`+
+				`"content":"192.0.2.1","proxied":true,"ttl":1,"comment":"linkstar:entry"}]}`)
+
+		case strings.HasSuffix(r.URL.Path, "/entrypoint") && r.Method == http.MethodGet:
+			f.mu.Lock()
+			raw, err := json.Marshal(f.rules)
+			f.mu.Unlock()
+			if err != nil {
+				t.Errorf("规则集序列化失败: %v", err)
+			}
+			// 快照取完再拖一会儿才回：没有锁的话，几个请求就都拿到同一份旧快照，
+			// 正是开机时三个服务同时同步的样子
+			time.Sleep(f.readDelay)
+			fmt.Fprintf(w, `{"success":true,"result":{"id":"rs1","rules":%s}}`, raw)
+
+		case strings.HasSuffix(r.URL.Path, "/entrypoint"):
+			var body cfRulesetPut
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("PUT 的 body 解析不了: %v", err)
+			}
+			f.mu.Lock()
+			f.rules = body.Rules
+			f.mu.Unlock()
+			fmt.Fprint(w, `{"success":true,"result":{"id":"rs1","rules":[]}}`)
+
+		default:
+			t.Errorf("测试没预料到的请求: %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}
+}
+
+// TestSyncRedirectRuleConcurrentWrites 几个服务同时同步，谁的端口都不能被别人按回去。
+//
+// 「界面显示成功、Cloudflare 那边还是旧端口」还有第二个来源，0.6.5 才修掉：
+// 改一条规则要整份读回来再整份写回去，两个服务的读-改-写一交错，
+// 后写的那份带着前一个的旧端口，把刚写好的盖掉。被盖的那边收到的是 200，
+// 于是记下「已经是新端口了」，之后地址没变就再也不同步——永远不会自己纠正。
+// 开机时所有洞几乎同时打通，必撞。
+func TestSyncRedirectRuleConcurrentWrites(t *testing.T) {
+	fake := &cfFakeAPI{readDelay: 50 * time.Millisecond}
+	srv := httptest.NewServer(fake.handler(t))
+	defer srv.Close()
+
+	old := zonesAPI
+	zonesAPI = srv.URL + "/zones"
+	t.Cleanup(func() { zonesAPI = old })
+
+	// 三个服务各自的入口域名和当前外网端口
+	type svc struct{ key, entry, target string }
+	services := []svc{
+		{"linkstar:1-1", "linkstar.example.com", "https://example.com:27096"},
+		{"linkstar:2-1", "fn.example.com", "https://example.com:27094"},
+		{"linkstar:2-4", "blog.example.com", "https://example.com:26297"},
+	}
+
+	cf := NewCloudflare("test-token")
+	var wg sync.WaitGroup
+	for _, s := range services {
+		wg.Add(1)
+		go func(s svc) {
+			defer wg.Done()
+			if _, _, err := cf.SyncRedirectRule("example.com", s.key, "", s.entry, s.target); err != nil {
+				t.Errorf("%s 同步失败: %v", s.key, err)
+			}
+		}(s)
+	}
+	wg.Wait()
+
+	fake.mu.Lock()
+	got := fake.rules
+	fake.mu.Unlock()
+
+	if len(got) != len(services) {
+		t.Fatalf("三个服务各一条，Cloudflare 那边应该有 %d 条，实际 %d 条", len(services), len(got))
+	}
+	byKey := make(map[string]cfRule, len(got))
+	for _, r := range got {
+		byKey[ruleKeyOf(r)] = r
+	}
+	for _, s := range services {
+		r, ok := byKey[s.key]
+		if !ok {
+			t.Errorf("%s 的规则被别的服务写没了", s.key)
+			continue
+		}
+		if !strings.Contains(string(r["action_parameters"]), s.target) {
+			t.Errorf("%s 的端口被别的服务按回旧值了：%s", s.key, r["action_parameters"])
+		}
 	}
 }
 

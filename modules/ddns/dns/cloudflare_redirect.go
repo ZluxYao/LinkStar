@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Cloudflare 支持入口重定向规则同步
@@ -47,6 +48,29 @@ type cfRulesetPut struct {
 	Rules []cfRule `json:"rules"`
 }
 
+// redirectRulesetLocks 同一个 zone 的规则集，一次只让一个人改。
+//
+// Cloudflare 没有「只改一条规则」的接口：一个 zone 的重定向规则是一整份
+// ruleset，改任何一条都得整份读回来、改完整份写回去。两个服务同时同步时，
+// 各自读到的都是对方写之前那一份，后写的那份里带着前一个的旧端口，
+// 把刚写好的按了回去。
+//
+// 被按回去的那一边拿到的是 200，于是记下「服务商那边已经是新端口了」，
+// 之后地址没变就再也不同步（scheduler.go 的 shouldSyncRedirect），
+// 界面显示新端口、Cloudflare 那边是旧端口，而且永远不会自己纠正。
+// 开机时所有洞几乎同时打通，这个必撞——而且撞完两边都不报错。
+//
+// 按 zone 分锁：不同账号、不同域名之间没有共享的规则集，不用互相等。
+var redirectRulesetLocks sync.Map // zoneID -> *sync.Mutex
+
+// lockRedirectRuleset 锁住这个 zone 的规则集，返回解锁函数
+func lockRedirectRuleset(zoneID string) func() {
+	v, _ := redirectRulesetLocks.LoadOrStore(zoneID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
 // SyncRedirectRule 把一条入口重定向写进 zone 的重定向规则集。
 //
 // 返回的 keepPath 表示是否用上了「保留原始路径」的动态目标。
@@ -71,6 +95,11 @@ func (cf *Cloudflare) SyncRedirectRule(zoneDomain, ruleKey, ruleLabel, entryHost
 	if err != nil {
 		return false, "", err
 	}
+
+	// 从这里到函数结束是一次完整的读-改-写，中间不能让第二个服务插进来：
+	// 它读到的会是本次写入之前那一份，写回去就等于把这次的端口按回旧值。
+	unlock := lockRedirectRuleset(zoneID)
+	defer unlock()
 
 	existing, err := cf.readRedirectRules(zoneID)
 	if err != nil {
@@ -105,6 +134,10 @@ func (cf *Cloudflare) RemoveRedirectRule(zoneDomain, ruleKey string) error {
 	if err != nil {
 		return err
 	}
+
+	// 删也是整份写回去，和同步抢的是同一份规则集
+	unlock := lockRedirectRuleset(zoneID)
+	defer unlock()
 
 	existing, err := cf.readRedirectRules(zoneID)
 	if err != nil {

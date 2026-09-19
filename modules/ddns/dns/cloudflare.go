@@ -11,7 +11,9 @@ import (
 	"time"
 )
 
-const zonesAPI = "https://api.cloudflare.com/client/v4/zones"
+// zonesAPI Cloudflare 的 zone 接口根地址。
+// 是变量不是常量，只为一件事：测试里换成本地的假服务器。运行时不会被改。
+var zonesAPI = "https://api.cloudflare.com/client/v4/zones"
 
 // Cloudflare
 type Cloudflare struct {
