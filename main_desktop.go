@@ -3,8 +3,8 @@
 package main
 
 import (
-	_ "embed"
 	"crypto/rand"
+	_ "embed"
 	"encoding/hex"
 	"net/url"
 	"os"
@@ -20,10 +20,28 @@ import (
 )
 
 const (
-	mainWinName  = "linkstar-main"
-	windowWidth  = 1180
-	windowHeight = 760
+	mainWinName = "linkstar-main"
+	// 默认开这么大：STUN 页面「设备列表 + 服务卡片」两栏能并排各自舒展开，
+	// 服务卡片刚好两列，不用一进来就先拉窗口
+	windowWidth  = 1440
+	windowHeight = 900
+	minWinWidth  = 960
+	minWinHeight = 640
 )
+
+// fitWindow 把默认尺寸收进主显示器的可用区域。
+// 1440x900 在 1366x768 这类小屏笔记本上比屏幕还大，wails 居中之后标题栏会跑到屏幕上边外面，
+// 鼠标够不着就拖不回来了。留 48px 余量往下压，压到最小尺寸为止。
+func fitWindow(w, h int) (int, int) {
+	availW, availH := primaryWorkArea()
+	if availW > 0 && w > availW-48 {
+		w = availW - 48
+	}
+	if availH > 0 && h > availH-48 {
+		h = availH - 48
+	}
+	return max(w, minWinWidth), max(h, minWinHeight)
+}
 
 //go:embed icon_64.png
 var trayIcon []byte
@@ -110,13 +128,14 @@ func newDesktopApp() *application.App {
 		},
 	})
 
+	winW, winH := fitWindow(windowWidth, windowHeight)
 	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:         appName,
 		Name:          mainWinName,
-		Width:         windowWidth,
-		Height:        windowHeight,
-		MinWidth:      960,
-		MinHeight:     640,
+		Width:         winW,
+		Height:        winH,
+		MinWidth:      minWinWidth,
+		MinHeight:     minWinHeight,
 		URL:           desktopAdminURL(),
 		HideOnEscape:  true,
 		DisableResize: false,

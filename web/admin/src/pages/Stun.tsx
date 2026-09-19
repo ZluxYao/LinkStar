@@ -2384,32 +2384,29 @@ export function Stun() {
       {/* 设备 + 服务 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <Card className="lg:col-span-3">
-          <CardHeader
-            title="设备列表"
-            action={
-              <div className="flex items-center gap-1">
-                {/* 扫描摆在前面：不用去路由器后台翻 IP，是更省事的那条路 */}
-                <button
-                  onClick={openScan}
-                  disabled={scanOpening}
-                  className="flex items-center gap-1 rounded-md bg-blue-500 px-2 py-1 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600 disabled:opacity-50"
-                >
-                  {scanOpening ? (
-                    <LoaderCircle className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Radar className="h-3 w-3" />
-                  )}
-                  扫描
-                </button>
-                <button
-                  onClick={() => setDeviceModal({ open: true })}
-                  className="flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-                >
-                  <Plus className="h-3 w-3" /> 添加
-                </button>
-              </div>
-            }
-          />
+          <CardHeader title="设备列表" className="mb-2" />
+          {/* 这一栏窄，两个按钮跟标题挤一行会把标题挤断，单独占一行 */}
+          <div className="mb-3 flex items-center gap-2">
+            {/* 扫描摆在前面：不用去路由器后台翻 IP，是更省事的那条路 */}
+            <button
+              onClick={openScan}
+              disabled={scanOpening}
+              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600 disabled:opacity-50"
+            >
+              {scanOpening ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Radar className="h-3.5 w-3.5" />
+              )}
+              扫描
+            </button>
+            <button
+              onClick={() => setDeviceModal({ open: true })}
+              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> 添加
+            </button>
+          </div>
           {!config.devices || config.devices.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">暂无设备接入</div>
           ) : (
@@ -2420,20 +2417,25 @@ export function Stun() {
                   <li
                     key={getDeviceId(d)}
                     onClick={() => setSelectedIndex(idx)}
-                    className={`group cursor-pointer rounded-xl border px-3 py-2 transition ${
+                    className={`group relative cursor-pointer rounded-xl border px-3 py-2 transition ${
                       active
                         ? 'border-blue-200 bg-blue-50 text-blue-700'
                         : 'border-transparent hover:bg-slate-50'
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <Server className={`h-4 w-4 ${active ? 'text-blue-500' : 'text-slate-400'}`} />
-                      <span className="flex-1 truncate text-sm font-semibold">{d.name || '未知设备'}</span>
+                      <Server
+                        className={`h-4 w-4 shrink-0 ${active ? 'text-blue-500' : 'text-slate-400'}`}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                        {d.name || '未知设备'}
+                      </span>
                     </div>
                     <div className="ml-6 truncate font-mono text-xs text-slate-400">{d.ip || '--'}</div>
+                    {/* 浮在右上角，不占位：选中/悬停时出现，行高不会跟着跳，名字也不用让出宽度 */}
                     <div
-                      className={`ml-6 mt-1.5 flex gap-1 transition ${
-                        active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      className={`absolute right-2 top-2 flex gap-0.5 rounded-lg bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 backdrop-blur transition ${
+                        active ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
                       }`}
                     >
                       <button
@@ -2441,18 +2443,20 @@ export function Stun() {
                           e.stopPropagation()
                           setDeviceModal({ open: true, initial: d })
                         }}
-                        className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-emerald-600 ring-1 ring-emerald-200 hover:bg-emerald-50"
+                        title="编辑设备"
+                        className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
                       >
-                        编辑
+                        <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
                           removeDevice(d)
                         }}
-                        className="rounded-md bg-white px-1.5 py-0.5 text-[10px] font-semibold text-rose-500 ring-1 ring-rose-200 hover:bg-rose-50"
+                        title="删除设备"
+                        className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
                       >
-                        删除
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </li>
@@ -2486,7 +2490,9 @@ export function Stun() {
                 该设备暂无服务配置，点击右上角"添加服务"开始配置
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              // 按卡片最小宽度排，不按断点排：以前窗口一过 1280 就硬切三列，
+              // 卡片反而被压到 250 上下，服务名和协议标签全挤成两行
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(18rem,100%),1fr))] gap-3">
                 {device.services.map((svc) => {
                   const key = `${getDeviceId(device)}-${svc.id}`
                   const status = statusMap[key]
