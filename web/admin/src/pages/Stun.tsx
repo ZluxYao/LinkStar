@@ -1642,6 +1642,16 @@ function ServiceModal({
                       )}
                     </div>
                   )}
+                  {status?.redirectStatus === 'stale' && (
+                    <div className="text-xs text-amber-600">
+                      外网端口已经换了，现在从入口域名进来打不开 —— 那边还指着上一个地址{' '}
+                      <span className="font-mono">{status.redirectTarget}</span>
+                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                      <div className="mt-1 text-slate-400">
+                        洞确认通了会自己改过去，一般几十秒。等不及就点下面的「立即同步」
+                      </div>
+                    </div>
+                  )}
                   {status?.redirectStatus === 'failed' && (
                     <div className="text-xs text-rose-500">
                       失败：{status.redirectError || '未知原因'}

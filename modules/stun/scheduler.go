@@ -6,6 +6,7 @@ import (
 	"linkstar/modules/stun/model"
 	"linkstar/modules/webhook"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,7 +39,10 @@ type StateEvent struct {
 
 	// 入口重定向的同步结果。只在运行时保存，不写进配置文件——
 	// 配置是用户填的，状态是跑出来的，混在一起前端一保存就会把状态覆盖掉。
-	RedirectStatus   string    `json:"redirectStatus"`   // ok / failed，空表示还没同步过
+	//
+	// stale = 外网端口已经变了，服务商那边还是 RedirectTarget 这个旧地址，
+	// 此时从入口域名进来是打不开的，得等洞确认通了才会自动写过去。
+	RedirectStatus   string    `json:"redirectStatus"`   // ok / failed / stale，空表示还没同步过
 	RedirectTarget   string    `json:"redirectTarget"`   // 最近一次写过去的地址
 	RedirectError    string    `json:"redirectError"`    // 失败原因
 	RedirectKeepPath bool      `json:"redirectKeepPath"` // 服务商是否接受了「保留原始路径」的写法
@@ -105,8 +109,9 @@ type serviceEntry struct {
 	updatedAt    time.Time
 
 	// 入口重定向：和 webhook 各记各的，免得动一边的开关影响到另一边
-	lastRedirect     string    // 最近一次同步过的目标地址，相同就不再打服务商 API
-	redirectStatus   string    // ok / failed
+	lastRedirect     string    // 最近一次真写进服务商的目标地址，相同就不再打 API
+	redirectPending  string    // 正在写、还没有结果的目标地址，空表示没有在途的
+	redirectStatus   string    // ok / failed / stale
 	redirectError    string    // 失败原因
 	redirectKeepPath bool      // 服务商是否接受了保留路径的写法
 	redirectAt       time.Time // 最近一次同步时间
@@ -346,6 +351,22 @@ func (s *Scheduler) Subscribe() (<-chan StateEvent, func()) {
 	}
 }
 
+// RecordManualRedirect 把「立即同步」那一下的结果也记到运行状态里。
+//
+// 不记的话界面上「最近一次同步」那行还停在上一次自动同步的地址：用户明明刚点过，
+// 看到的还是旧地址配一个绿色的「成功」。
+func (s *Scheduler) RecordManualRedirect(deviceID, serviceID uint, target string, keepPath bool, err error) {
+	key := serviceKey(deviceID, serviceID)
+	s.mu.RLock()
+	entry, ok := s.service[key]
+	s.mu.RUnlock()
+	if !ok || entry == nil {
+		return
+	}
+	entry.recordRedirect(target, keepPath, err)
+	s.emit(entry.snapshot(key, EventLogAppended))
+}
+
 func (s *Scheduler) Get(deviceID, serviceID uint) (StateEvent, bool) {
 	key := serviceKey(deviceID, serviceID)
 	s.mu.RLock() // 读锁：允许多个 goroutine 同时读，但不能同时写
@@ -472,6 +493,9 @@ func (s *Scheduler) runService(ctx context.Context, key string, entry *serviceEn
 		err := s.runner.Run(ctx, req, func(state STUNState) {
 			switch state.State {
 			case STUNMapped:
+				// 先标再 transition：transition 会把快照推给前端，
+				// 顺序反了的话前端先收到新端口、再等下一次事件才收到状态
+				entry.markRedirectStale(state.ExternalPort)
 				s.transition(entry, key, PhaseProbing, state.ExternalPort, state.Log)
 			case STUNAlive:
 				everAlive = true
@@ -720,10 +744,18 @@ func (s *Scheduler) syncServiceRedirect(entry *serviceEntry, key string, req STU
 }
 
 // shouldSyncRedirect 目标没变就不打服务商 API；上次失败的话等冷却时间过了再试。
-// 返回 true 时已经把 lastRedirect 占上了，避免同一个目标被并发同步两次。
+//
+// 返回 true 时已经把 redirectPending 占上了，避免同一条规则被并发写两遍。
+// lastRedirect 要等真写完才动：它是「服务商那边现在是什么」，界面直接显示这个值，
+// 提前改成新地址的话，写还没发出去，界面上就已经报了个成功。
 func (e *serviceEntry) shouldSyncRedirect(target string) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	// 已经有一次在写了：这次先放过，下一次保活心跳会拿最新地址再来
+	if e.redirectPending != "" {
+		return false
+	}
 	if e.lastRedirect == target {
 		if e.redirectStatus != "failed" {
 			return false
@@ -731,8 +763,11 @@ func (e *serviceEntry) shouldSyncRedirect(target string) bool {
 		if time.Now().Before(e.redirectRetryAt) {
 			return false
 		}
+	} else if e.lastRedirect != "" {
+		// 地址变了，服务商那边还是旧的，这段时间里界面别再显示绿色的「成功」
+		e.redirectStatus = "stale"
 	}
-	e.lastRedirect = target
+	e.redirectPending = target
 	return true
 }
 
@@ -741,6 +776,7 @@ func (e *serviceEntry) recordRedirect(target string, keepPath bool, err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.lastRedirect = target
+	e.redirectPending = ""
 	e.redirectKeepPath = keepPath
 	e.redirectAt = time.Now()
 	if err != nil {
@@ -752,6 +788,44 @@ func (e *serviceEntry) recordRedirect(target string, keepPath bool, err error) {
 	e.redirectStatus = "ok"
 	e.redirectError = ""
 	e.redirectRetryAt = time.Time{}
+}
+
+// markRedirectStale 外网端口刚换了一个，服务商那边还是旧的——把状态标出来。
+//
+// 端口是在 STUNMapped 那一刻就知道的，可真正写服务商要等 STUNAlive（洞得先被
+// 外面拨回来确认通了）。中间这段时间界面上是一个绿色的「成功」配着旧端口，
+// 而入口域名此刻是打不开的：看着一切正常，实际断着，最难查的就是这种。
+//
+// 返回 true 表示状态真的变了，调用方据此决定要不要推一次给前端。
+func (e *serviceEntry) markRedirectStale(port uint16) bool {
+	if port == 0 {
+		return false
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	// 没同步过（没开重定向，或者还没轮到）就没有「旧的」可言
+	if e.lastRedirect == "" || e.redirectStatus == "stale" {
+		return false
+	}
+	if redirectTargetPort(e.lastRedirect) == port {
+		return false
+	}
+	e.redirectStatus = "stale"
+	return true
+}
+
+// redirectTargetPort 从 scheme://host:port 里把端口抠出来，抠不出来返回 0
+func redirectTargetPort(target string) uint16 {
+	u, err := url.Parse(target)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(u.Port())
+	if err != nil || n <= 0 || n > 65535 {
+		return 0
+	}
+	return uint16(n)
 }
 
 func (e *serviceEntry) shouldSendWebhook(address string, phaseChanged bool, onlyWhenChanged bool) bool {

@@ -201,6 +201,10 @@ func SyncRedirect(deviceID, serviceID uint) (RedirectSyncResult, error) {
 		strings.TrimSpace(cfg.EntryHost),
 		out.Target,
 	)
+	// 手点的这一下也算数：不记进运行状态的话，界面上那行还显示着上一次自动同步的地址
+	if Runtime.Scheduler != nil {
+		Runtime.Scheduler.RecordManualRedirect(deviceID, serviceID, out.Target, out.KeepPath, err)
+	}
 	if err != nil {
 		return out, err
 	}

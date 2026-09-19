@@ -198,7 +198,7 @@ export interface StunStatusEvent {
   externalPort?: number
   lastError?: string
   logs?: StunStatusLog[]
-  /** ok / failed，空表示还没同步过 */
+  /** ok / failed / stale（端口已经变了、还没写过去），空表示还没同步过 */
   redirectStatus?: string
   redirectTarget?: string
   redirectError?: string
