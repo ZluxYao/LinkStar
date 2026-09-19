@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
+	"os"
 	"runtime"
 
 	"linkstar/core"
@@ -36,6 +37,14 @@ func genDesktopSecret() string {
 		return ""
 	}
 	return hex.EncodeToString(b)
+}
+
+// browserArgs 排查用：设了 LINKSTAR_WEBVIEW_DEBUG_PORT 才给 WebView2 开远程调试端口，平时为空。
+func browserArgs() []string {
+	if port := os.Getenv("LINKSTAR_WEBVIEW_DEBUG_PORT"); port != "" {
+		return []string{"--remote-debugging-port=" + port}
+	}
+	return nil
 }
 
 // desktopAdminURL 在 admin URL 上附带 secret，前端首屏读取后存入 sessionStorage 并从地址栏抹掉。
@@ -91,6 +100,7 @@ func newDesktopApp() *application.App {
 		},
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,
+			AdditionalBrowserArgs:         browserArgs(),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
