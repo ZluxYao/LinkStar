@@ -35,6 +35,14 @@ func InitCert() error {
 		if !c.Enabled {
 			continue
 		}
+		// 自签而且从没签过：磁盘上压根没有 PEM，报「加载失败」是误导。
+		// 全新安装垫的那张就是这个样子，当场签出来即可（本地运算，毫秒级）。
+		if c.Source == model.SourceSelfSigned && c.NotAfter.IsZero() {
+			if err := GenerateSelfSigned(c); err != nil {
+				logCertError(c, "生成自签证书失败", err)
+			}
+			continue
+		}
 		if err := loadAndCommit(c); err != nil {
 			logCertError(c, "启动加载失败", err)
 			continue

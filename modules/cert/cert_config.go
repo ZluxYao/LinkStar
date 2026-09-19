@@ -33,11 +33,35 @@ func ReadConfig() (model.CertConfig, error) {
 	return config, nil
 }
 
+// defaultCertName 全新安装时垫的那张自签证书的名字
+const defaultCertName = "自签证书"
+
 func createConfig() (model.CertConfig, error) {
+	now := time.Now()
+
 	var config model.CertConfig
-	config.CreatedAt = time.Now()
-	config.UpdatedAt = time.Now()
-	config.Certificates = []model.Certificate{}
+	config.CreatedAt = now
+	config.UpdatedAt = now
+
+	// 全新安装先垫一张自签证书。
+	//
+	// TLS 规定服务器必须出示证书，一张都没有的话「洞口终结 TLS」「反代 HTTPS」
+	// 这些开关勾了也用不了，握手直接失败——而新用户看到的只是「连不上」。
+	// 自签在本地签，毫秒级，不联网、不占 CA 配额，垫着不花任何代价。
+	//
+	// 只在配置文件刚被创建出来的这一次垫。之后用户把它删了就是删了，不再补。
+	//
+	// PEM 这时候还没有：ID 分配、目录创建都在这之后，所以只写配置，
+	// 真正签发交给 InitCert——它看到「自签 + 从没签过」会当场签一张。
+	config.Certificates = []model.Certificate{{
+		ID:        1,
+		Name:      defaultCertName,
+		Source:    model.SourceSelfSigned,
+		Enabled:   true,
+		IsDefault: true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}}
 
 	if err := os.MkdirAll(path.Dir(ConfigPath), 0755); err != nil {
 		logrus.Error("创建 CertConfig 目录失败：", err)
