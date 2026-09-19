@@ -1,4 +1,3 @@
-nat 家庭探测
 NAT-PMP/PCP
 IPv6
 中继兜底
