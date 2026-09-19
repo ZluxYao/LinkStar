@@ -5,6 +5,8 @@ import {
   ChevronRight,
   ClipboardCopy,
   Computer,
+  Copy,
+  CornerUpRight,
   ExternalLink,
   FileText,
   Globe,
@@ -14,6 +16,8 @@ import {
   LoaderCircle,
   Pencil,
   Plus,
+  Power,
+  Radar,
   RotateCw,
   Server,
   Send,
@@ -24,13 +28,20 @@ import {
   X,
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
+import { modalBackdrop } from '../components/modal'
 import * as api from '../lib/api'
 import type {
   Certificate,
+  DdnsProvider,
+  LanHost,
+  LanPort,
+  LanSubnet,
   NatDetectResult,
   NatTypeInfo,
   StunConfig,
   StunDevice,
+  RedirectConfig,
+  RedirectInspection,
   StunService,
   StunStatusEvent,
   WebhookConfig,
@@ -45,6 +56,14 @@ const phaseLabel: Record<string, string> = {
   STOPPED: '已停止',
 }
 
+/** 后端给的是 time.Time，没同步过时是零值，别显示成 0001 年 */
+function fmtTime(v?: string) {
+  if (!v) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return ''
+  return d.toLocaleString()
+}
+
 interface Toast {
   id: number
   text: string
@@ -56,7 +75,10 @@ function useToast() {
   const show = useCallback((text: string) => {
     const id = ++idRef.current
     setToasts((p) => [...p, { id, text }])
-    window.setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 2000)
+    // 「已保存」两秒够了，但同步失败那种带着「接下来该干什么」的长句，
+    // 两秒读不完就没了，等于没说。按字数给时间，最多十二秒
+    const ms = Math.min(12000, Math.max(2000, text.length * 130))
+    window.setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), ms)
   }, [])
   return { toasts, show }
 }
@@ -73,15 +95,18 @@ const emptyDevice: DeviceFormState = { name: '', ip: '' }
 
 function DeviceModal({
   initial,
+  prefill,
   onCancel,
   onSubmit,
 }: {
   initial?: StunDevice
+  /** 扫描结果点「添加」时带过来的 IP。只在新增时用，改的时候以 initial 为准 */
+  prefill?: DeviceFormState
   onCancel: () => void
   onSubmit: (form: DeviceFormState) => Promise<void>
 }) {
   const [form, setForm] = useState<DeviceFormState>(() =>
-    initial ? { name: initial.name, ip: initial.ip } : emptyDevice,
+    initial ? { name: initial.name, ip: initial.ip } : (prefill ?? emptyDevice),
   )
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -103,7 +128,7 @@ function DeviceModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -163,6 +188,242 @@ function DeviceModal({
   )
 }
 
+/**
+ * 局域网扫描。
+ *
+ * 「添加设备」原本要用户自己知道那台机器的内网 IP——得去路由器后台翻 DHCP 列表，
+ * 或者跑去那台机器上敲命令。卡在这一步的人，后面打洞根本轮不到。
+ * 这里直接把这段网里的机器摆出来选。
+ *
+ * 网段列表由外面先取好再传进来，弹窗一开下拉框就是满的。
+ */
+function LanScanModal({
+  subnets,
+  devices,
+  onCancel,
+  onPick,
+  onPickPort,
+}: {
+  subnets: LanSubnet[]
+  devices: StunDevice[]
+  onCancel: () => void
+  onPick: (host: LanHost) => void
+  onPickPort: (device: StunDevice, port: LanPort) => void
+}) {
+  const [cidr, setCidr] = useState(subnets[0]?.cidr ?? '')
+  const [hosts, setHosts] = useState<LanHost[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  // 扫完之后用户可能直接在底下把设备加了，加完这一行要变成「已加入」，
+  // 所以别信扫描结果里的 added，按当前设备列表现算
+  const byIP = useMemo(() => {
+    const m = new Map<string, StunDevice>()
+    for (const d of devices) if (d.ip) m.set(d.ip, d)
+    return m
+  }, [devices])
+
+  // 这个 IP 的这个端口上已经建过服务了。不标的话同一个端口很容易建出两份，
+  // 两份各自去打一个洞，对外两个地址指向同一个服务
+  const takenPorts = useMemo(() => {
+    const s = new Set<string>()
+    for (const d of devices) {
+      for (const svc of d.services ?? []) s.add(`${d.ip}:${svc.internalPort}`)
+    }
+    return s
+  }, [devices])
+
+  const run = async () => {
+    setBusy(true)
+    setErr('')
+    // 上一轮的结果先清掉。换个网段再扫的时候，旧的那几台还挂在那儿，
+    // 看着就跟这一轮扫出来的一样
+    setHosts(null)
+    try {
+      setHosts(await api.scanLan(cidr))
+    } catch (e) {
+      setHosts(null)
+      setErr(e instanceof Error ? e.message : '扫描失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className={modalBackdrop}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onCancel()
+      }}
+    >
+      <div className="max-h-full w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 text-slate-700 shadow-2xl ring-1 ring-slate-200">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-base font-bold text-slate-800">扫描局域网</div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="grid h-7 w-7 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {subnets.length === 0 ? (
+          <div className="rounded-xl bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-700">
+            没找到本机接着的内网网段。手动填 IP 添加设备吧。
+          </div>
+        ) : (
+          <>
+            <div className="flex items-end gap-2">
+              <label className="min-w-0 flex-1">
+                <div className="mb-1 text-xs font-semibold text-slate-500">扫哪一段</div>
+                <select
+                  value={cidr}
+                  onChange={(e) => setCidr(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                >
+                  {subnets.map((s) => (
+                    <option key={s.cidr} value={s.cidr}>
+                      {s.cidr} · {s.iface}（本机 {s.localIP}）
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={run}
+                disabled={busy}
+                className="flex shrink-0 items-center gap-1.5 rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition hover:bg-blue-600 disabled:opacity-50"
+              >
+                {busy ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Radar className="h-4 w-4" />
+                )}
+                {busy ? '扫描中' : '开始扫描'}
+              </button>
+            </div>
+
+            {/*
+              扫不到的是防火墙设成「什么都不回」的机器，Windows 默认就这样。
+              不说这句的话，用户会以为那台设备根本不在网里，转头去查网线。
+            */}
+            <div className="mt-2 text-[11px] leading-5 text-slate-400">
+              两三秒出结果。防火墙拦得严的机器（Windows 默认就是）扫不出来，这种只能自己填 IP。
+            </div>
+
+            {err && <div className="mt-3 text-xs text-rose-500">扫不了：{err}</div>}
+
+            {hosts && (
+              <div className="mt-4">
+                <div className="mb-2 flex items-baseline gap-2">
+                  <span className="text-xs font-semibold text-slate-500">找到 {hosts.length} 台</span>
+                  {/* 端口能点这件事看不出来，得说一句 */}
+                  <span className="text-[11px] text-slate-400">已加过的设备，点端口直接建服务</span>
+                </div>
+                {hosts.length === 0 ? (
+                  <div className="rounded-xl bg-slate-50 px-3 py-4 text-center text-xs text-slate-400">
+                    一台都没扫到。换个网段试试，或者手动填 IP
+                  </div>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {hosts.map((h) => {
+                      const dev = byIP.get(h.ip)
+                      return (
+                        <li
+                          key={h.ip}
+                          className="rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Server className="h-4 w-4 shrink-0 text-slate-400" />
+                            <span className="truncate font-mono text-sm font-semibold text-slate-700">
+                              {h.ip}
+                            </span>
+                            {h.name && (
+                              <span className="truncate text-xs text-slate-400">{h.name}</span>
+                            )}
+                            {h.self && (
+                              <span className="shrink-0 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                                本机
+                              </span>
+                            )}
+                            <div className="flex-1" />
+                            {dev ? (
+                              <span className="shrink-0 truncate text-[11px] text-emerald-600">
+                                已加过「{dev.name || dev.ip}」
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onPick(h)}
+                                className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-600 ring-1 ring-blue-200 transition hover:bg-blue-50"
+                              >
+                                添加
+                              </button>
+                            )}
+                          </div>
+                          {h.ports.length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {h.ports.map((p) => {
+                                const taken = takenPorts.has(`${h.ip}:${p.port}`)
+                                // 端口能点着建服务的前提是这台先成了设备——
+                                // 服务得挂在某台设备底下，不然没地方放
+                                if (!dev || taken) {
+                                  return (
+                                    <span
+                                      key={p.port}
+                                      title={taken ? '这个端口已经建过服务了' : '先把这台加成设备'}
+                                      className={`rounded px-1.5 py-0.5 text-[10px] ring-1 ${
+                                        taken
+                                          ? 'bg-emerald-50 text-emerald-600 ring-emerald-200'
+                                          : 'bg-white text-slate-500 ring-slate-200'
+                                      }`}
+                                    >
+                                      {taken && '✓ '}
+                                      {p.port}
+                                      {p.name && <span className="opacity-70"> {p.name}</span>}
+                                    </span>
+                                  )
+                                }
+                                return (
+                                  <button
+                                    key={p.port}
+                                    type="button"
+                                    onClick={() => onPickPort(dev, p)}
+                                    title={`建一个服务，对外开放 ${p.port} 端口`}
+                                    className="rounded bg-white px-1.5 py-0.5 text-[10px] text-slate-600 ring-1 ring-slate-200 transition hover:bg-blue-50 hover:text-blue-600 hover:ring-blue-300"
+                                  >
+                                    {p.port}
+                                    {p.name && <span className="opacity-70"> {p.name}</span>}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface ServiceFormState {
   name: string
   internalPort: string
@@ -181,9 +442,17 @@ interface ServiceFormState {
   showOnHome: boolean
   description: string
   webhookconfig: WebhookConfig
+  redirect: RedirectConfig
 }
 
-type ServiceModalTab = 'basic' | 'webhook'
+type ServiceModalTab = 'basic' | 'webhook' | 'redirect'
+
+const emptyRedirect: RedirectConfig = {
+  enabled: false,
+  providerId: 0,
+  entryHost: '',
+  zoneDomain: '',
+}
 
 const emptyWebhook: WebhookConfig = {
   enabled: false,
@@ -214,9 +483,10 @@ const emptyService: ServiceFormState = {
   showOnHome: false,
   description: '',
   webhookconfig: emptyWebhook,
+  redirect: emptyRedirect,
 }
 
-/** *.zlux.top 这种通配证书挑不出具体主机名——用哪个标签只能由用户决定 */
+/** *.example.com 这种通配证书挑不出具体主机名——用哪个标签只能由用户决定 */
 function isWildcardDomain(d: string) {
   return d.startsWith('*.')
 }
@@ -225,7 +495,7 @@ function isWildcardDomain(d: string) {
 function matchCertDomain(pattern: string, name: string) {
   if (!name) return false
   if (!isWildcardDomain(pattern)) return pattern === name
-  const suffix = pattern.slice(1) // ".zlux.top"
+  const suffix = pattern.slice(1) // ".example.com"
   if (!name.endsWith(suffix)) return false
   const label = name.slice(0, name.length - suffix.length)
   return label !== '' && !label.includes('.')
@@ -270,6 +540,53 @@ function normalizeWebhook(cfg?: Partial<WebhookConfig>): WebhookConfig {
   }
 }
 
+/** 已存在的服务 → 表单。编辑和「复制」都从这儿取初值，省得两处各写一遍 */
+function serviceToForm(svc: StunService, showOnHome: boolean): ServiceFormState {
+  return {
+    name: svc.name,
+    internalPort: String(svc.internalPort || ''),
+    protocol: (svc.protocol as 'TCP' | 'UDP') || 'TCP',
+    upnpMappedPort: String(svc.upnpMappedPort || 0),
+    useUpnp: !!svc.useUpnp,
+    https: !!svc.https,
+    domain: svc.domain || '',
+    tlsTerminate: !!svc.tlsTerminate,
+    certId: String(svc.certId || 0),
+    backendHttps: !!svc.backendHttps,
+    enabled: svc.enabled !== false,
+    showOnHome,
+    description: svc.description || '',
+    webhookconfig: normalizeWebhook(svc.webhookconfig),
+    redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+  }
+}
+
+/**
+ * 已存在的服务 → 更新报文，原样一份。
+ *
+ * 列表上那个启停开关也得把整个服务发回去：后端的更新接口是整体覆盖，
+ * 少带哪个字段，那个字段就被清成空的了。
+ */
+function serviceToPayload(deviceId: number, svc: StunService): api.StunServicePayload {
+  return {
+    deviceId,
+    name: svc.name,
+    internalPort: svc.internalPort,
+    protocol: svc.protocol || 'TCP',
+    upnpMappedPort: svc.upnpMappedPort || 0,
+    useUpnp: !!svc.useUpnp,
+    https: !!svc.https,
+    domain: svc.domain || '',
+    tlsTerminate: !!svc.tlsTerminate,
+    certId: svc.certId || 0,
+    backendHttps: !!svc.backendHttps,
+    enabled: svc.enabled !== false,
+    description: svc.description || '',
+    webhookconfig: normalizeWebhook(svc.webhookconfig),
+    redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+  }
+}
+
 function getWebhookStatus(status?: StunStatusEvent) {
   const logs = status?.logs ?? []
   for (let i = logs.length - 1; i >= 0; i--) {
@@ -285,35 +602,28 @@ function getWebhookStatus(status?: StunStatusEvent) {
 }
 
 function ServiceModal({
+  deviceId,
   initial,
+  prefill,
   initialShowOnHome,
+  status,
   onCancel,
   onSubmit,
+  onToast,
 }: {
+  deviceId: number
   initial?: StunService
+  /** 新建时的初值：扫描里点端口、或者复制现有服务带过来的。改的时候以 initial 为准 */
+  prefill?: Partial<ServiceFormState>
   initialShowOnHome: boolean
+  status?: StunStatusEvent
   onCancel: () => void
   onSubmit: (form: ServiceFormState) => Promise<void>
+  onToast: (text: string) => void
 }) {
-  const [form, setForm] = useState<ServiceFormState>(() => {
-    if (!initial) return emptyService
-    return {
-      name: initial.name,
-      internalPort: String(initial.internalPort || ''),
-      protocol: (initial.protocol as 'TCP' | 'UDP') || 'TCP',
-      upnpMappedPort: String(initial.upnpMappedPort || 0),
-      useUpnp: !!initial.useUpnp,
-      https: !!initial.https,
-      domain: initial.domain || '',
-      tlsTerminate: !!initial.tlsTerminate,
-      certId: String(initial.certId || 0),
-      backendHttps: !!initial.backendHttps,
-      enabled: initial.enabled !== false,
-      showOnHome: initialShowOnHome,
-      description: initial.description || '',
-      webhookconfig: normalizeWebhook(initial.webhookconfig),
-    }
-  })
+  const [form, setForm] = useState<ServiceFormState>(() =>
+    initial ? serviceToForm(initial, initialShowOnHome) : { ...emptyService, ...prefill },
+  )
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [activeTab, setActiveTab] = useState<ServiceModalTab>('basic')
@@ -324,6 +634,11 @@ function ServiceModal({
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
   const [certs, setCerts] = useState<Certificate[]>([])
+  const [cfProviders, setCfProviders] = useState<DdnsProvider[]>([])
+  const [redirectBusy, setRedirectBusy] = useState(false)
+  const [inspect, setInspect] = useState<RedirectInspection | null>(null)
+  const [inspecting, setInspecting] = useState(false)
+  const [inspectErr, setInspectErr] = useState('')
 
   // 证书列表拿不到不该拦住整个服务表单，失败就当没有证书
   useEffect(() => {
@@ -336,6 +651,102 @@ function ServiceModal({
       alive = false
     }
   }, [])
+
+  // 重定向规则目前只有 Cloudflare 能写，别的服务商列出来只会让人白填
+  useEffect(() => {
+    let alive = true
+    api
+      .getDdnsConfig()
+      .then((cfg) => {
+        if (!alive) return
+        setCfProviders((cfg.providers ?? []).filter((p) => p.type === 'cloudflare'))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const updateRedirect = (patch: Partial<RedirectConfig>) =>
+    setForm((p) => ({ ...p, redirect: { ...p.redirect, ...patch } }))
+
+  /** 入口域名后两段，和后端 redirectZone 留空时的算法一致 */
+  const redirectGuessedZone = useMemo(() => {
+    const parts = form.redirect.entryHost.trim().toLowerCase().split('.').filter(Boolean)
+    return parts.length >= 2 ? parts.slice(-2).join('.') : ''
+  }, [form.redirect.entryHost])
+
+  // 只是给人看这条规则长什么样；真正写过去的地址由后端按当时的端口算
+  const redirectPreviewTarget = useMemo(() => {
+    const port = status?.externalPort ?? 0
+    if (!port) return status?.redirectTarget ?? ''
+    // 与 stun.PublicScheme 同一套判断
+    const scheme = form.tlsTerminate || (!form.backendHttps && form.https) ? 'https' : 'http'
+    return `${scheme}://${form.domain.trim() || '公网IP'}:${port}`
+  }, [status?.externalPort, status?.redirectTarget, form.tlsTerminate, form.backendHttps, form.https, form.domain])
+
+  // 下面两个按钮打的是后端「已保存」的配置，不是眼前这张表单。
+  // 刚勾上启用还没保存就点同步，后端读到的 enabled 还是 false，
+  // 只会回一句「这个服务没有开启入口重定向」——界面上明明写着已启用，看着像见鬼。
+  // 干脆表单一改就按不动，旁边直接说清楚该点哪个按钮。
+  const redirectDirty = useMemo(() => {
+    const saved = { ...emptyRedirect, ...(initial?.redirect ?? {}) }
+    const norm = (v?: string) => (v ?? '').trim().toLowerCase()
+    return (
+      !!saved.enabled !== form.redirect.enabled ||
+      (saved.providerId || 0) !== form.redirect.providerId ||
+      norm(saved.entryHost) !== norm(form.redirect.entryHost) ||
+      norm(saved.zoneDomain) !== norm(form.redirect.zoneDomain)
+    )
+  }, [initial, form.redirect])
+
+  // 这两条记录归 Cloudflare 那边管，本地配置里看不出来，只能现场去查。
+  // 查一次可能几百毫秒，所以不跟着服务列表一起刷，只在打开这个页签时拉一次。
+  const savedRedirectOn = !!initial?.redirect?.enabled
+  const loadInspect = useCallback(async () => {
+    if (!initial || !savedRedirectOn) return
+    setInspecting(true)
+    setInspectErr('')
+    try {
+      setInspect(await api.inspectStunRedirect(deviceId, initial.id))
+    } catch (e) {
+      setInspect(null)
+      setInspectErr(e instanceof Error ? e.message : '查不到')
+    } finally {
+      setInspecting(false)
+    }
+  }, [deviceId, initial, savedRedirectOn])
+
+  // 切到「CF 重定向」那页才去查那两条记录：查一次要打 Cloudflare 的接口，
+  // 打开弹窗就顺手跑一趟的话，只想改个端口的人也得白等
+  const openTab = (key: ServiceModalTab) => {
+    setActiveTab(key)
+    if (key === 'redirect' && !inspect && !inspecting) void loadInspect()
+  }
+
+  // 同步/删除打的是已保存的配置，所以新建服务时按不动
+  const runRedirect = async (action: 'sync' | 'remove') => {
+    if (!initial) return
+    if (action === 'remove' && !window.confirm('确认删掉 Cloudflare 上那条规则？')) return
+    setRedirectBusy(true)
+    try {
+      if (action === 'sync') {
+        // 直接用后端那句话：这一步可能只做成一半（规则写好了但解析记录没建上），
+        // 在这儿按 target 自己拼一句「已同步」，就会把那半截失败盖掉
+        const r = await api.syncStunRedirect(deviceId, initial.id)
+        onToast(r.msg || `已同步：${r.data?.target ?? ''}`)
+      } else {
+        await api.removeStunRedirect(deviceId, initial.id)
+        onToast('已删除 Cloudflare 上的规则')
+      }
+      // 同步那一步会顺手建入口记录，下面那块得跟着变，不然还摆着同步前的样子
+      void loadInspect()
+    } catch (e) {
+      onToast((action === 'sync' ? '同步失败: ' : '删除失败: ') + (e instanceof Error ? e.message : ''))
+    } finally {
+      setRedirectBusy(false)
+    }
+  }
 
   // 老服务可能是「已经终结 TLS、对外域名却空着」的状态（那时候还没这条约束）。
   // 证书列表是异步来的，等它到位再补，且只补空的——用户自己填过的不动。
@@ -353,7 +764,7 @@ function ServiceModal({
   const domainValue = form.domain.trim().toLowerCase()
   // 绑定了一张带域名的证书却不填对外域名，生成出来的地址必然是证书盖不住的公网 IP。
   // 正常情况下 pickCertDomain 已经自动填好了，走到这里只剩通配证书——
-  // *.zlux.top 用哪个标签只有用户知道，替他猜不如让他填。
+  // *.example.com 用哪个标签只有用户知道，替他猜不如让他填。
   const domainRequired = tlsOn && Number(form.certId) !== 0 && certDomains.length > 0
   const domainCovered = certDomains.some((d) => matchCertDomain(d, domainValue))
 
@@ -504,7 +915,7 @@ function ServiceModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -524,11 +935,12 @@ function ServiceModal({
           {[
             { key: 'basic' as const, label: '基础配置' },
             { key: 'webhook' as const, label: 'Webhook' },
+            { key: 'redirect' as const, label: 'CF 重定向' },
           ].map((tab) => (
             <button
               key={tab.key}
               type="button"
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => openTab(tab.key)}
               className={`border-b-2 px-0 pb-3 text-sm font-bold transition ${
                 activeTab === tab.key
                   ? 'border-blue-500 text-blue-600'
@@ -917,19 +1329,20 @@ function ServiceModal({
                   value={form.webhookconfig.headers}
                   disabled={!form.webhookconfig.enabled}
                   onChange={(e) => updateWebhook({ headers: e.target.value })}
-                  rows={2}
+                  rows={3}
                   placeholder={'Content-Type: application/json\nAuthorization: Bearer xxx'}
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </label>
+              {/* CF 重定向那份模板的 JSON 就有十几行，原来 4 行的框要一直滚才能看全一对括号 */}
               <label className="col-span-2 block">
                 <div className="mb-1 text-xs font-semibold text-slate-500">Body</div>
                 <textarea
                   value={form.webhookconfig.body}
                   disabled={!form.webhookconfig.enabled}
                   onChange={(e) => updateWebhook({ body: e.target.value })}
-                  rows={4}
-                  className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  rows={14}
+                  className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 font-mono text-xs leading-5 outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
                 />
               </label>
               <div className="col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -1000,6 +1413,280 @@ function ServiceModal({
             </div>
             </div>
           )}
+
+          {activeTab === 'redirect' && (
+            <div className="mx-auto max-w-2xl">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={form.redirect.enabled}
+                    onChange={(e) => updateRedirect({ enabled: e.target.checked })}
+                    className="h-3.5 w-3.5"
+                  />
+                  <CornerUpRight className="h-4 w-4 text-blue-500" />
+                  CF 重定向
+                </label>
+                <span
+                  className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                    form.redirect.enabled ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  {form.redirect.enabled ? '已启用' : '未启用'}
+                </span>
+              </div>
+
+              <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+                外网端口一变，Cloudflare 那条重定向规则跟着改。用户永远访问下面这个固定域名，
+                Cloudflare 307 跳到这个服务当前的地址。
+                <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
+                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
+                    {form.redirect.entryHost.trim() || '入口域名'}
+                  </span>
+                  <span className="text-slate-400">— 307 →</span>
+                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
+                    {redirectPreviewTarget || '等服务跑起来才知道端口'}
+                  </span>
+                </div>
+                <div className="mt-2">
+                  zone / ruleset / rule 三个 ID 都不用填，LinkStar 自己查；
+                  你在 Cloudflare 后台手写的其它规则不会被动。
+                </div>
+              </div>
+
+              {/*
+                规则写对了也可能访问不了，差的是这两条解析记录。
+                它们的状态只有 Cloudflare 那边知道，本地配置里一点都看不出来，
+                出了问题也不报错——只表现为「打不开」。所以现场查出来摆在这儿。
+              */}
+              {initial && savedRedirectOn && (
+                <div className="mb-4 rounded-xl border border-slate-200 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-slate-500">Cloudflare 上的解析记录</div>
+                    <button
+                      type="button"
+                      disabled={inspecting}
+                      onClick={() => void loadInspect()}
+                      className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                    >
+                      <RotateCw className={`h-3 w-3 ${inspecting ? 'animate-spin' : ''}`} />
+                      {inspecting ? '查询中' : '刷新'}
+                    </button>
+                  </div>
+
+                  {inspectErr && <div className="text-[11px] leading-5 text-rose-500">查不了：{inspectErr}</div>}
+                  {!inspectErr && !inspect && (
+                    <div className="text-[11px] text-slate-400">
+                      {inspecting ? '正在去 Cloudflare 查…' : '点右上角刷新看现在什么样'}
+                    </div>
+                  )}
+
+                  {inspect && (
+                    <div className="space-y-2.5">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
+                            入口
+                          </span>
+                          <span className="font-mono text-slate-700">{inspect.entry.host}</span>
+                          {inspect.entry.found && (
+                            <span className="font-mono text-slate-400">
+                              {inspect.entry.type} {inspect.entry.content}
+                            </span>
+                          )}
+                          {inspect.entry.byLinkStar && (
+                            <span className="text-slate-400">· LinkStar 建的</span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[11px] leading-5">
+                          {inspect.entry.warn ? (
+                            <span className="text-amber-600">{inspect.entry.warn}</span>
+                          ) : !inspect.entry.found ? (
+                            <span className="text-rose-500">
+                              还没有这条记录，现在访问它会提示域名不存在。点下面「立即同步」，LinkStar
+                              会建好
+                            </span>
+                          ) : inspect.entry.proxied ? (
+                            <span className="text-emerald-600">小黄云开着，重定向能生效</span>
+                          ) : (
+                            <span className="text-amber-600">
+                              小黄云是关的 ——
+                              请求根本到不了 Cloudflare，重定向不会执行，访问只会停在{' '}
+                              <span className="font-mono">{inspect.entry.wantIP}</span>{' '}
+                              这个谁都不在的地址上。去 Cloudflare 的 DNS
+                              里把这条记录的云朵点成橙色
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
+                            落地
+                          </span>
+                          <span className="font-mono text-slate-700">
+                            {inspect.landingHost || '还没定'}
+                          </span>
+                          {inspect.landing.managed && inspect.landing.lastIP && (
+                            <span className="font-mono text-slate-400">A {inspect.landing.lastIP}</span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[11px] leading-5">
+                          {!inspect.landingHost ? (
+                            <span className="text-slate-400">
+                              这个服务没填对外域名，307 直接跳到公网 IP，不需要解析记录
+                            </span>
+                          ) : inspect.landing.managed && inspect.landing.status === 'failed' ? (
+                            // 「在改」和「没改成」凑一句话会自相矛盾，失败就只说失败
+                            <span className="text-amber-600">
+                              DDNS 记录「{inspect.landing.name}」上次没改成 ——{' '}
+                              {inspect.landing.message || '未知原因'}
+                            </span>
+                          ) : inspect.landing.managed ? (
+                            <span className="text-emerald-600">
+                              DDNS 记录「{inspect.landing.name}」跟着公网 IP 在改
+                              {fmtTime(inspect.landing.at) ? `（${fmtTime(inspect.landing.at)}）` : ''}
+                            </span>
+                          ) : (
+                            <span className="text-amber-600">
+                              DDNS 里没有记录管它，公网 IP
+                              一变这个域名就指错地方了。点一次下面的「立即同步」，LinkStar 会加上
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-2.5 border-t border-slate-100 pt-2 text-[11px] leading-5 text-slate-400">
+                    两条的要求正好相反：入口那条要开小黄云，落地那条要关 —— 开了的话 Cloudflare
+                    不转发打洞出来的高位端口，一样访问不了。
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className="mb-1 text-xs font-semibold text-slate-500">Cloudflare 账号</div>
+                  <select
+                    value={String(form.redirect.providerId || 0)}
+                    disabled={!form.redirect.enabled}
+                    onChange={(e) => updateRedirect({ providerId: Number(e.target.value) || 0 })}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="0">请选择</option>
+                    {cfProviders.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    {cfProviders.length === 0
+                      ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
+                      : '用 DDNS 里配好的那个，Token 不用再贴一遍'}
+                  </div>
+                  {/* 只有 DNS 权限的 Token 解析能用、重定向必 403，事后看报错很难想到这一层 */}
+                  {cfProviders.length > 0 && (
+                    <div className="mt-1 text-[11px] text-amber-600">
+                      这个 Token 要同时有 Zone → DNS → 编辑 和 Zone → Dynamic URL Redirects →
+                      编辑，两项得在同一条策略里，少一项会报 403
+                    </div>
+                  )}
+                </label>
+
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className="mb-1 text-xs font-semibold text-slate-500">入口域名</div>
+                  <input
+                    value={form.redirect.entryHost}
+                    disabled={!form.redirect.enabled}
+                    onChange={(e) => updateRedirect({ entryHost: e.target.value })}
+                    placeholder="linkstar.example.com"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    外面记的就是这个名字。保存后 LinkStar 会顺手在 Cloudflare 建好这条记录（A
+                    记录 + 小黄云），不用自己去加。别填成下面那个落地域名——那条得关着小黄云
+                  </div>
+                </label>
+
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className="mb-1 text-xs font-semibold text-slate-500">主域名</div>
+                  <input
+                    value={form.redirect.zoneDomain}
+                    disabled={!form.redirect.enabled}
+                    onChange={(e) => updateRedirect({ zoneDomain: e.target.value })}
+                    placeholder={redirectGuessedZone || 'example.com'}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                  />
+                  <div className="mt-1 text-[11px] text-slate-400">
+                    {redirectGuessedZone
+                      ? `留空就按 ${redirectGuessedZone} 算；域名多一层（如 a.b.co.uk）才需要填`
+                      : '留空按入口域名的后两段算'}
+                  </div>
+                </label>
+              </div>
+
+              {initial ? (
+                <div className="mt-4 rounded-xl border border-slate-200 p-3">
+                  <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
+                  {status?.redirectStatus === 'ok' && (
+                    <div className="text-xs text-emerald-600">
+                      成功 → <span className="font-mono">{status.redirectTarget}</span>
+                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                      {status.redirectKeepPath === false && (
+                        <div className="mt-1 text-amber-600">
+                          服务商没接受保留路径的写法，从子路径进来会落到根路径
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {status?.redirectStatus === 'failed' && (
+                    <div className="text-xs text-rose-500">
+                      失败：{status.redirectError || '未知原因'}
+                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                    </div>
+                  )}
+                  {!status?.redirectStatus && (
+                    <div className="text-xs text-slate-400">还没同步过</div>
+                  )}
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={redirectBusy || redirectDirty}
+                      onClick={() => runRedirect('sync')}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                    >
+                      <RotateCw className="h-3.5 w-3.5" />
+                      立即同步
+                    </button>
+                    <button
+                      type="button"
+                      disabled={redirectBusy || redirectDirty}
+                      onClick={() => runRedirect('remove')}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      删掉 Cloudflare 上的规则
+                    </button>
+                    {redirectDirty ? (
+                      <span className="text-[11px] font-semibold text-amber-600">
+                        上面改的还没保存 —— 点右下角「保存」，几秒后自己就同步了，不用回来点这两个
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">
+                        端口一变会自动同步，这里是手动再跑一遍
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
+              )}
+            </div>
+          )}
         </div>
 
         {err && <div className="px-6 pb-2 text-xs text-rose-500">{err}</div>}
@@ -1044,7 +1731,7 @@ function LogModal({
   const logs = status.logs ?? []
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -1247,7 +1934,7 @@ function NatTypeModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -1332,11 +2019,23 @@ export function Stun() {
   const [selectedIndex, setSelectedIndex] = useState(0)
   const { toasts, show: toast } = useToast()
 
-  const [deviceModal, setDeviceModal] = useState<{ open: boolean; initial?: StunDevice }>({ open: false })
+  const [deviceModal, setDeviceModal] = useState<{
+    open: boolean
+    initial?: StunDevice
+    prefill?: DeviceFormState
+  }>({ open: false })
+  const [scanModal, setScanModal] = useState<{ open: boolean; subnets: LanSubnet[] }>({
+    open: false,
+    subnets: [],
+  })
+  const [scanOpening, setScanOpening] = useState(false)
+  // 正在切启停的服务，键是「设备ID-服务ID」
+  const [toggling, setToggling] = useState<Record<string, boolean>>({})
   const [serviceModal, setServiceModal] = useState<{
     open: boolean
     deviceId: number
     initial?: StunService
+    prefill?: Partial<ServiceFormState>
   }>({ open: false, deviceId: 0 })
   const [logKey, setLogKey] = useState<string | null>(null)
   const [natTypeOpen, setNatTypeOpen] = useState(false)
@@ -1394,6 +2093,34 @@ export function Stun() {
     await refresh()
   }
 
+  // 网段列表先取好再开弹窗——这一步只读本机网卡，不发包，几毫秒的事，
+  // 放进弹窗里反而要先闪一个空下拉框
+  const openScan = async () => {
+    setScanOpening(true)
+    try {
+      setScanModal({ open: true, subnets: await api.listLanSubnets() })
+    } catch (e) {
+      toast('读不到本机网段: ' + (e instanceof Error ? e.message : ''))
+    } finally {
+      setScanOpening(false)
+    }
+  }
+
+  // 不关扫描弹窗：一次扫描常常要加好几台，关掉就得再等一轮。
+  // 添加窗盖在上面，存完退回来，刚加的那台会变成「已加过」
+  const pickScanned = (h: LanHost) => {
+    setDeviceModal({ open: true, prefill: { name: h.name, ip: h.ip } })
+  }
+
+  // 扫描结果里点一个端口：名字和内网端口都填好，剩下的按默认来，直接能存
+  const pickScannedPort = (dev: StunDevice, p: LanPort) => {
+    setServiceModal({
+      open: true,
+      deviceId: getDeviceId(dev),
+      prefill: { name: p.name || `端口 ${p.port}`, internalPort: String(p.port) },
+    })
+  }
+
   const removeDevice = async (d: StunDevice) => {
     if (!window.confirm(`确认删除设备「${d.name}」？该设备下所有服务也将被删除`)) return
     try {
@@ -1425,6 +2152,11 @@ export function Stun() {
         url: form.webhookconfig.url.trim(),
         proxy: form.webhookconfig.proxy.trim(),
       },
+      redirect: {
+        ...form.redirect,
+        entryHost: form.redirect.entryHost.trim().toLowerCase(),
+        zoneDomain: form.redirect.zoneDomain.trim().toLowerCase(),
+      },
     }
     let serviceId: number | undefined
     if (serviceModal.initial) {
@@ -1449,6 +2181,56 @@ export function Stun() {
     }
     setServiceModal({ open: false, deviceId: 0 })
     await refresh()
+  }
+
+  /**
+   * 照着现有服务再开一个，只改要改的那几项。
+   *
+   * 有三样不能照抄：
+   * 入口域名两个服务共用一个，后同步的那个会把先前那条 Cloudflare 规则顶掉，
+   * 而且两边都不报错；UPnP 固定端口抄过来就是两个服务抢同一个外部端口；
+   * 名字一样的话列表上根本分不出谁是谁。
+   */
+  const copyService = (deviceId: number, svc: StunService) => {
+    const src = serviceToForm(svc, false)
+    setServiceModal({
+      open: true,
+      deviceId,
+      prefill: {
+        ...src,
+        name: `${svc.name || '未命名服务'} 副本`,
+        upnpMappedPort: '0',
+        redirect: { ...src.redirect, enabled: false, entryHost: '' },
+      },
+    })
+  }
+
+  /**
+   * 列表上直接启停，不用为了勾一个框把整个服务表单打开一遍。
+   *
+   * 后端要停掉再重开打洞，这一下要好几秒。这几秒里按钮上什么都不变的话，
+   * 用户以为没点着，再点一下就又切回去了——所以切换中先把按钮锁上。
+   */
+  const toggleServiceEnabled = async (deviceId: number, svc: StunService) => {
+    const next = svc.enabled === false
+    setToggling((m) => ({ ...m, [`${deviceId}-${svc.id}`]: true }))
+    try {
+      await api.updateStunService({
+        ...serviceToPayload(deviceId, svc),
+        enabled: next,
+        serviceId: svc.id,
+      })
+      toast(next ? `已启用「${svc.name}」` : `已停用「${svc.name}」`)
+      await refresh()
+    } catch (e) {
+      toast('切换失败: ' + (e instanceof Error ? e.message : ''))
+    } finally {
+      setToggling((m) => {
+        const n = { ...m }
+        delete n[`${deviceId}-${svc.id}`]
+        return n
+      })
+    }
   }
 
   const removeService = async (deviceId: number, svc: StunService) => {
@@ -1601,12 +2383,27 @@ export function Stun() {
           <CardHeader
             title="设备列表"
             action={
-              <button
-                onClick={() => setDeviceModal({ open: true })}
-                className="flex items-center gap-1 rounded-md bg-blue-500 px-2 py-1 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600"
-              >
-                <Plus className="h-3 w-3" /> 添加
-              </button>
+              <div className="flex items-center gap-1">
+                {/* 扫描摆在前面：不用去路由器后台翻 IP，是更省事的那条路 */}
+                <button
+                  onClick={openScan}
+                  disabled={scanOpening}
+                  className="flex items-center gap-1 rounded-md bg-blue-500 px-2 py-1 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {scanOpening ? (
+                    <LoaderCircle className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Radar className="h-3 w-3" />
+                  )}
+                  扫描
+                </button>
+                <button
+                  onClick={() => setDeviceModal({ open: true })}
+                  className="flex items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+                >
+                  <Plus className="h-3 w-3" /> 添加
+                </button>
+              </div>
             }
           />
           {!config.devices || config.devices.length === 0 ? (
@@ -1700,18 +2497,49 @@ export function Stun() {
                   const restartCount = status?.restartCount ?? 0
                   const webhookEnabled = !!svc.webhookconfig?.enabled
                   const webhookStatus = webhookEnabled ? getWebhookStatus(status) : null
+                  // 停用的服务本来就不该跑，别拿「❌ 已停止」去吓人
+                  const off = svc.enabled === false
+                  const busy = !!toggling[`${getDeviceId(device)}-${svc.id}`]
                   return (
                     <div
                       key={svc.id}
-                      className="flex flex-col rounded-xl border border-slate-200/80 p-3 transition hover:border-blue-200 hover:shadow-md"
+                      className={`flex flex-col rounded-xl border p-3 transition hover:border-blue-200 hover:shadow-md ${
+                        off ? 'border-slate-200/80 bg-slate-50/60' : 'border-slate-200/80'
+                      }`}
                     >
-                      <div className="mb-2 flex items-center gap-2 border-b border-slate-100 pb-2">
+                      <div className="mb-2 flex items-center gap-1.5 border-b border-slate-100 pb-2">
                         <span
-                          className={`h-2 w-2 rounded-full ${running ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]' : 'bg-rose-400 shadow-[0_0_6px_rgba(248,113,113,0.5)]'}`}
+                          className={`h-2 w-2 shrink-0 rounded-full ${
+                            off
+                              ? 'bg-slate-300'
+                              : running
+                                ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]'
+                                : 'bg-rose-400 shadow-[0_0_6px_rgba(248,113,113,0.5)]'
+                          }`}
                         />
-                        <span className="flex-1 truncate text-sm font-bold text-slate-800">
+                        <span
+                          className={`mr-0.5 flex-1 truncate text-sm font-bold ${
+                            off ? 'text-slate-400' : 'text-slate-800'
+                          }`}
+                        >
                           {svc.name || '未命名服务'}
                         </span>
+                        <button
+                          onClick={() => toggleServiceEnabled(getDeviceId(device), svc)}
+                          disabled={busy}
+                          title={busy ? '正在切换，打洞要几秒' : off ? '点一下启用' : '点一下停用'}
+                          className={`grid h-6 w-6 place-items-center rounded-md transition disabled:cursor-wait ${
+                            off
+                              ? 'bg-slate-200 text-slate-500 hover:bg-slate-300'
+                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {busy ? (
+                            <LoaderCircle className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Power className="h-3 w-3" />
+                          )}
+                        </button>
                         <button
                           onClick={() => toggleHome(getDeviceId(device), svc.id)}
                           title={inHome ? '从主页移除' : '添加到主页'}
@@ -1723,10 +2551,17 @@ export function Stun() {
                         </button>
                         <button
                           onClick={() => setServiceModal({ open: true, deviceId: getDeviceId(device), initial: svc })}
-                          className="grid h-6 w-6 place-items-center rounded-md bg-emerald-50 text-emerald-600 transition hover:bg-emerald-100"
+                          className="grid h-6 w-6 place-items-center rounded-md bg-slate-100 text-slate-600 transition hover:bg-slate-200"
                           title="编辑"
                         >
                           <Pencil className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => copyService(getDeviceId(device), svc)}
+                          className="grid h-6 w-6 place-items-center rounded-md bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+                          title="照着这个再开一个"
+                        >
+                          <Copy className="h-3 w-3" />
                         </button>
                         <button
                           onClick={() => removeService(getDeviceId(device), svc)}
@@ -1790,9 +2625,11 @@ export function Stun() {
                         <div className="flex items-center justify-between">
                           <span className="text-slate-500">穿透状态</span>
                           <span
-                            className={`font-semibold ${running ? 'text-emerald-600' : 'text-rose-500'}`}
+                            className={`font-semibold ${
+                              off ? 'text-slate-400' : running ? 'text-emerald-600' : 'text-rose-500'
+                            }`}
                           >
-                            {running ? '✅ 穿透成功' : `❌ ${phaseLabel[phase] || phase}`}
+                            {off ? '已停用' : running ? '✅ 穿透成功' : `❌ ${phaseLabel[phase] || phase}`}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2">
@@ -1817,14 +2654,23 @@ export function Stun() {
                         </div>
                       </div>
 
-                      {lastError && (
+                      {/* 停用之前那次的报错就别留着了，用户是自己关的，不是出了毛病 */}
+                      {!off && lastError && (
                         <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-600">
                           ⚠️ <span className="font-semibold">错误:</span> {lastError}
                           {restartCount > 0 && ` (重启 ${restartCount} 次)`}
                         </div>
                       )}
 
-                      {fullAddr ? (
+                      {/*
+                        停用之后洞就关了，上一轮那个地址已经连不上。
+                        还摆着「一键直达」的话，用户点进去打不开，只会以为是穿透坏了
+                      */}
+                      {off ? (
+                        <div className="mt-2 rounded-lg bg-slate-100 px-2 py-2 text-center text-xs text-slate-400">
+                          已停用，外部地址不通
+                        </div>
+                      ) : fullAddr ? (
                         <>
                           <div className="mt-2 text-[11px] text-slate-400">外部连接地址</div>
                           <div className="mt-1 break-all rounded-lg border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5 text-center font-mono text-sm font-semibold text-blue-600">
@@ -1867,23 +2713,42 @@ export function Stun() {
       </div>
 
       {/* 弹窗 */}
+      {/* 扫描窗排在前面，添加窗才能盖在它上面 */}
+      {scanModal.open && (
+        <LanScanModal
+          subnets={scanModal.subnets}
+          devices={config.devices ?? []}
+          onCancel={() => setScanModal({ open: false, subnets: [] })}
+          onPick={pickScanned}
+          onPickPort={pickScannedPort}
+        />
+      )}
       {deviceModal.open && (
         <DeviceModal
           initial={deviceModal.initial}
+          prefill={deviceModal.prefill}
           onCancel={() => setDeviceModal({ open: false })}
           onSubmit={submitDevice}
         />
       )}
       {serviceModal.open && (
         <ServiceModal
+          deviceId={serviceModal.deviceId}
           initial={serviceModal.initial}
+          prefill={serviceModal.prefill}
           initialShowOnHome={
             serviceModal.initial
               ? homeSet.has(`${serviceModal.deviceId}-${serviceModal.initial.id}`)
               : false
           }
+          status={
+            serviceModal.initial
+              ? statusMap[`${serviceModal.deviceId}-${serviceModal.initial.id}`]
+              : undefined
+          }
           onCancel={() => setServiceModal({ open: false, deviceId: 0 })}
           onSubmit={submitService}
+          onToast={toast}
         />
       )}
       {logKey && <LogModal status={logStatus} onClose={() => setLogKey(null)} />}
@@ -1894,7 +2759,8 @@ export function Stun() {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className="rounded-lg bg-slate-900/85 px-4 py-2 text-sm text-white shadow-lg"
+            // 限宽换行：长的那几句不限宽会拉成一条横穿屏幕的线，反而看不下去
+            className="max-w-[min(90vw,34rem)] break-words rounded-lg bg-slate-900/85 px-4 py-2 text-sm leading-relaxed text-white shadow-lg"
           >
             {t.text}
           </div>

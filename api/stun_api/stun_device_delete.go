@@ -3,6 +3,7 @@ package stun_api
 import (
 	"linkstar/middleware"
 	"linkstar/modules/stun"
+	"linkstar/modules/stun/model"
 	"linkstar/utils/res"
 
 	"github.com/gin-gonic/gin"
@@ -31,9 +32,12 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	// 停止该设备下所有服务的 STUN 穿透
 	// 修复：原版调用已删除的全局函数 stun.StopService，改为调度器实例方法
 	deletedServiceIDs := make([]uint, 0, len(stun.Runtime.Config.Devices[deviceIndex].Services))
+	// 入口重定向配置得在摘掉之前留一份，理由同 stun_service_delete.go
+	redirectCfgs := make(map[uint]model.RedirectConfig, len(stun.Runtime.Config.Devices[deviceIndex].Services))
 	for _, svc := range stun.Runtime.Config.Devices[deviceIndex].Services {
 		stun.Runtime.Scheduler.StopService(cr.DeviceID, svc.ID)
 		deletedServiceIDs = append(deletedServiceIDs, svc.ID)
+		redirectCfgs[svc.ID] = svc.Redirect
 	}
 
 	// 从切片中删除该设备
@@ -52,6 +56,7 @@ func (StunApi) StunDeviceDeleteView(c *gin.Context) {
 	// 通知订阅方（home 模块借此级联清掉对应卡片）
 	for _, sid := range deletedServiceIDs {
 		stun.EmitServiceDeleted(cr.DeviceID, sid)
+		stun.CleanupRedirect(redirectCfgs[sid], cr.DeviceID, sid)
 	}
 
 	res.OkWithMsg("删除成功", c)

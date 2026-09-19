@@ -24,6 +24,12 @@ func DdnsRouters(g *gin.RouterGroup) {
 		app.DdnsSettingsUpdateView,
 	)
 
+	// 本机网卡列表，供「本地网卡」这个 IP 来源挑选
+	g.GET(
+		"ddns/interfaces",
+		app.DdnsInterfaceListView,
+	)
+
 	// 服务商：增 / 改 / 删
 	g.POST(
 		"ddns/provider/add",

@@ -37,7 +37,35 @@ type ACMEDNSProvider interface {
 type RedirectRuleProvider interface {
 	// SyncRedirectRule 让 entryHost 重定向到 targetURL。
 	// keepPath 表示是否用上了保留原始路径的写法；服务商不支持时降级为 false。
-	SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL string) (keepPath bool, err error)
+	// entryWarn 非空表示规则写好了，但入口域名那条 DNS 记录没能确认——
+	// 规则本身没失败，可少了那条记录访问依旧不通，上层必须把这句话摆到用户面前。
+	SyncRedirectRule(zoneDomain, ruleKey, entryHost, targetURL string) (keepPath bool, entryWarn string, err error)
 	// RemoveRedirectRule 删除 ruleKey 对应的规则；规则本来就不存在时返回 nil
 	RemoveRedirectRule(zoneDomain, ruleKey string) error
+	// InspectEntryRecord 只读地看一眼入口域名那条记录现在什么样，不改任何东西
+	InspectEntryRecord(zoneDomain, entryHost string) (EntryRecordState, error)
+}
+
+// EntryRecordState 入口域名那条解析记录的现状，给界面照实摆出来用。
+//
+// 这条记录和 DDNS 那些记录不是一回事：它的内容是个永远不变的占位地址，
+// 没人需要维护它。但它在不在、是不是橙云，决定了重定向规则到底执不执行，
+// 而这件事从规则那边一点都看不出来——所以才要单独查一次摆在人眼前。
+type EntryRecordState struct {
+	// Host 入口域名
+	Host string `json:"host"`
+	// Found 这条记录存在
+	Found bool `json:"found"`
+	// Type A / AAAA / CNAME
+	Type string `json:"type"`
+	// Content 记录指向哪
+	Content string `json:"content"`
+	// Proxied 橙云（已代理）。灰云的话请求根本不经过 Cloudflare，重定向不会执行
+	Proxied bool `json:"proxied"`
+	// ByLinkStar 这条是 LinkStar 自己建的（注释对得上），不是用户手加的
+	ByLinkStar bool `json:"byLinkStar"`
+	// WantIP LinkStar 建这条记录时用的占位地址，给界面当「应该长这样」的参照
+	WantIP string `json:"wantIP"`
+	// Warn 查不了这条记录时的说明（多半是 Token 没有 DNS 权限）
+	Warn string `json:"warn"`
 }

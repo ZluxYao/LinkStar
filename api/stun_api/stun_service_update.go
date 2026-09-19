@@ -3,6 +3,7 @@ package stun_api
 import (
 	"linkstar/middleware"
 	"linkstar/modules/stun"
+	"linkstar/modules/stun/model"
 	"linkstar/modules/webhook"
 	"linkstar/utils/res"
 	"time"
@@ -32,6 +33,7 @@ type StunServiceUpdateViewRequest struct {
 	Description string `json:"description"`
 
 	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
+	Redirect      model.RedirectConfig  `json:"redirect"`      // 入口域名跟着外部端口走
 }
 
 func (StunApi) StunServiceUpdateView(c *gin.Context) {
@@ -77,6 +79,7 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.Enabled = cr.Enabled
 	svc.Description = cr.Description
 	svc.WebHookConfig = cr.WebHookConfig
+	svc.Redirect = cr.Redirect
 	svc.UpdatedAt = time.Now()
 
 	// 持久化配置到文件

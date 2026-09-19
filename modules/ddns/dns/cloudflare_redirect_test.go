@@ -38,7 +38,7 @@ const existingRulesJSON = `[
     "action": "redirect",
     "description": "把老博客地址转到新站",
     "enabled": true,
-    "expression": "(http.host eq \"blog.zlux.top\")",
+    "expression": "(http.host eq \"blog.example.com\")",
     "action_parameters": {"from_value": {"status_code": 301, "target_url": {"value": "https://new.example.com"}}},
     "some_field_linkstar_does_not_know": {"a": [1, 2, 3]}
   },
@@ -48,15 +48,15 @@ const existingRulesJSON = `[
     "action": "redirect",
     "description": "linkstar:entry-5",
     "enabled": true,
-    "expression": "(http.host eq \"fn.zlux.top\")",
-    "action_parameters": {"from_value": {"status_code": 307, "target_url": {"value": "https://zlux.top:11111"}}}
+    "expression": "(http.host eq \"fn.example.com\")",
+    "action_parameters": {"from_value": {"status_code": 307, "target_url": {"value": "https://example.com:11111"}}}
   },
   {
     "id": "user-rule-2",
     "action": "redirect",
     "description": "另一条用户规则",
     "enabled": false,
-    "expression": "(http.host eq \"old.zlux.top\")"
+    "expression": "(http.host eq \"old.example.com\")"
   }
 ]`
 
@@ -64,7 +64,7 @@ const existingRulesJSON = `[
 // 这个测试守的就是「用户手写的规则一条不少、一个字段不改」。
 func TestMergePreservesForeignRules(t *testing.T) {
 	existing := mustRules(t, existingRulesJSON)
-	newRule, err := buildRedirectRule("linkstar:entry-5", "fn.zlux.top", "https://zlux.top:34521", false)
+	newRule, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestMergePreservesForeignRules(t *testing.T) {
 	if id := field(t, own, "id"); id != "linkstar-rule" {
 		t.Errorf("自己的规则 id = %q，期望沿用 linkstar-rule", id)
 	}
-	if !strings.Contains(string(own["action_parameters"]), "zlux.top:34521") {
+	if !strings.Contains(string(own["action_parameters"]), "example.com:34521") {
 		t.Errorf("自己的规则没有更新到新端口：%s", own["action_parameters"])
 	}
 	if _, ok := own["version"]; ok {
@@ -117,7 +117,7 @@ func TestMergePreservesForeignRules(t *testing.T) {
 
 func TestMergeAppendsWhenAbsent(t *testing.T) {
 	existing := mustRules(t, existingRulesJSON)
-	newRule, err := buildRedirectRule("linkstar:entry-9", "new.zlux.top", "https://zlux.top:22222", true)
+	newRule, err := buildRedirectRule("linkstar:entry-9", "new.example.com", "https://example.com:22222", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestMergeAppendsWhenAbsent(t *testing.T) {
 }
 
 func TestMergeOnEmptyRuleset(t *testing.T) {
-	newRule, err := buildRedirectRule("linkstar:entry-1", "fn.zlux.top", "https://zlux.top:1", false)
+	newRule, err := buildRedirectRule("linkstar:entry-1", "fn.example.com", "https://example.com:1", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestRemoveOnlyTouchesOwnRule(t *testing.T) {
 
 func TestBuildRedirectRule(t *testing.T) {
 	// 端口会漂，永久重定向会被浏览器永久缓存——只能用 307
-	rule, err := buildRedirectRule("linkstar:entry-5", "fn.zlux.top", "https://zlux.top:34521", false)
+	rule, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,20 +178,80 @@ func TestBuildRedirectRule(t *testing.T) {
 	if !strings.Contains(params, `"status_code":307`) {
 		t.Errorf("状态码必须是 307，实际：%s", params)
 	}
-	if !strings.Contains(params, `"value":"https://zlux.top:34521"`) {
+	if !strings.Contains(params, `"value":"https://example.com:34521"`) {
 		t.Errorf("静态目标地址不对：%s", params)
 	}
-	if expr := field(t, rule, "expression"); expr != `(http.host eq "fn.zlux.top")` {
+	if expr := field(t, rule, "expression"); expr != `(http.host eq "fn.example.com")` {
 		t.Errorf("匹配表达式不对：%q", expr)
 	}
 
 	// 保留路径走动态表达式
-	dyn, err := buildRedirectRule("linkstar:entry-5", "fn.zlux.top", "https://zlux.top:34521/", true)
+	dyn, err := buildRedirectRule("linkstar:entry-5", "fn.example.com", "https://example.com:34521/", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dynParams := string(dyn["action_parameters"])
-	if !strings.Contains(dynParams, `concat(\"https://zlux.top:34521\", http.request.uri.path)`) {
+	if !strings.Contains(dynParams, `concat(\"https://example.com:34521\", http.request.uri.path)`) {
 		t.Errorf("动态目标表达式不对（尾斜杠也应剥掉）：%s", dynParams)
+	}
+}
+
+func TestGuardRedirectLoop(t *testing.T) {
+	cases := []struct {
+		name      string
+		entryHost string
+		targetURL string
+		wantErr   bool
+	}{
+		{"正常的子域名入口", "linkstarcf.example.com", "https://example.com:24969", false},
+		{"入口和落地同名", "example.com", "https://example.com:24969", true},
+		{"同名但大小写不同", "EXAMPLE.com", "https://example.com:24969", true},
+		{"同名但入口带根点", "example.com.", "https://example.com:24969", true},
+		{"落地回落成公网 IP", "linkstarcf.example.com", "http://1.2.3.4:24969", false},
+		{"目标地址解析不了就别拦", "example.com", "://bad", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			err := guardRedirectLoop(c.entryHost, c.targetURL)
+			if c.wantErr && err == nil {
+				t.Fatalf("应该拦下来，却放过了")
+			}
+			if !c.wantErr && err != nil {
+				t.Fatalf("不该拦，却报了: %v", err)
+			}
+		})
+	}
+}
+
+// TestShortCause 服务商报错会把整个响应体带回来，压成一行短句再给用户看
+func TestShortCause(t *testing.T) {
+	long := `返回内容：{"success":false,"errors":[{"code":10000,"message":"Authentication error",` +
+		`"documentation_url":"https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list"}],` +
+		`"messages":[],"result":null}` + "\n ,返回状态码:403"
+
+	got := shortCause(long)
+	if strings.ContainsAny(got, "\n\r") {
+		t.Fatalf("压完还带换行，贴进界面会撑开一大块: %q", got)
+	}
+	if n := len([]rune(got)); n > 121 {
+		t.Fatalf("压完还有 %d 个字，太长了: %q", n, got)
+	}
+	// 头部得留住：这是用户拿去搜的那半句
+	if !strings.HasPrefix(got, "返回内容：") {
+		t.Fatalf("开头被截没了: %q", got)
+	}
+
+	if got := shortCause("短原因"); got != "短原因" {
+		t.Fatalf("本来就短的不该改动: %q", got)
+	}
+}
+
+// TestWarnEntryRecordNoPerm 这句话是给人照着做的，域名和占位地址都得在里面
+func TestWarnEntryRecordNoPerm(t *testing.T) {
+	msg := warnEntryRecordNoPerm("linkstarcf.example.com")
+	for _, want := range []string{"linkstarcf.example.com", entryRecordIP, "DNS"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("提示里缺了 %q: %s", want, msg)
+		}
 	}
 }

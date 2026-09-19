@@ -46,6 +46,19 @@ func StunRouters(g *gin.RouterGroup) {
 		app.StunServiceAddView,
 	)
 
+	// 本机接在哪几个局域网上
+	g.GET(
+		"stun/lan/subnets",
+		app.StunLanSubnetListView,
+	)
+
+	// 扫一段局域网，找出在线的机器和它们开着的端口
+	g.POST(
+		"stun/lan/scan",
+		middleware.BindJsonMiddleware[stun_api.StunLanScanRequest],
+		app.StunLanScanView,
+	)
+
 	// 新增设备
 	g.POST(
 		"stun/device/add",
@@ -79,6 +92,27 @@ func StunRouters(g *gin.RouterGroup) {
 		"stun/device/update",
 		middleware.BindJsonMiddleware[stun_api.StunDeviceUpdateViewRequest],
 		app.StunDeviceUpdateView,
+	)
+
+	// 立即同步入口重定向
+	g.POST(
+		"stun/redirect/sync",
+		middleware.BindJsonMiddleware[stun_api.StunRedirectRequest],
+		app.StunRedirectSyncView,
+	)
+
+	// 入口/落地这两条解析记录现在各是什么样
+	g.POST(
+		"stun/redirect/inspect",
+		middleware.BindJsonMiddleware[stun_api.StunRedirectRequest],
+		app.StunRedirectInspectView,
+	)
+
+	// 删掉服务商那边的入口重定向规则
+	g.DELETE(
+		"stun/redirect",
+		middleware.BindJsonMiddleware[stun_api.StunRedirectRequest],
+		app.StunRedirectRemoveView,
 	)
 
 	// 切换某个 service 是否在 home 显示（与 home 模块联动）

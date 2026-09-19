@@ -5,12 +5,17 @@ import type {
   DdnsConfig,
   DdnsProvider,
   DdnsRecord,
+  LanHost,
+  LanSubnet,
   LogEntry,
   NatTypeInfo,
+  NetInterface,
   ProxyConfig,
   ProxyEntry,
   ProxyProbeResult,
   ProxySite,
+  RedirectConfig,
+  RedirectInspection,
   StunConfig,
   WebhookConfig,
   WebhookTemplate,
@@ -44,10 +49,14 @@ export const setToken = (t: string) => localStorage.setItem(TOKEN_KEY, t)
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 export const isDesktop = () => !!sessionStorage.getItem(DESKTOP_SECRET_KEY)
 
-async function request<T>(
+// requestWithMsg 连后端那句话一起拿回来。
+//
+// 大部分接口只要 data，成功与否界面自己有话说；但有些接口做成了一半——
+// 规则写进去了、记录没建上——那句「还差什么」只有后端知道，丢掉就等于报了个假的成功。
+async function requestWithMsg<T>(
   path: string,
   init?: RequestInit,
-): Promise<T> {
+): Promise<{ data: T; msg: string }> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(init?.headers as Record<string, string> | undefined),
@@ -73,7 +82,11 @@ async function request<T>(
     throw new Error(json.msg || '系统尚未初始化')
   }
   if (json.code !== 0) throw new Error(json.msg || '请求失败')
-  return json.data as T
+  return { data: json.data as T, msg: json.msg ?? '' }
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await requestWithMsg<T>(path, init)).data
 }
 
 // ===================== Auth =====================
@@ -200,6 +213,16 @@ export function subscribeStunStatus(onEvent: (data: string) => void): SSEHandle 
   }
 }
 
+/** 本机接在哪几个局域网上。只读网卡，不发包 */
+export const listLanSubnets = () => request<LanSubnet[]>('/api/stun/lan/subnets')
+
+/** 扫一段局域网。要往两百多个地址发连接，两三秒才回得来 */
+export const scanLan = (cidr: string) =>
+  request<LanHost[]>('/api/stun/lan/scan', {
+    method: 'POST',
+    body: JSON.stringify({ cidr }),
+  })
+
 export const addStunDevice = (body: { name: string; ip: string }) =>
   request<{ id: number }>('/api/stun/device/add', {
     method: 'POST',
@@ -238,6 +261,7 @@ export interface StunServicePayload {
   enabled: boolean
   description: string
   webhookconfig?: WebhookConfig
+  redirect?: RedirectConfig
 }
 
 export const addStunService = (body: StunServicePayload) =>
@@ -264,6 +288,32 @@ export const setStunShowOnHome = (deviceId: number, serviceId: number, show: boo
     body: JSON.stringify({ deviceId, serviceId, show }),
   })
 
+/**
+ * 立即把服务当前的外网地址写到入口域名上；平时端口一变会自动同步。
+ *
+ * 返回后端那句完整的话：这一步可能只做成一半（规则写进去了，入口域名的解析记录没建上），
+ * 界面自己拼不出「还差什么」，拼了也会和后端各说各的。
+ */
+export const syncStunRedirect = (deviceId: number, serviceId: number) =>
+  requestWithMsg<{ target: string; keepPath: boolean }>('/api/stun/redirect/sync', {
+    method: 'POST',
+    body: JSON.stringify({ deviceId, serviceId }),
+  })
+
+/** 入口/落地这两条解析记录现在各是什么样；入口那条要现场去服务商查，慢一点 */
+export const inspectStunRedirect = (deviceId: number, serviceId: number) =>
+  request<RedirectInspection>('/api/stun/redirect/inspect', {
+    method: 'POST',
+    body: JSON.stringify({ deviceId, serviceId }),
+  })
+
+/** 删掉服务商那边 LinkStar 写的那条规则 */
+export const removeStunRedirect = (deviceId: number, serviceId: number) =>
+  request<unknown>('/api/stun/redirect', {
+    method: 'DELETE',
+    body: JSON.stringify({ deviceId, serviceId }),
+  })
+
 export interface HomeApp {
   id: string
   type: string
@@ -275,6 +325,9 @@ export const getHomeConfig = () =>
 // ===================== DDNS =====================
 
 export const getDdnsConfig = () => request<DdnsConfig>('/api/ddns/config')
+
+/** 本机网卡列表，给「本地网卡」这个 IP 来源当选项 */
+export const getDdnsInterfaces = () => request<NetInterface[]>('/api/ddns/interfaces')
 
 export const updateDdnsSettings = (body: { intervalSec: number }) =>
   request<unknown>('/api/ddns/settings', {
@@ -433,7 +486,7 @@ export interface EntryPayload {
   httpsPort: number
   /** 0 表示按 SNI 自动匹配 */
   certId: number
-  /** 主域名，如 zlux.top；留空则站点必须写全域名 */
+  /** 主域名，如 example.com；留空则站点必须写全域名 */
   baseDomain: string
 }
 

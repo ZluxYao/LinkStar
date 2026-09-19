@@ -29,6 +29,16 @@ import type {
 } from './types'
 import './App.css'
 
+/**
+ * 弹窗遮罩。
+ *
+ * `grid-cols-1` 不能省。不写的话隐式列是 `auto`，宽度按里面内容的 max-content 算，
+ * 弹窗内容只要有一层固定上限（`max-w-*`），这一列就被撑到那个宽度并且不再跟着屏幕缩，
+ * 手机上弹窗比屏幕还宽，右半边直接看不见。`grid-cols-1` 展开是 `minmax(0, 1fr)`，
+ * 把列钉在容器宽度上。
+ */
+const modalBackdrop = 'fixed inset-0 grid grid-cols-1 place-items-center bg-black/40 px-4 py-6 backdrop-blur-sm'
+
 const networkPreferOrder: NetworkPrefer[] = ['wanV4', 'wanV6', 'lan']
 const networkPreferLabel: Record<NetworkPrefer, string> = {
   wanV4: '公网 v4',
@@ -554,7 +564,7 @@ function AppFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-6 backdrop-blur-sm"
+      className={`${modalBackdrop} z-50`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -739,7 +749,7 @@ function SearchEngineFormModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-6 backdrop-blur-sm"
+      className={`${modalBackdrop} z-50`}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -2155,7 +2165,7 @@ function App() {
       {/* 设置模态 */}
       {showSettings && (
         <div
-          className="fixed inset-0 z-40 grid place-items-center bg-black/40 px-4 py-6 backdrop-blur-sm"
+          className={`${modalBackdrop} z-40`}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setShowSettings(false)
           }}

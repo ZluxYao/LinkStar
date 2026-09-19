@@ -166,12 +166,135 @@ func resolveIP(r *model.DDNSRecord) (ip string, err error) {
 		case model.DNSRecordTypeAAAA:
 			return fetchIPFromWebList(defaultIPv6Sources, 6)
 		}
+	case model.IPSourceCustom:
+		return parseFixedIP(r.IPSourceArg, r.RecordType)
+	case model.IPSourceDNS:
+		return resolveFromDNS(r.IPSourceArg, r.RecordType)
+	case model.IPSourceInterface:
+		return resolveFromInterface(r.IPSourceArg, r.RecordType)
 	default:
 		return "", fmt.Errorf("暂不支持的 IP 来源: %s", r.IPSourceType)
 
 	}
 
 	return ip, err
+}
+
+// parseFixedIP 自定义来源：用户填的那个 IP，一个字都不改。
+//
+// 用途是那些「压根不会变」的记录——比如入口重定向要的 192.0.2.1 占位地址。
+// 这类记录走别的来源都不对：探测出来的是真公网 IP，会把占位地址覆盖掉。
+func parseFixedIP(arg string, t model.DNSRecordType) (string, error) {
+	s := strings.TrimSpace(arg)
+	if s == "" {
+		return "", fmt.Errorf("自定义来源要在「来源参数」里填一个 IP")
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return "", fmt.Errorf("「%s」不是合法的 IP 地址", s)
+	}
+	if err := matchRecordType(ip, t); err != nil {
+		return "", err
+	}
+	return ip.String(), nil
+}
+
+// resolveFromDNS 跟随另一个域名：解析它，把结果写到自己头上。
+// 用来让多条记录跟着一个主记录走，不用每条都各探测一次。
+func resolveFromDNS(arg string, t model.DNSRecordType) (string, error) {
+	host := strings.TrimSpace(arg)
+	if host == "" {
+		return "", fmt.Errorf("DNS 来源要在「来源参数」里填一个要跟随的域名")
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return "", fmt.Errorf("解析 %s 失败: %w", host, err)
+	}
+	for _, ip := range ips {
+		if matchRecordType(ip, t) == nil {
+			return ip.String(), nil
+		}
+	}
+	return "", fmt.Errorf("%s 解析不出 %s 记录要的地址", host, t)
+}
+
+// resolveFromInterface 读本地网卡上的地址。
+//
+// 只在「这台机器自己就拿着公网地址」时有意义，最典型的是原生 IPv6：
+// 地址就在网卡上，绕一圈去问外部网站反而慢且可能拿到别人的出口地址。
+// arg 是网卡名，留空就在所有网卡里挑。
+//
+// 排除回环和链路本地（fe80::/10、169.254/16）：它们出了本机就没有意义，
+// 写进公网 DNS 等于让所有人解析到一个连不上的地址。
+func resolveFromInterface(arg string, t model.DNSRecordType) (string, error) {
+	name := strings.TrimSpace(arg)
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "", fmt.Errorf("读取网卡列表失败: %w", err)
+	}
+
+	var fallback string // 私有地址（192.168 / fd00::）垫底，实在没有公网的才用
+	matched := false
+
+	for _, iface := range ifaces {
+		if name != "" && !strings.EqualFold(iface.Name, name) {
+			continue
+		}
+		matched = true
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipNet.IP
+			if !usableIfaceIP(ip) {
+				continue
+			}
+			if matchRecordType(ip, t) != nil {
+				continue
+			}
+			if ip.IsPrivate() {
+				if fallback == "" {
+					fallback = ip.String()
+				}
+				continue
+			}
+			return ip.String(), nil
+		}
+	}
+
+	if fallback != "" {
+		return fallback, nil
+	}
+	if name != "" && !matched {
+		return "", fmt.Errorf("没有叫「%s」的网卡", name)
+	}
+	return "", fmt.Errorf("网卡上没找到 %s 记录能用的地址", t)
+}
+
+// matchRecordType A 记录只能填 IPv4，AAAA 只能填 IPv6。
+// 填反了服务商回的报错通常很含糊，不如在本地就把话说清楚。
+func matchRecordType(ip net.IP, t model.DNSRecordType) error {
+	isV4 := ip.To4() != nil
+	switch t {
+	case model.DNSRecordTypeA:
+		if !isV4 {
+			return fmt.Errorf("A 记录要填 IPv4，%s 是 IPv6——把记录类型改成 AAAA", ip)
+		}
+	case model.DNSRecordTypeAAAA:
+		if isV4 {
+			return fmt.Errorf("AAAA 记录要填 IPv6，%s 是 IPv4——把记录类型改成 A", ip)
+		}
+	}
+	return nil
 }
 
 // 初始化HTTP客户端 方便复用

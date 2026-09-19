@@ -36,7 +36,7 @@ type Service struct {
 	Https          bool   `json:"https"`        // 仅影响链接展示成 http:// 还是 https://,不改变转发行为
 
 	// 对外访问配置
-	Domain       string `json:"domain"`       // 该服务对外域名,如 fw.zlux.top;留空回落公网 IP
+	Domain       string `json:"domain"`       // 该服务对外域名,如 fw.example.com;留空回落公网 IP
 	TLSTerminate bool   `json:"tlsTerminate"` // 由 LinkStar 在洞口终结 TLS(仅 TCP 有效)
 	CertID       uint   `json:"certId"`       // 绑定的证书 ID,0 表示按域名自动匹配
 
@@ -60,6 +60,22 @@ type Service struct {
 	Description string `json:"description"` // 服务描述信息 (可选)
 
 	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
+	Redirect      RedirectConfig        `json:"redirect"`      // 固定域名跟着外部端口走
 
 	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
+}
+
+// RedirectConfig 让一个固定的域名，始终指向这个服务当前的外网地址。
+//
+// 它替代的是「Cloudflare 重定向规则」那个 webhook 模板。用那个模板得自己去
+// Cloudflare 后台抄三个 ID（zone / ruleset / rule）贴进 URL，还要手写整段 JSON，
+// 而且在后台重建一次规则，rule ID 就变了，webhook 会静默失效。
+//
+// 这里三个 ID 一个都不用填：zone 用域名查，规则集走固定的 phase 入口，
+// 自己那条规则按 description 认领。所以只剩下面三个字段要填。
+type RedirectConfig struct {
+	Enabled    bool   `json:"enabled"`
+	ProviderID uint   `json:"providerId"` // 用 DDNS 里已经配好的服务商，token 不用再贴一遍
+	EntryHost  string `json:"entryHost"`  // 外面访问用的名字，如 linkstar.example.com
+	ZoneDomain string `json:"zoneDomain"` // 主域名；留空按 EntryHost 的后两段取
 }

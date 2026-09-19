@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
+import { modalBackdrop } from '../components/modal'
 import * as api from '../lib/api'
 import type { Certificate, ProxyConfig, ProxyEntry, ProxyListener, ProxySite } from '../types'
 
@@ -141,7 +142,7 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -289,7 +290,7 @@ function EntryModal({
           <CertSelect value={certId} certs={certs} onChange={setCertId} />
           <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
             自动匹配会按访问的域名挑证书。指定一张就是所有站点都用它，证书得盖住全部域名——
-            <span className="font-mono">*.{baseDomain.trim() || 'zlux.top'}</span> 这种通配最省事
+            <span className="font-mono">*.{baseDomain.trim() || 'example.com'}</span> 这种通配最省事
           </div>
         </label>
       )}
@@ -299,12 +300,12 @@ function EntryModal({
         <input
           value={baseDomain}
           onChange={(e) => setBaseDomain(e.target.value)}
-          placeholder="zlux.top"
+          placeholder="example.com"
           className={`${inputCls} font-mono`}
         />
         <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
           填了之后加站点只写前缀：<span className="font-mono">nas</span> 就是{' '}
-          <span className="font-mono">nas.{baseDomain.trim() || 'zlux.top'}</span>。写全域名的照样认
+          <span className="font-mono">nas.{baseDomain.trim() || 'example.com'}</span>。写全域名的照样认
         </div>
       </label>
 

@@ -16,12 +16,14 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
+import { modalBackdrop } from '../components/modal'
 import * as api from '../lib/api'
 import type {
   DdnsConfig,
   DdnsProvider,
   DdnsRecord,
   DdnsRecordStatus,
+  NetInterface,
 } from '../types'
 
 const statusInfo: Record<DdnsRecordStatus, { label: string; tone: string; icon: LucideIcon }> = {
@@ -36,6 +38,31 @@ const ipSourceLabel: Record<string, string> = {
   web: 'Web 查询',
   dns: 'DNS 解析',
   interface: '本地网卡',
+  custom: '自定义',
+}
+
+// 每种来源「来源参数」那一栏的说明。
+// 原来只对 web/dns 写了 placeholder，其余来源那个框是灰的、没人知道该不该填，
+// 现在每种来源自己说清楚：填什么、必不必填。
+const ipSourceArgMeta: Record<string, { label: string; placeholder: string; required: boolean }> = {
+  stun: { label: '来源参数（当前来源无需填写）', placeholder: '', required: false },
+  web: { label: '查询地址', placeholder: '如 https://ip.sb（留空用内置源）', required: false },
+  dns: { label: '要跟随的域名', placeholder: '如 example.com', required: true },
+  interface: { label: '网卡', placeholder: '留空自动挑一块', required: false },
+  custom: { label: 'IP 地址', placeholder: '如 192.0.2.1', required: true },
+}
+
+// ifaceOptionText 下拉里一块网卡显示成什么样：名字 + 当前记录类型用得上的地址。
+// 光有名字认不出哪块是连外网那块，Windows 上一堆 vEthernet 尤其分不清。
+function ifaceOptionText(n: NetInterface, recordType: 'A' | 'AAAA') {
+  const addrs = recordType === 'AAAA' ? n.ipv6 : n.ipv4
+  if (addrs.length === 0) return `${n.name}（没有 ${recordType === 'AAAA' ? 'IPv6' : 'IPv4'} 地址）`
+  const shown = addrs.slice(0, 2).join('、')
+  return `${n.name} — ${shown}${addrs.length > 2 ? ' 等' : ''}${n.hasPublic ? '' : '（内网地址）'}`
+}
+
+function ifaceHasType(n: NetInterface, recordType: 'A' | 'AAAA') {
+  return (recordType === 'AAAA' ? n.ipv6 : n.ipv4).length > 0
 }
 
 // ===================== 服务商字段表 =====================
@@ -189,7 +216,7 @@ function ProviderModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -284,7 +311,7 @@ interface RecordFormState {
   domain: string
   subDomain: string
   recordType: 'A' | 'AAAA'
-  ipSource: 'stun' | 'web' | 'dns' | 'interface'
+  ipSource: 'stun' | 'web' | 'dns' | 'interface' | 'custom'
   ipSourceArg: string
   ttl: string
   proxied: boolean
@@ -331,6 +358,17 @@ function RecordModal({
   })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  // 网卡列表只在选了「本地网卡」时才去拿：别的来源用不上，没必要每次开弹窗都请求一遍
+  const [ifaces, setIfaces] = useState<NetInterface[] | null>(null)
+  const [ifaceErr, setIfaceErr] = useState('')
+
+  useEffect(() => {
+    if (form.ipSource !== 'interface' || ifaces) return
+    api
+      .getDdnsInterfaces()
+      .then((list) => setIfaces(list ?? []))
+      .catch((e) => setIfaceErr(e instanceof Error ? e.message : '读取网卡列表失败'))
+  }, [form.ipSource, ifaces])
 
   const submit = async () => {
     if (!form.providerId) {
@@ -345,6 +383,19 @@ function RecordModal({
       setErr('请填写主域名')
       return
     }
+    if (argMeta.required && !form.ipSourceArg.trim()) {
+      setErr(`请填写${argMeta.label}`)
+      return
+    }
+    // 选好网卡之后又把记录类型改了：这块网卡上没有对应的地址，
+    // 存下去要等到下一轮同步失败才看得见
+    if (form.ipSource === 'interface' && form.ipSourceArg) {
+      const picked = (ifaces ?? []).find((n) => n.name === form.ipSourceArg)
+      if (picked && !ifaceHasType(picked, form.recordType)) {
+        setErr(`网卡「${picked.name}」上没有 ${form.recordType === 'AAAA' ? 'IPv6' : 'IPv4'} 地址，换一块或改记录类型`)
+        return
+      }
+    }
     setErr('')
     setBusy(true)
     try {
@@ -355,7 +406,8 @@ function RecordModal({
     }
   }
 
-  const needArg = form.ipSource === 'web' || form.ipSource === 'dns'
+  const argMeta = ipSourceArgMeta[form.ipSource] ?? ipSourceArgMeta.stun
+  const needArg = form.ipSource !== 'stun'
 
   const selectedProvider = providers.find((p) => String(p.id) === form.providerId)
   const providerMeta = selectedProvider ? providerMetaMap.get(selectedProvider.type) : undefined
@@ -371,7 +423,7 @@ function RecordModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -465,19 +517,54 @@ function RecordModal({
               <option value="web">Web 查询</option>
               <option value="dns">DNS 解析</option>
               <option value="interface">本地网卡</option>
+              <option value="custom">自定义</option>
             </select>
           </label>
           <label className="col-span-2 block sm:col-span-1">
-            <div className="mb-1 text-xs font-semibold text-slate-500">
-              来源参数{needArg ? '' : '（当前来源无需填写）'}
-            </div>
-            <input
-              value={form.ipSourceArg}
-              onChange={(e) => setForm((p) => ({ ...p, ipSourceArg: e.target.value }))}
-              disabled={!needArg}
-              placeholder={form.ipSource === 'web' ? '如 https://ip.sb（留空用内置源）' : form.ipSource === 'dns' ? '如 example.com' : ''}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
-            />
+            <div className="mb-1 text-xs font-semibold text-slate-500">{argMeta.label}</div>
+            {form.ipSource === 'interface' ? (
+              <select
+                value={form.ipSourceArg}
+                onChange={(e) => setForm((p) => ({ ...p, ipSourceArg: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+              >
+                <option value="">自动挑一块</option>
+                {(ifaces ?? []).map((n) => (
+                  <option key={n.name} value={n.name} disabled={!ifaceHasType(n, form.recordType)}>
+                    {ifaceOptionText(n, form.recordType)}
+                  </option>
+                ))}
+                {/* 存着的网卡现在不在了（换了机器、禁用了网卡）：留着这一项，
+                    不然下拉会显示成「自动挑一块」，一保存就悄悄换了意思 */}
+                {form.ipSourceArg !== '' &&
+                  !(ifaces ?? []).some((n) => n.name === form.ipSourceArg) && (
+                    <option value={form.ipSourceArg}>{form.ipSourceArg}（现在没有这块网卡）</option>
+                  )}
+              </select>
+            ) : (
+              <input
+                value={form.ipSourceArg}
+                onChange={(e) => setForm((p) => ({ ...p, ipSourceArg: e.target.value }))}
+                disabled={!needArg}
+                placeholder={argMeta.placeholder}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+              />
+            )}
+            {form.ipSource === 'interface' && (
+              <div className="mt-1 text-[11px] text-slate-400">
+                {ifaceErr ||
+                  (ifaces === null
+                    ? '正在读网卡...'
+                    : ifaces.length === 0
+                      ? '这台机器上没有地址能往公网写的网卡，换个 IP 来源'
+                      : '选哪块，就把哪块上面的地址写进这条记录')}
+              </div>
+            )}
+            {form.ipSource === 'custom' && (
+              <div className="mt-1 text-[11px] text-slate-400">
+                这条记录就固定指着你填的地址，不随公网 IP 变
+              </div>
+            )}
           </label>
 
           <div className="col-span-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -562,7 +649,7 @@ function SettingsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}

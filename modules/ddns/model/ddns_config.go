@@ -62,6 +62,7 @@ const (
 	IPSourceWeb       IPSourceType = "web"       // HTTP GET 某网站，如 https://ip.sb
 	IPSourceDNS       IPSourceType = "dns"       // 解析某域名，保持一致
 	IPSourceInterface IPSourceType = "interface" // 读本地网卡
+	IPSourceCustom    IPSourceType = "custom"    // 固定指着填好的那个 IP，不去探测
 )
 
 // DDNS 配置

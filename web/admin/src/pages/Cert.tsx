@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
+import { modalBackdrop } from '../components/modal'
 import * as api from '../lib/api'
 import type { AcmeProvider, Certificate, CertSource } from '../types'
 
@@ -80,7 +81,13 @@ const HTTP01_WARNING =
 
 const DIRECTORIES = [
   { value: '', label: "Let's Encrypt 正式环境" },
-  { value: 'https://acme-staging-v02.api.letsencrypt.org/directory', label: "Let's Encrypt 测试环境（staging）" },
+  {
+    value: 'https://acme-staging-v02.api.letsencrypt.org/directory',
+    // 原来只写「测试环境（staging）」，加上「配不通时先拿它试」是因为
+    // 用户看到「浏览器不信任」就会以为这东西没用，转头去正式环境硬试，
+    // 然后被锁一小时——而这恰恰是 staging 存在的理由
+    label: "Let's Encrypt 测试环境（staging，配不通时先拿它试）",
+  },
   { value: 'custom', label: '自定义 ACME 服务（ZeroSSL 等）' },
 ]
 
@@ -287,7 +294,7 @@ function CertModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}
@@ -429,8 +436,19 @@ function CertModal({
                   />
                 )}
                 {form.directoryChoice.includes('staging') && (
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    测试环境签出的证书浏览器不信任，仅用于验证流程是否跑通
+                  <div className="mt-1 text-[11px] leading-5 text-slate-400">
+                    这里签出来的证书浏览器不认，只用来验证 DNS 权限和域名填对了没有。
+                    跑通之后改回正式环境，会重新签一张能用的。
+                  </div>
+                )}
+                {/*
+                  正式环境一小时内失败 5 次就签不了了，只能干等。
+                  第一次配 DNS-01 十有八九要试几轮，这句得在他动手前说
+                */}
+                {form.directoryChoice === '' && (
+                  <div className="mt-1 text-[11px] leading-5 text-slate-400">
+                    正式环境一小时内验证失败 5 次就会被暂时挡住，只能等。
+                    第一次配、或者反复签不出来，先用上面的测试环境试通再回来。
                   </div>
                 )}
               </label>
@@ -609,7 +627,7 @@ function UploadModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/30 px-4 py-6 backdrop-blur-sm"
+      className={modalBackdrop}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel()
       }}

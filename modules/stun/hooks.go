@@ -6,8 +6,8 @@ import "sync"
 type ServiceDeletedHandler func(deviceID, serviceID uint)
 
 var (
-	hooksMu                sync.RWMutex
-	onServiceDeletedHooks  []ServiceDeletedHandler
+	hooksMu               sync.RWMutex
+	onServiceDeletedHooks []ServiceDeletedHandler
 )
 
 // RegisterOnServiceDeleted 由外部模块（如 home）调用，注册删除回调

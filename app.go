@@ -105,6 +105,7 @@ func isLinkStarBackendReady() bool {
 // startModulesInBackground 后台并发初始化各业务模块，互不阻塞。
 func startModulesInBackground() {
 	registerCertDNSSolver()
+	registerSTUNRedirectSyncer()
 
 	initModule := func(name string, fn func() error) {
 		go func() {
@@ -145,5 +146,42 @@ func registerCertDNSSolver() {
 			return nil, fmt.Errorf("服务商 %s 暂不支持 DNS-01", p.Type)
 		}
 		return w, nil
+	})
+}
+
+// registerSTUNRedirectSyncer 把 DDNS 的重定向规则能力注入 STUN。
+//
+// 方向和上面那个一样：ddns 已经 import 了 stun，stun 不能反过来 import ddns，
+// 所以 stun 只声明一个窄接口，由这里在启动时注入实现。
+func registerSTUNRedirectSyncer() {
+	stun.RegisterRedirectSyncerFactory(func(id uint) (stun.RedirectSyncer, error) {
+		p, ok := ddns.Runtime.FindProvider(id)
+		if !ok {
+			return nil, fmt.Errorf("DNS 服务商 %d 不存在，请先在 DDNS 里配置", id)
+		}
+		s := dns.BuildRedirectClient(p)
+		if s == nil {
+			return nil, fmt.Errorf("服务商 %s 暂不支持重定向规则", p.Type)
+		}
+		return s, nil
+	})
+
+	// 落地域名那条解析记录归 DDNS 管，同样反过来注入
+	stun.RegisterLandingRecordEnsurer(ddns.Runtime.EnsureLandingRecord)
+
+	// 界面上要显示落地域名归哪条记录管：状态在 DDNS 那边，翻译成 stun 认识的样子
+	stun.RegisterLandingRecordInspector(func(host string) (stun.LandingRecordState, bool) {
+		rec, ok := ddns.Runtime.FindRecordByHost(host)
+		if !ok {
+			return stun.LandingRecordState{}, false
+		}
+		return stun.LandingRecordState{
+			Managed: true,
+			Name:    rec.Name,
+			LastIP:  rec.LastIP,
+			Status:  string(rec.LastStatus),
+			Message: rec.LastMessage,
+			At:      rec.LastSyncAt,
+		}, true
 	})
 }

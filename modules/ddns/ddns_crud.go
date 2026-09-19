@@ -345,7 +345,7 @@ func validateRecord(name, domain string, recordType model.DNSRecordType, ipSourc
 		return "记录类型仅支持 A / AAAA"
 	}
 	switch ipSource {
-	case model.IPSourceSTUN, model.IPSourceWeb, model.IPSourceDNS, model.IPSourceInterface:
+	case model.IPSourceSTUN, model.IPSourceWeb, model.IPSourceDNS, model.IPSourceInterface, model.IPSourceCustom:
 	default:
 		return "无效的 IP 来源类型"
 	}

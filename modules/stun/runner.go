@@ -2,6 +2,7 @@ package stun
 
 import (
 	"context"
+	"linkstar/modules/stun/model"
 	"linkstar/modules/webhook"
 )
 
@@ -13,6 +14,9 @@ type STUNRequest struct {
 	Protocol      string
 	UseUPnP       bool
 	WebhookConfig webhook.WebhookConfig
+
+	// Redirect 入口域名跟着外部端口走的配置
+	Redirect model.RedirectConfig
 
 	// TLSTerminate 是否由 LinkStar 在洞口终结 TLS（仅 TCP 有效）
 	TLSTerminate bool

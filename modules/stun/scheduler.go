@@ -35,6 +35,14 @@ type StateEvent struct {
 	LastError    string       `json:"lastError"`    // 最近一次错误描述
 	Logs         []ServiceLog `json:"logs"`         // 最近的服务日志（最多 maxServiceLogs 条）
 	UpdatedAt    time.Time    `json:"updatedAt"`    // 最后一次状态更新时间
+
+	// 入口重定向的同步结果。只在运行时保存，不写进配置文件——
+	// 配置是用户填的，状态是跑出来的，混在一起前端一保存就会把状态覆盖掉。
+	RedirectStatus   string    `json:"redirectStatus"`   // ok / failed，空表示还没同步过
+	RedirectTarget   string    `json:"redirectTarget"`   // 最近一次写过去的地址
+	RedirectError    string    `json:"redirectError"`    // 失败原因
+	RedirectKeepPath bool      `json:"redirectKeepPath"` // 服务商是否接受了「保留原始路径」的写法
+	RedirectAt       time.Time `json:"redirectAt"`       // 最近一次同步时间
 }
 
 const maxServiceLogs = 30
@@ -95,6 +103,14 @@ type serviceEntry struct {
 	lastError    string
 	logMessages  []ServiceLog // 滚动日志
 	updatedAt    time.Time
+
+	// 入口重定向：和 webhook 各记各的，免得动一边的开关影响到另一边
+	lastRedirect     string    // 最近一次同步过的目标地址，相同就不再打服务商 API
+	redirectStatus   string    // ok / failed
+	redirectError    string    // 失败原因
+	redirectKeepPath bool      // 服务商是否接受了保留路径的写法
+	redirectAt       time.Time // 最近一次同步时间
+	redirectRetryAt  time.Time // 失败后的冷却时间，到点前不重试
 }
 
 // newServiceEntry 创建服务实例
@@ -190,6 +206,12 @@ func (e *serviceEntry) snapshot(key string, kind EventKind) StateEvent {
 		LastError:    e.lastError,
 		Logs:         logs,
 		UpdatedAt:    e.updatedAt,
+
+		RedirectStatus:   e.redirectStatus,
+		RedirectTarget:   e.lastRedirect,
+		RedirectError:    e.redirectError,
+		RedirectKeepPath: e.redirectKeepPath,
+		RedirectAt:       e.redirectAt,
 	}
 }
 
@@ -455,6 +477,7 @@ func (s *Scheduler) runService(ctx context.Context, key string, entry *serviceEn
 				everAlive = true
 				phaseChanged := s.transition(entry, key, PhaseRunning, state.ExternalPort, state.Log)
 				s.sendServiceWebhook(entry, key, req, state, phaseChanged)
+				s.syncServiceRedirect(entry, key, req, state)
 			case STUNFailed:
 				s.transition(entry, key, PhaseRestarting, 0, state.Log)
 			case STUNLog:
@@ -562,6 +585,7 @@ func buildSTUNRequest(device *model.Device, service *model.Service) STUNRequest 
 		Protocol:      service.Protocol,
 		UseUPnP:       service.UseUPnP,
 		WebhookConfig: service.WebHookConfig,
+		Redirect:      service.Redirect,
 
 		// UDP 洞口不支持终结 TLS（那是 DTLS，另一回事）
 		TLSTerminate: service.TLSTerminate && !strings.EqualFold(service.Protocol, "udp"),
@@ -615,6 +639,118 @@ func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUN
 		}
 		s.log(entry, key, "Webhook 发送成功")
 	}()
+}
+
+// redirectFailCooldown 入口重定向同步失败后的冷却时间。
+//
+// STUNAlive 是保活心跳，几秒就来一次。配错了（token 没权限、域名不在这个账号下）
+// 就是一直错，不冷却的话等于拿服务商的 API 当沙包打，很容易被限流。
+const redirectFailCooldown = 5 * time.Minute
+
+// syncServiceRedirect 地址变了就把入口重定向刷一遍，和 webhook 同一个触发点。
+func (s *Scheduler) syncServiceRedirect(entry *serviceEntry, key string, req STUNRequest, state STUNState) {
+	cfg := req.Redirect
+	if !cfg.Enabled || strings.TrimSpace(cfg.EntryHost) == "" || state.ExternalPort == 0 {
+		return
+	}
+
+	_, svc := FindDeviceService(entry.deviceID, entry.serviceID)
+	if svc == nil {
+		return
+	}
+	// 目标地址直接按本次拿到的端口算，不回头读调度器状态：
+	// 那边是另一把锁，读回来的可能已经是下一轮的值了。
+	host := strings.TrimSpace(svc.Domain)
+	if host == "" {
+		host = state.ExternalIP
+		if host == "" {
+			host = Runtime.Network.PublicIP
+		}
+	}
+	if host == "" {
+		return
+	}
+	target := fmt.Sprintf("%s://%s:%d", PublicScheme(svc), host, state.ExternalPort)
+
+	if !entry.shouldSyncRedirect(target) {
+		return
+	}
+
+	go func() {
+		syncer, err := buildRedirectSyncer(cfg.ProviderID)
+		var (
+			keepPath  bool
+			entryWarn string
+		)
+		if err == nil {
+			keepPath, entryWarn, err = syncer.SyncRedirectRule(
+				redirectZone(cfg),
+				redirectRuleKey(entry.deviceID, entry.serviceID),
+				strings.TrimSpace(cfg.EntryHost),
+				target,
+			)
+		}
+		entry.recordRedirect(target, keepPath, err)
+		if err != nil {
+			logrus.WithError(err).Warnf("入口重定向同步失败: key=%s", key)
+			s.log(entry, key, fmt.Sprintf("入口重定向同步失败：%v", err))
+			return
+		}
+		msg := fmt.Sprintf("入口重定向已更新：%s → %s", strings.TrimSpace(cfg.EntryHost), target)
+		if !keepPath {
+			msg += "（服务商不接受保留路径的写法，从子路径进来会落到根路径）"
+		}
+		s.log(entry, key, msg)
+		// 规则写进去了，但入口域名那条记录没确认上——这条单独说，
+		// 不然日志里只剩一行「已更新」，而实际访问是域名不存在
+		if entryWarn != "" {
+			s.log(entry, key, entryWarn)
+		}
+
+		// 落地域名补不上不影响这次同步：规则已经写进去了
+		host, added, lerr := ensureLandingRecord(cfg, target)
+		switch {
+		case lerr != nil:
+			s.log(entry, key, fmt.Sprintf("落地域名没能自动接管：%v", lerr))
+		case added:
+			s.log(entry, key, fmt.Sprintf("落地域名 %s 已加进 DDNS，之后会自己跟着公网 IP 走", host))
+		}
+	}()
+}
+
+// shouldSyncRedirect 目标没变就不打服务商 API；上次失败的话等冷却时间过了再试。
+// 返回 true 时已经把 lastRedirect 占上了，避免同一个目标被并发同步两次。
+func (e *serviceEntry) shouldSyncRedirect(target string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.lastRedirect == target {
+		if e.redirectStatus != "failed" {
+			return false
+		}
+		if time.Now().Before(e.redirectRetryAt) {
+			return false
+		}
+	}
+	e.lastRedirect = target
+	return true
+}
+
+// recordRedirect 记下同步结果，失败时压上冷却时间
+func (e *serviceEntry) recordRedirect(target string, keepPath bool, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.lastRedirect = target
+	e.redirectKeepPath = keepPath
+	e.redirectAt = time.Now()
+	if err != nil {
+		e.redirectStatus = "failed"
+		e.redirectError = err.Error()
+		e.redirectRetryAt = time.Now().Add(redirectFailCooldown)
+		return
+	}
+	e.redirectStatus = "ok"
+	e.redirectError = ""
+	e.redirectRetryAt = time.Time{}
 }
 
 func (e *serviceEntry) shouldSendWebhook(address string, phaseChanged bool, onlyWhenChanged bool) bool {
