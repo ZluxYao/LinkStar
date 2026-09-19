@@ -1,43 +1,51 @@
-
-
 <div align="center">
 
 <img src="docs/img/logo.png" alt="LinkStar Logo" width="140">
 
 # LinkStar
 
-**Pack a navigation homepage, STUN NAT traversal, DDNS, and Webhook notifications into a single Go binary.**
+**No public IP? Still reach your home services from anywhere. One Go binary, download and run.**
 
-A network entry management tool for home servers, NAS, or soft routers—uses **STUN + UPnP** for NAT traversal, allowing you to expose internal services to the public internet stably without a public IP.
+A network entry tool for home servers, NAS, and soft routers — **STUN + UPnP** hole punching, **DDNS** that follows your changing home IP, plus **certificates** and a **reverse proxy** built in, with a navigation homepage on top.
 
 [![Release](https://img.shields.io/github/v/release/ZluxYao/LinkStar?label=Release&color=success)](https://github.com/ZluxYao/LinkStar/releases/latest)
 [![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white)](go.mod)
-[![STUN](https://img.shields.io/badge/NAT-STUN%20%2B%20UPnP-orange)](#NAT-traversal)
+[![STUN](https://img.shields.io/badge/NAT-STUN%20%2B%20UPnP-orange)](#nat-traversal)
 [![License](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)](#building-from-source)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#developer-guide)
 
-![LinkStar Home](docs/img/home.png)
+[简体中文](README.md) · **English**
+
+![LinkStar Home](docs/img/home.jpg)
+
+<sub>Navigation homepage</sub>
+
+![LinkStar NAT traversal dashboard](docs/img/stun.png)
+
+<sub>Dashboard · NAT traversal</sub>
 
 </div>
 
 ---
 
-LinkStar consolidates several previously separate tasks—building a beautiful navigation homepage, punching holes for internal services via STUN, updating DNS records as the public IP changes, and notifying external systems when addresses change—all into a single application. Frontend resources are embedded using Go's `embed`, so you only need to download one binary to run it. It provides two interfaces: a **Home Navigation** page and an **Admin Dashboard** (password-protected).
+Reaching your NAS, soft router, or Jellyfin from outside your home usually gets stuck on three things: your ISP won't give you a public IP, your home IP changes daily, and the browser flags everything as "not secure". LinkStar puts those three problems and everything around them — hole punching, DDNS, certificates, reverse proxy — into one program. The frontend is embedded via Go `embed`, so you download a single binary and run it. It serves two interfaces: a public **Navigation Homepage** and a password-protected **Admin Dashboard**.
 
 ## Table of Contents
 
 - [Why LinkStar](#why-linkstar)
 - [Features](#features)
-- [NAT Traversal](#NAT-traversal)
-- [Interface Preview](#interface-preview)
+- [NAT Traversal](#nat-traversal)
 - [Quick Start](#quick-start)
-- [Usage Guide](#usage-guide)
-  - [Interface Entries](#interface-entries)
-  - [Password & Authentication](#password--authentication)
+- [User Guide](#user-guide)
+  - [Entry Points](#entry-points)
+  - [Password & Login](#password--login)
   - [Data Directories](#data-directories)
-  - [DDNS Configuration](#DDNS-configuration)
-  - [Webhook Variables](#Webhook-variables)
+  - [Certificates](#certificates)
+  - [Reverse Proxy](#reverse-proxy)
+  - [DDNS](#ddns)
+  - [Entry Redirect (Cloudflare)](#entry-redirect-cloudflare)
+  - [Webhook Variables](#webhook-variables)
 - [Developer Guide](#developer-guide)
 - [Roadmap](#roadmap)
 - [Notes & Caveats](#notes--caveats)
@@ -46,109 +54,202 @@ LinkStar consolidates several previously separate tasks—building a beautiful n
 
 ## Why LinkStar
 
-- **All-in-One Binary**: No Docker required, no need to install multiple services. The frontend is bundled with the program, just run `./linkstar` directly.
-- **NAT Traversal Without a Public IP**: STUN detects your public exit + UPnP automatically creates port mappings, allowing services behind home broadband NAT to be accessible externally.
-- **Automatic Sync on Address Change**: Automatically updates DDNS records and triggers Webhooks when the public IP changes, eliminating the need for manual monitoring.
-- **Dual Forms**: Can run as a persistent background service (CLI version) or a system-tray desktop app (based on Wails).
+- **One binary does it all.** No Docker, no stack of services to install. The frontend ships inside; `./linkstar` just runs.
+- **Works without a public IP.** STUN probes your public endpoint, UPnP creates the mapping — services behind carrier-grade NAT still become reachable.
+- **Follows address changes on its own.** When the public IP or external port changes, it updates DNS records, rewrites the Cloudflare redirect rule, and fires Webhooks. Nothing to babysit.
+- **Certificates and reverse proxy included.** No separate nginx + certbot setup. Certificates are issued and renewed automatically; the reverse proxy does what nginx does.
+- **You don't need to know the internal IP to start.** Scan your LAN, see which machines are up and which ports they have open, click one to create the service.
+- **Two form factors.** A CLI build for running as a background service, and a system-tray desktop build (Wails).
 
 ## Features
 
 | Module | Capabilities |
 | --- | --- |
-| 🏠 Navigation Homepage | App shortcuts, categories with drag-and-drop sorting, search engine management, Bing daily wallpaper, icon upload & auto-scraping |
-| 🌐 NAT Traversal | STUN detects local/public IP & NAT routing path, UPnP automatically creates port mappings, maintains external access URLs |
-| 🔌 Service Management | Manage TCP/UDP services per device, configure internal ports, mapped ports, HTTPS tags, and visibility on the homepage |
-| 🔁 DDNS Resolution | Supports A/AAAA records, periodically syncs public IP to DNS providers |
-| 📡 Webhook | Pushes HTTP requests on service address changes, includes built-in templates for generic JSON, Cloudflare SRV, and Cloudflare redirect rules |
-| ⚡ Real-time Status | Backend performs periodic health checks; Web UI pushes service status changes in real-time via SSE |
-| 🔐 Password Protection | Guided setup for admin password on first use; admin dashboard & all API endpoints require login (JWT token); desktop app local windows bypass login |
+| 🏠 Navigation Homepage | App shortcuts, categories with drag-and-drop ordering, search engine management, Bing daily / custom wallpapers, icon upload and auto-fetch |
+| 🌐 NAT Traversal | STUN probing of local / public IP and NAT chain, automatic UPnP port mapping, heartbeat keepalive, live external address |
+| 🧭 NAT Type Detection | RFC 5780 probing, UDP and TCP judged separately: open internet, NAT1–NAT4. Check here first when a hole won't open |
+| 🔌 Service Management | TCP / UDP services per device, duplicate a service, enable/disable from the card, `/go/{service}` to reach a service by name even after the port moves |
+| 📡 LAN Scan | Pick a subnet and scan it: online hosts and their open ports, with names for common ones (DSM, PVE, Alist, Jellyfin…). Click a port to create the service |
+| 🔐 Certificates | Upload PEM, read from a local path, ACME DNS-01, ACME HTTP-01, plus self-signed. SNI matching, wildcards, automatic renewal before expiry |
+| 🔁 Reverse Proxy | What nginx does: host-based routing, HTTP / HTTPS dual entry, per-site dedicated ports, WebSocket / SSE passthrough, access logs |
+| 🌍 DDNS | A / AAAA records, five IP sources, periodic sync to your DNS provider |
+| ↪️ Entry Redirect | One fixed domain always points at the service's current external address — no Cloudflare IDs to fill in |
+| 🔔 Webhook | HTTP requests on address change, with built-in generic JSON and Cloudflare SRV templates |
+| 📋 Runtime Logs | Read logs in the dashboard, filtered by level and keyword |
+| ⚡ Live Status | Periodic backend health checks, pushed to the UI over SSE |
+| 🔒 Password Protection | Guided setup on first use (minimum 8 characters), JWT-protected admin APIs, desktop window skips login locally |
+| 📱 Mobile | Both the dashboard and the homepage work on small screens |
 
-**Supported DNS Providers**: Cloudflare, Aliyun DNS, Tencent DNSPod, Baidu Cloud, Huawei Cloud, NameCheap, NameSilo.
+**Supported DNS providers**: Cloudflare, Alibaba Cloud DNS, Tencent Cloud DNSPod, Baidu Cloud, Huawei Cloud, NameCheap, NameSilo.
 
 ## NAT Traversal
 
-LinkStar's NAT traversal is built on the standard **STUN** protocol (implemented via [pion/stun](https://github.com/pion/stun)):
+LinkStar's NAT traversal is built on the standard **STUN** protocol (via [pion/stun](https://github.com/pion/stun)):
 
-1. **STUN Discovery**: Sends Binding requests to public STUN servers to obtain the public exit IP and port behind the NAT, and determines the NAT type.
-2. **Port Reuse for Hole Punching**: Listens on the same local port (TCP/UDP) to maintain the NAT mapping established by the STUN session.
-3. **Automatic UPnP Mapping**: Automatically creates port mappings when the gateway supports UPnP, directing public ports to internal services in TCP scenarios.
-4. **Port Forwarding**: Forwards inbound connections from the internet to the internal port of the target device, enabling service exposure without a public IP.
-5. **Heartbeat & Keep-Alive**: Periodic health checks and reconnections automatically detect public port changes and trigger DDNS/Webhook syncs.
+1. **STUN probing** — sends Binding requests to public STUN servers to learn the public IP and port behind the NAT, and to determine the NAT type.
+2. **Port-reuse hole punching** — reuses the same local port for listening (TCP/UDP), keeping the NAT mapping opened by the STUN session alive.
+3. **Automatic UPnP mapping** — when the gateway supports UPnP, creates a port mapping pointing the public port at the internal service (TCP).
+4. **Port forwarding** — forwards inbound external connections to the target device's internal port, exposing services without a public IP.
+5. **Heartbeat keepalive** — periodic health checks and reconnection; port changes are detected and trigger DDNS / entry redirect / Webhook sync.
 
-> Ideal for scenarios like home broadband (CGNAT), ISP NAT, or soft routers without a dedicated public IP, serving as a lightweight self-hosted alternative to frp/ngrok.
+You can also terminate TLS right at the hole, so external access is plain `https://` with no browser warning and no extra layer to set up.
 
-## Interface Preview
-
-See the header screenshot for the navigation homepage. The NAT traversal management interface in the admin dashboard looks like this:
-
-<img src="docs/img/stun.png" alt="LinkStar NAT Traversal">
+> Suited to home broadband behind carrier-grade NAT and soft routers without a dedicated public IP — a lightweight self-hosted alternative to frp / ngrok.
 
 ## Quick Start
 
-Download the corresponding platform binary from [Releases](https://github.com/ZluxYao/LinkStar/releases/latest) and run it directly:
+Download the file for your platform from [Releases](https://github.com/ZluxYao/LinkStar/releases/latest):
+
+| File | Platform |
+| --- | --- |
+| `linkstar` | Linux x86_64 |
+| `linkstar-linux-arm64` | Linux ARM64 (Raspberry Pi 4/5, ARM routers, NAS) |
+| `linkstar-linux-armv7` | Linux ARMv7 (older Raspberry Pi, 32-bit ARM routers) |
+| `linkstar-linux-mipsle` | Linux MIPS little-endian (OpenWrt routers) |
+| `linkstar-cli.exe` | Windows x86_64, command line |
+| `linkstar-desktop.exe` | Windows x86_64, desktop build with window and tray |
+| `LinkStar-x.y.z-x86.fpk` | fnOS NAS package |
+
+macOS currently needs to be built on a Mac — see [BUILD.md](BUILD.md).
 
 ```bash
-# Linux / macOS
+# Linux
+chmod +x linkstar
 ./linkstar
 ```
 
 ```powershell
 # Windows
-.\linkstar.exe
+.\linkstar-cli.exe
 ```
 
-After starting, open `http://localhost:3333/`. On first run, it will automatically create `config/`, `data/`, and `logs/` directories. The first time you access the admin dashboard, you'll be guided to set an admin password. After that, it's ready to use with no other prerequisites.
+Then open `http://localhost:3333/`. The first run creates `config/`, `data/`, and `logs/`; the first visit to the dashboard walks you through setting an admin password. Nothing else to configure.
 
-> For building from source or using the system-tray desktop version, see the [Developer Guide](#developer-guide).
+To install it as a service that starts at boot, or to upgrade from an older version, see [Deployment & Upgrade](docs/部署与升级.md) *(Chinese)*. For a first-time walkthrough, see [Getting Started](docs/快速上手.md) *(Chinese)*.
 
-## Usage Guide
+## User Guide
 
-### Interface Entries
+### Entry Points
 
-| Entry | Address | Description |
+| Entry | URL | Notes |
 | --- | --- | --- |
-| Home Navigation | `http://localhost:3333/` | Publicly accessible, no login required |
-| Admin Dashboard | `http://localhost:3333/linkstar/` | Requires password login |
+| Navigation homepage | `http://localhost:3333/` | Public, no login |
+| Admin dashboard | `http://localhost:3333/linkstar/` | Password required |
+| Service index | `http://localhost:3333/go/{service}` | Redirects to that service's current external address |
 
-> The service listens on `0.0.0.0:3333` (port is not currently configurable). Other devices on the LAN can access it via the local IP.
+> The service listens on `0.0.0.0:3333` (the port is not configurable yet) and is reachable from other devices on the LAN via this machine's IP.
 
-### Password & Authentication
+The **service index** deserves a note. The external port from hole punching drifts, and a DNS A record can't carry a port — so normally every service needs its own Cloudflare redirect rule (the free plan caps at 10), with a Webhook rewriting it whenever the port moves.
 
-- **Initial Setup**: Guides you to set an admin password upon first access to the dashboard. All admin endpoints are blocked until this is completed.
-- **Session Duration**: Issues a JWT token upon login, valid for 7 days by default. Can be adjusted via `tokenTtlHours` in `config/authConfig.json`.
-- **Change Password**: Verify the old password within the dashboard to set a new one.
-- **Forgot Password**: Stop the program, delete `config/authConfig.json`, and restart. This will trigger the password setup process again (all existing login tokens will be invalidated).
-- **Desktop Version**: Local windows bypass login via internal channels; browser access still requires a password.
+The alternative: **expose only LinkStar's own hole, and let it look up everything else**, taking Cloudflare from N rules down to 1.
+
+```text
+https://linkstar.example.com/fw        (Cloudflare edge, the one redirect rule)
+  → https://ls.example.com:21313/fw    (LinkStar's own hole)
+  → 307 https://fw.example.com:34521/  (fw's hole, TLS terminated there)
+```
+
+Both forms work: the explicit `/go/fw`, or a bare `/fw` when it doesn't collide with an existing path. Service names are case-insensitive; trailing paths and query strings are carried through. 307 rather than 301 is deliberate — a permanent redirect would make the browser memorise a port that is guaranteed to expire, recoverable only by clearing browser data. 307 also preserves method and body. Responses carry `Cache-Control: no-store`.
+
+When the hole isn't up yet, or the service is disabled, you get a page explaining why instead of a redirect that can't possibly work.
+
+### Password & Login
+
+- **First-time setup** — the dashboard walks you through setting an admin password, **minimum 8 characters**. Until it's set, all admin APIs refuse access.
+- **Session length** — login issues a JWT, valid 7 days by default; adjust `tokenTtlHours` in `config/authConfig.json`.
+- **Changing the password** — under "System Settings", after confirming the old one. **Other devices must log in again afterwards** — changing the password rotates the signing key, so tokens already issued are invalidated immediately.
+- **Forgotten password** — stop the program, delete `config/authConfig.json`, start it again to return to the setup flow (all logged-in devices are invalidated).
+- **Desktop build** — the local window skips login over an internal channel; browser access still needs the password.
 
 ### Data Directories
 
-LinkStar persists configuration using local JSON files:
+Configuration lives in plain JSON files under the program's working directory:
 
-| Path | Description |
+| Path | Contents |
 | --- | --- |
-| `config/homeConfig.json` | Homepage navigation, search, categories, layout, wallpaper config |
-| `config/stunConfig.json` | STUN server list, device & service config |
-| `config/ddnsConfig.json` | DDNS provider, record config, sync interval |
-| `config/webhookConfig.json` | Webhook template config |
-| `config/authConfig.json` | Admin password hash, JWT secret, token TTL |
-| `data/icon/` | User-uploaded or scraped website icons |
-| `logs/YYYY-MM-DD/` | Runtime & error logs |
+| `config/homeConfig.json` | Homepage: shortcuts, search, categories, layout, wallpaper |
+| `config/stunConfig.json` | STUN server list, devices and services, entry redirect settings |
+| `config/ddnsConfig.json` | DNS providers, records, sync interval |
+| `config/certConfig.json` | Certificate list and ACME options |
+| `config/proxyConfig.json` | Reverse proxy entries and sites |
+| `config/webhookConfig.json` | Webhook templates |
+| `config/authConfig.json` | Password hash, JWT signing key, token TTL |
+| `data/cert/{certID}/` | Certificate and key PEMs, ACME account key |
+| `data/icon/` | Uploaded or fetched site icons |
+| `data/wallpaper/` | Uploaded wallpapers |
+| `logs/YYYY-MM-DD/` | That day's `info.log` and `err.log` |
 
-> These directories typically contain local state or sensitive credentials and are excluded from Git by default.
+> `config/` holds DNS provider API tokens, the admin password hash, and certificate private keys. **Back it up, but never commit it to Git or share it.** Mask the tokens in `ddnsConfig.json` before posting screenshots.
 
-### DDNS Configuration
+### Certificates
 
-DDNS records support the following IP sources:
+Four sources, plus self-signed:
 
-- `stun`: Public IP detected by the STUN module.
-- `web`: Obtained from public IP lookup APIs. Uses built-in IPv4/IPv6 sources if no URL is provided.
-- `dns` / `interface`: Types are reserved; current implementations are under development.
+| Source | When to use it | What you need |
+| --- | --- | --- |
+| Upload PEM | You already have a certificate | The certificate and key text |
+| Local path | certbot / acme.sh already renews on this machine | Two file paths; changes are hot-reloaded |
+| ACME DNS-01 | You want automatic issuance, wildcards, or port 80 is blocked | Domain on a supported provider, token with DNS edit permission |
+| ACME HTTP-01 | Automatic issuance and inbound port 80 works | Domain resolving to this machine, port 80 reachable |
+| Self-signed | You only want encryption and don't care about browser trust | Nothing |
 
-Cloudflare supports the `proxied` toggle; NameCheap currently only supports IPv4 A records.
+**A fresh install ships with a self-signed certificate**, marked as default. That way "terminate TLS at the hole" and "HTTPS on the reverse proxy" work the moment you enable them, instead of failing the handshake because no certificate exists. Browsers will warn about it — that's expected; switch to an ACME certificate for anything public. Delete it and it won't come back on restart.
+
+Two ACME reminders: **certificates from the staging environment are not trusted by browsers** — switch to production once the flow works; and production blocks you after 5 failures in an hour, so don't retry in a loop.
+
+Certificates are matched by SNI, support wildcards, and renew automatically before expiry. Renewal swaps a pointer — **existing connections are not dropped**.
+
+### Reverse Proxy
+
+This is the nginx job: accept on one port, route to different internal services by hostname.
+
+- The **default entry** corresponds to nginx's `listen 80` / `listen 443 ssl`. Sites that don't specify their own port are served here. A fresh install pre-fills 80 / 443 but leaves them **disabled** — no port is bound until you enable it.
+- A site can **take a dedicated port**; multiple ports coexist.
+- Each site configures its own hostnames (several allowed), path prefix, HTTPS, and certificate.
+- `X-Forwarded-For` is added, and `Host` is written back to whatever the client sent — otherwise Jellyfin, Home Assistant, and friends generate redirect URLs pointing at internal IPs.
+- SSE is not buffered; WebSocket passes through untouched.
+- If the backend scheme is set wrong, it retries once with the other one.
+- When a backend is unreachable you get a readable 502 naming the site and the backend, instead of the browser's `ERR_CONNECTION_REFUSED`.
+- Access logging can be toggled.
+
+> The "backend is HTTPS" checkbox only describes **the internal hop**: leave it off when the internal service speaks plain HTTP, turn it on when it speaks HTTPS (self-signed counts). Whether the site is HTTPS *externally* is a separate switch with its own certificate.
+
+### DDNS
+
+Five IP sources for a record:
+
+| Source | Where the address comes from |
+| --- | --- |
+| `stun` | The public IP discovered by the STUN module |
+| `web` | A URL that returns your IP; leave blank to use the built-in IPv4 / IPv6 sources |
+| `dns` | Resolve another domain and follow it |
+| `interface` | Read a local NIC. The UI lists the NICs with their addresses so you don't have to recall the name |
+| `custom` | A fixed address you type in; no probing |
+
+Records are scanned every 5 minutes by default. **A record that failed retries after 30 seconds, doubling each consecutive failure, capped at the configured interval** — so "STUN hasn't found the public IP yet" recovers quickly at boot, while "the token is wrong" doesn't turn into hammering the provider's API. The public IP becoming available also triggers an immediate sync rather than waiting for the next round.
+
+Cloudflare supports the `proxied` toggle; NameCheap currently suits IPv4 A records only.
+
+### Entry Redirect (Cloudflare)
+
+**The problem:** the external port from hole punching changes, but a domain can only point at an IP, not a port. So every time the port moves, the address people saved stops working.
+
+**The approach:** a fixed entry hostname (say `nas.example.com`) 307-redirects to the service's current real address. You fill in the entry hostname, the landing hostname, and whether to keep the path — the zone / ruleset / rule IDs are looked up by the backend. The provider is reused from your DDNS config, so the token isn't entered twice.
+
+Sync rides the keepalive heartbeat and doesn't call the provider API when nothing changed. Saving the service also adds a DDNS record for the landing hostname, so it keeps up when the home IP changes.
+
+The two DNS records have **opposite requirements**, and the UI shows their current state side by side:
+
+- **The entry hostname must be proxied (orange cloud)** — otherwise the request never reaches Cloudflare and the redirect rule never runs.
+- **The landing hostname must NOT be proxied (grey cloud)** — Cloudflare's proxy won't forward the high-numbered port from hole punching.
+
+Get this backwards and neither side reports an error — it just doesn't work. Check those two lines in the UI.
+
+> Deleting a service also removes the DNS records, Cloudflare rules, and entry placeholder records it created. Three safeguards: records not auto-created by LinkStar are left alone, records you edited yourself are left alone, and records still used by another service are left alone.
 
 ### Webhook Variables
 
-Service runtime variables can be used in the Webhook request body and URL, for example:
+Runtime variables are available in the request body and URL:
 
 ```json
 {
@@ -163,56 +264,60 @@ Service runtime variables can be used in the Webhook request body and URL, for e
 }
 ```
 
-Useful for syncing to external systems after port changes, service restarts, or address updates.
+Useful for syncing to external systems after a port change, service restart, or address update.
+
+> If all you want is "keep one fixed domain pointing at this service", use [Entry Redirect](#entry-redirect-cloudflare) instead — no Webhook needed.
+>
+> Duplicating a service leaves its Webhook disabled. A copied URL usually targets one specific record or rule; two holes writing to the same one both report success, but that domain can only reach one of them at any moment.
 
 ## Developer Guide
 
-For users who want to build from source, contribute to development, or create custom builds.
+For building from source, contributing, or forking.
 
-### Tech Stack
+### Stack
 
-- **Backend**: Go, Gin, logrus, pion/stun, goupnp
-- **Desktop Wrapper**: Wails v3 (optional, used for building the tray-based desktop app)
+- **Backend**: Go, Gin, logrus, pion/stun, goupnp, lego (ACME)
+- **Desktop shell**: Wails v3 (optional, for the tray build)
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, lucide-react
-- **Storage**: Local JSON configuration files
+- **Storage**: local JSON config files
 
 ### Requirements
 
 - Go 1.25+
-- Node.js 20+ and npm (for building the frontend)
+- Node.js 20+ and npm (to build the frontend)
 
 ### Building from Source
 
-First, build the frontend (the backend will embed `web/home/dist` and `web/admin/dist` via `embed`):
+Build the frontend first (the backend embeds `web/home/dist` and `web/admin/dist`):
 
 ```bash
 cd web/home && npm install && npm run build
 cd ../admin && npm install && npm run build
 ```
 
-Then, return to the project root to build the backend:
+Then build the backend from the repository root:
 
 ```bash
 cd ../..
-go build -o linkstar .     # CLI / Service version
+go build -o linkstar .     # CLI / service build
 ./linkstar
 ```
 
-> After modifying frontend code, you must re-run the corresponding frontend's `npm run build` for the embedded static assets to update.
+> After changing frontend code, re-run the corresponding `npm run build` or the embedded assets stay stale.
 >
-> For more build details (release size optimization, Windows considerations, desktop packaging), see [BUILD.md](BUILD.md).
+> For more build detail (size trimming, cross-compilation, desktop packaging) see [BUILD.md](BUILD.md).
 
-### Desktop Version (Optional)
+### Desktop Build (optional)
 
-The project includes a [Taskfile](Taskfile.yml) to build the Wails v3 system-tray desktop version via `task`:
+A [Taskfile](Taskfile.yml) is included for the Wails v3 tray build:
 
 ```bash
-task build:frontend   # Build Home / Admin frontends
-task build            # Build desktop app for current platform
-task run              # Run desktop app
+task build:frontend   # build both Home and Admin frontends
+task build            # build the desktop app for the current platform
+task run              # run it
 ```
 
-The desktop app runs in the system tray, allowing quick access to the admin dashboard or homepage. Closing the window minimizes it to the tray.
+The desktop build lives in the tray, opens the dashboard or homepage quickly, and minimises to tray on close.
 
 ### Local Development
 
@@ -222,67 +327,69 @@ Backend:
 go run .
 ```
 
-Home / Admin Frontends (in their respective directories):
+Home / Admin frontends (each in its own directory):
 
 ```bash
 cd web/home  && npm install && npm run dev
 cd web/admin && npm install && npm run dev
 ```
 
-The frontend API requests the same-origin `/api/...` by default. During integration testing, you can configure a proxy in the Vite dev server or directly test using the static pages embedded by the backend.
+The frontends call same-origin `/api/...`; configure a Vite dev-server proxy when developing, or test against the embedded static build.
 
-### Project Structure
+### Project Layout
 
 ```text
 .
-├── api/              # HTTP API handling layer
-├── core/             # Logging, graceful shutdown, and other core utilities
-├── modules/          # home / stun / ddns / webhook / auth core modules
+├── api/              # HTTP API handlers
+├── core/             # logging, shutdown-save plumbing
+├── modules/          # home / stun / ddns / cert / proxy / webhook / auth
 ├── routers/          # Gin route registration
-├── utils/            # Common utilities
-├── web/home/         # Homepage navigation frontend
-├── web/admin/        # Admin dashboard frontend
-├── app.go            # Backend startup, module initialization, frontend embedding
-├── main_cli.go       # CLI / Service version entry point
-└── main_desktop.go   # Wails desktop version entry point (build tag: desktop)
+├── utils/            # shared helpers
+├── web/home/         # navigation homepage frontend
+├── web/admin/        # admin dashboard frontend
+├── app.go            # backend startup, module init, asset embedding
+├── main_cli.go       # CLI / service entry point
+└── main_desktop.go   # Wails desktop entry point (build tag: desktop)
 ```
 
 ## Roadmap
 
-- [ ] Reverse Proxy Management
-- [ ] Certificate Management
-- [ ] Users & Permissions
-- [ ] Audit Logs & Notification Center
-- [ ] Docker / systemd Deployment Examples
+- [x] Reverse proxy management
+- [x] Certificate management
+- [ ] Users & permissions
+- [ ] Audit logs & notification center
+- [ ] Docker image
+- [ ] Configurable admin port
 
 ## Notes & Caveats
 
-- The service listens on `0.0.0.0:3333` and is directly accessible on the LAN. The navigation homepage is public, while administrative actions are password-protected.
-- UPnP mapping relies on your gateway supporting and having UPnP enabled.
-- Protect the `config/` directory carefully: it contains DNS provider credentials and admin password configurations (`authConfig.json`). Do not commit it to Git or share it externally.
-- Before exposing services to the public internet, ensure the exposed services themselves have proper authentication, access controls, and firewall rules. LinkStar only secures its own admin dashboard and does not add authentication to tunneled services.
+- The service listens on `0.0.0.0:3333` and is directly reachable on the LAN. The navigation homepage is public; admin actions are password-protected.
+- UPnP mapping relies on your gateway supporting and enabling UPnP.
+- Whether hole punching succeeds depends on your ISP's NAT type. Symmetric NAT (shown in the UI) has a low success rate — that's a protocol-level limit, not a misconfiguration.
+- Protect the `config/` directory: it holds DNS provider credentials, certificate private keys, and admin password configuration. Do not commit it to Git or share it.
+- **Before exposing a service publicly, check that service's own authentication, access control, and firewall rules.** LinkStar secures its own dashboard; it does not add authentication to the services it tunnels.
 
 ## Community & Support
 
-If you encounter issues, want to suggest features, or discuss ideas, join our community:
+If you run into issues, want to suggest features, or just discuss:
 
 - **QQ Group**: `1053565441`
-- **WeChat Group**: Scan the QR code below to join
+- **WeChat Group**: scan the QR code below
 
-<img src="docs/img/wx.jpg" alt="WeChat Group QR Code" width="240">
+<img src="docs/img/wx.png" alt="WeChat Group QR Code" width="240">
 
-> If the group QR code expires or you can't join, add the author on WeChat `ZluxYao` with the remark "LinkStar".
+> If the QR code has expired, add the author on WeChat `ZluxYao` with the note "LinkStar".
 
 ## License
 
-This project is licensed under the GPL-3.0-or-later license. See [LICENSE](LICENSE) for details.
+Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).
 
 ---
 
 <div align="center">
 
-If LinkStar is helpful to you, feel free to leave a ⭐ Star to show your support.
+If LinkStar is useful to you, a ⭐ Star goes a long way.
 
 </div>
 
-<sub>**Keywords**: STUN, NAT traversal, port forwarding, UPnP, DDNS, Webhook, homelab, NAS, homepage dashboard, Go, self-hosted.</sub>
+<sub>**Keywords**: STUN, NAT traversal, port forwarding, UPnP, DDNS, dynamic DNS, reverse proxy, ACME, Let's Encrypt, certificate management, Webhook, homelab, NAS, homepage dashboard, Go, self-hosted.</sub>
