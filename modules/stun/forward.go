@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"linkstar/modules/plainhttp"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,6 +44,18 @@ func ForwardTCP(src net.Conn, targetAddr string, protocol string, opt ForwardOpt
 
 	// 先完成握手再拨后端：握手失败就不该白拨一次内网
 	if opt.TLSConfig != nil {
+		// 明文 HTTP 打到这个洞上：回 302 让浏览器换 https，别一声不吭地掐掉。
+		// 地址栏敲「域名:端口」时浏览器默认按 http 发，这是最常撞上的一种访问失败。
+		peeked, isTLS, err := plainhttp.Sniff(src, tlsHandshakeTimeout)
+		if err != nil {
+			return
+		}
+		if !isTLS {
+			plainhttp.Redirect(peeked, tlsHandshakeTimeout)
+			return
+		}
+		src = peeked
+
 		tlsConn := tls.Server(src, opt.TLSConfig)
 		if err := tlsConn.SetDeadline(time.Now().Add(tlsHandshakeTimeout)); err != nil {
 			return

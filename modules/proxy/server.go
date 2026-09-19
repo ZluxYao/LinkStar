@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"linkstar/modules/cert"
+	"linkstar/modules/plainhttp"
 	"linkstar/modules/proxy/model"
 
 	"github.com/sirupsen/logrus"
@@ -173,6 +174,10 @@ func (s *boundServer) start() error {
 	}
 
 	if s.spec.TLS {
+		// 先接住明文 HTTP：地址栏敲 example.com:8443 时浏览器默认按 http 发，
+		// 不管的话 TLS 握手直接失败、连接被掐断，用户看到的是错误页 +「不安全」。
+		// 这层在 tls.NewListener 外面，先它一步拿到裸连接。
+		ln = plainhttp.Listener(ln, plainhttp.DefaultTimeout)
 		// 这里 ALPN 可以报 h2：TLS 在这终结，后面站着 ReverseProxy，
 		// 它会把 HTTP/2 请求解析成 *http.Request 再用 HTTP/1.1 发给内网，
 		// 协议真的有人翻译。（对照 cert.ServerTLSConfig 上那段注释——

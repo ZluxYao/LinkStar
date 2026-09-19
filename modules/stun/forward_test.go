@@ -215,8 +215,13 @@ func TestForwardTCPUsesGetCertificate(t *testing.T) {
 	}
 }
 
-// TestForwardTCPHandshakeFailureSkipsBackend 握手失败就不该白拨一次内网
-func TestForwardTCPHandshakeFailureSkipsBackend(t *testing.T) {
+// TestForwardTCPPlainHTTPRedirects 明文 HTTP 打到终结了 TLS 的洞上，
+// 要回 302 把浏览器换到 https，而不是一声不吭地掐断连接。
+//
+// 地址栏敲「域名:端口」时浏览器默认按 http 发，掐断的话用户看到的是
+// 一个错误页 + 地址栏「不安全」，而服务端证书其实好好的。
+// 顺带也是「握手没成就不白拨一次内网」的回归测试。
+func TestForwardTCPPlainHTTPRedirects(t *testing.T) {
 	cert := testCert(t, "fw.example.com")
 	be := newBackend(t, nil)
 	hole := newHole(t, be.addr, ForwardOptions{
@@ -229,18 +234,25 @@ func TestForwardTCPHandshakeFailureSkipsBackend(t *testing.T) {
 	}
 	defer c.Close()
 
-	// 不是 ClientHello，握手必然失败
-	if _, err := io.WriteString(c, "GET / HTTP/1.1\r\nHost: x\r\n\r\n"); err != nil {
+	_, port, _ := net.SplitHostPort(hole)
+	if _, err := io.WriteString(c,
+		"GET /app HTTP/1.1\r\nHost: fw.example.com:"+port+"\r\n\r\n"); err != nil {
 		t.Fatalf("写入失败: %v", err)
 	}
 	if err := c.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
 		t.Fatalf("设置超时失败: %v", err)
 	}
-	// 服务端会回 TLS alert 然后关闭；这里只要等连接结束
-	_, _ = io.Copy(io.Discard, c)
+	resp, err := io.ReadAll(c)
+	if err != nil {
+		t.Fatalf("读回包失败: %v", err)
+	}
 
+	want := "Location: https://fw.example.com:" + port + "/app\r\n"
+	if !strings.Contains(string(resp), want) {
+		t.Errorf("期望含 %q，实际回包:\n%s", want, resp)
+	}
 	if n := be.accepts.Load(); n != 0 {
-		t.Errorf("握手失败不该拨后端，实际拨了 %d 次", n)
+		t.Errorf("没握上手不该拨后端，实际拨了 %d 次", n)
 	}
 }
 
