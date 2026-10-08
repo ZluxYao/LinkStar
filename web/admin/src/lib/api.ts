@@ -17,6 +17,8 @@ import type {
   RedirectConfig,
   RedirectInspection,
   StunConfig,
+  StunNetwork,
+  StunNetworkConfig,
   WebhookConfig,
   WebhookTemplate,
 } from '../types'
@@ -139,6 +141,16 @@ export const getLogs = (params: {
 }
 
 export const getStunConfig = () => request<StunConfig>('/api/stun/config')
+
+/** 打洞走哪张网卡、STUN 域名找谁解析 */
+export const getStunNetwork = () => request<StunNetwork>('/api/stun/network')
+
+// 保存后立刻生效；指定的网卡没连上时也会保存，msg 里说明现在的状况
+export const updateStunNetwork = (body: StunNetworkConfig) =>
+  requestWithMsg<unknown>('/api/stun/network', {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  })
 
 export const getNatType = () => request<NatTypeInfo>('/api/stun/nat-type')
 

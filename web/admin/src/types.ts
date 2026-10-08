@@ -183,6 +183,34 @@ export interface StunConfig {
   devices: StunDevice[]
 }
 
+/** 网络设置的模式：'' 自动/内置，'system' 跟随系统，'custom' 指定 */
+export type NetworkMode = '' | 'system' | 'custom'
+
+export interface StunNetworkConfig {
+  ifaceMode: NetworkMode
+  iface: string
+  dnsMode: NetworkMode
+  dns: string[]
+}
+
+export interface OutboundIface {
+  name: string
+  localIP: string
+  gateway: string
+  /** TUN / VPN 这类隧道，自动模式不会选 */
+  tunnel: boolean
+  /** 自动模式会选的就是它 */
+  auto: boolean
+}
+
+export interface StunNetwork {
+  config: StunNetworkConfig
+  ifaces: OutboundIface[]
+  defaultDns: string[]
+  /** 现在实际在用的出口 */
+  current: OutboundIface
+}
+
 export interface StunStatusLog {
   createdAt: string
   phaseStr: string

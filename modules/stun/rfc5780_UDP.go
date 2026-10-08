@@ -3,6 +3,8 @@
 // UDP 严格按 RFC 5780 第 4.3、4.4 节探测 Mapping 和 Filtering。
 // TCP 复用相同本地端口比较不同目标的映射；RFC 5780 的 CHANGE-REQUEST
 // 只适用于无连接的 UDP，因此  TCP 不做 Filtering 分类。
+//
+// 探测套接字都开在出口网卡上：开着代理 TUN 时不绑，测的是代理那边的 NAT。
 package stun
 
 import (
@@ -19,7 +21,7 @@ import (
 // Test I 访问主地址；Test II 访问备用 IP + 主端口；
 // Test III 访问备用 IP + 备用端口，从而区分 EIM、ADM、APDM。
 func detectUDPMapping(server *RFC5780Server) (MappingBehavior, error) {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
+	conn, err := CurrentOutboundIface().ListenUDP()
 	if err != nil {
 		return MappingUnknown, fmt.Errorf("创建 UDP socket 失败: %w", err)
 	}
@@ -74,7 +76,7 @@ func udpAddrEqual(a, b *net.UDPAddr) bool {
 // detectUDPFiltering 使用独立 socket，避免 Mapping 测试访问备用地址后污染过滤状态。
 // Test II 要求服务端换 IP 和端口；失败后 Test III 只要求换端口。
 func detectUDPFiltering(server *RFC5780Server) (FilteringBehavior, error) {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
+	conn, err := CurrentOutboundIface().ListenUDP()
 	if err != nil {
 		return FilteringUnknown, fmt.Errorf("创建 UDP socket 失败: %w", err)
 	}
@@ -167,12 +169,13 @@ func selectRFC5780Server(serverList []string) (*RFC5780Server, error) {
 //
 // 不验证 targets 的可达性，那部分留给正式检测流程。
 func probeRFC5780StunServerUDP(server string) (*RFC5780Server, error) {
-	primary, err := net.ResolveUDPAddr("udp4", server)
+	outbound := CurrentOutboundIface()
+	primary, err := outbound.ResolveUDP(server)
 	if err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
 
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
+	conn, err := outbound.ListenUDP()
 	if err != nil {
 		return nil, fmt.Errorf("创建 UDP socket 失败: %w", err)
 	}

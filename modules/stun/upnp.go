@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"linkstar/modules/stun/model"
+	"net"
 	"strings"
 	"sync"
 
@@ -78,22 +79,22 @@ func DiscoverUPnPGateway() *model.UpnpGateway {
 	return gw
 }
 
-// 选择默认网关
+// 选择默认网关：出口网卡所在网段里的那台。
+// 原来按「本机 IP 前三段相同」挑：开着 TUN 时本机 IP 取成了 198.18.x.x，
+// 网段不是 /24 时也对不上。
 func SelectDefaultGateway(gw *model.UpnpGateway) {
-	// 获取本机ip
-	localIP, err := GetLocalIP()
-	if err != nil {
+	outbound := CurrentOutboundIface()
+	subnet := outbound.Subnet()
+	if subnet == nil {
 		logrus.Error("获取本机ip失败")
 		return
 	}
-
-	// 获取本机前三段的ip，家庭宽带普遍路由器子网掩码255.255.255.0
-	localPrefix := ipPrefix(localIP)
+	sameSubnet := func(host string) bool { return subnet.Contains(net.ParseIP(host)) }
 
 	// 按顺序设置默认upnp网关
 	for _, client := range gw.V2 {
 		ext, _ := client.GetExternalIPAddress() // 这里忽略err，有些设备不upnp不支持返回外部ip
-		if strings.HasPrefix(client.Location.Hostname(), localPrefix) {
+		if sameSubnet(client.Location.Hostname()) {
 			gw.DefaultV2 = client
 			gw.DefaultGateway = "IGDv2"
 			logrus.Infof("选择默认网关IDGv2 外部ip：%s  内部ip:%s", ext, client.Location.Hostname())
@@ -103,7 +104,7 @@ func SelectDefaultGateway(gw *model.UpnpGateway) {
 
 	for _, client := range gw.V1 {
 		ext, _ := client.GetExternalIPAddress()
-		if strings.HasPrefix(client.Location.Hostname(), localPrefix) {
+		if sameSubnet(client.Location.Hostname()) {
 			gw.DefaultV1 = client
 			gw.DefaultGateway = "IGDv1"
 			logrus.Infof("选择默认网关IDGv1 外部ip：%s  内部ip:%s", ext, client.Location.Hostname())
@@ -113,7 +114,7 @@ func SelectDefaultGateway(gw *model.UpnpGateway) {
 
 	for _, client := range gw.V2ppp {
 		ext, _ := client.GetExternalIPAddress()
-		if strings.HasPrefix(client.Location.Hostname(), localPrefix) {
+		if sameSubnet(client.Location.Hostname()) {
 			gw.DefaultV2ppp = client
 			gw.DefaultGateway = "IGDv2ppp"
 			logrus.Infof("选择默认网关IDGv2ppp 外部ip：%s  内部ip:%s", ext, client.Location.Hostname())
@@ -123,7 +124,7 @@ func SelectDefaultGateway(gw *model.UpnpGateway) {
 
 	for _, client := range gw.V1ppp {
 		ext, _ := client.GetExternalIPAddress()
-		if strings.HasPrefix(client.Location.Hostname(), localPrefix) {
+		if sameSubnet(client.Location.Hostname()) {
 			gw.DefaultV1ppp = client
 			gw.DefaultGateway = "IGDv1ppp"
 			logrus.Infof("选择默认网关IDGv1ppp 外部ip：%s  内部ip:%s", ext, client.Location.Hostname())
@@ -149,15 +150,6 @@ func SelectDefaultGateway(gw *model.UpnpGateway) {
 
 	}
 
-}
-
-// "192.168.1.100" -> "192.168.1"  前三段
-func ipPrefix(ip string) string {
-	parts := strings.Split(ip, ".")
-	if len(parts) > 3 {
-		return parts[0] + "." + parts[1] + "." + parts[2]
-	}
-	return ip
 }
 
 // NewUpnpQueue 创建并启动队列

@@ -14,7 +14,28 @@ type Config struct {
 
 	Devices        []Device `json:"devices"`        // stun设备列表
 	StunServerList []string `json:"stunServerList"` // stun服务器列表
+
+	Network NetworkConfig `json:"network"` // 打洞走哪张网卡、STUN 域名找谁解析
 }
+
+// NetworkConfig STUN 模块的出口网卡和 DNS。零值就是默认：自动挑网卡、内置 DNS，
+// 老配置文件没有这一段，升级后行为不变。
+//
+// 只管 STUN 模块（打洞、查公网 IP、UPnP、NAT 探测）。DDNS、证书、Webhook
+// 走系统网络，开着代理也无所谓。
+type NetworkConfig struct {
+	IfaceMode string `json:"ifaceMode"` // "" 自动 / "system" 跟随系统 / "custom" 指定网卡
+	Iface     string `json:"iface"`     // IfaceMode 为 custom 时的网卡名
+
+	DNSMode string   `json:"dnsMode"` // "" 内置 / "system" 跟随系统 / "custom" 自定义
+	DNS     []string `json:"dns"`     // DNSMode 为 custom 时的服务器，"ip" 或 "ip:port"
+}
+
+const (
+	ModeAuto   = ""
+	ModeSystem = "system"
+	ModeCustom = "custom"
+)
 
 type Device struct {
 	DeviceID uint      `json:"id"`       // id

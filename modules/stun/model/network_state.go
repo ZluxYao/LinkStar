@@ -1,8 +1,10 @@
 package model
 
 type NetworkState struct {
-	LocalIP  string `json:"localIP"`  // 本机内网IP
+	LocalIP  string `json:"localIP"`  // 本机内网IP（出口网卡上的地址）
 	PublicIP string `json:"publicIP"` // 真实公网IP
+	Iface    string `json:"iface"`    // 出口网卡名
+	Gateway  string `json:"gateway"`  // 出口网关
 
 	NatRouterList []NatRouterInfo `json:"natRouterList"` // 路由信息
 

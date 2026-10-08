@@ -2,8 +2,6 @@ package stun
 
 import (
 	"fmt"
-	"net"
-	"strings"
 	"time"
 
 	"github.com/pion/stun"
@@ -36,54 +34,21 @@ func GetPublicIPInfo(stunServer string) (NetworkAddressInfo, error) {
 	return info, nil
 }
 
-// 获取本机ip
+// 获取本机ip：出口网卡上的那个地址，怎么挑见 outbound_iface.go。
+// 原来按名字过滤虚拟网卡取第一张，碰上 Mihomo 的 Meta 网卡、VMware 网卡就取错。
 func GetLocalIP() (string, error) {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return "", err
+	o := CurrentOutboundIface()
+	if o.LocalIP == "" {
+		return "", errNoOutboundIface
 	}
-
-	for _, iface := range interfaces {
-		// 过滤掉未启动的网卡
-		if iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		// 过滤虚拟网卡
-		name := iface.Name
-		if strings.HasPrefix(name, "docker") ||
-			strings.HasPrefix(name, "br-") ||
-			strings.HasPrefix(name, "veth") ||
-			strings.HasPrefix(name, "lo") ||
-			strings.HasPrefix(name, "virbr") ||
-			strings.HasPrefix(name, "v") ||
-			strings.HasPrefix(name, "et_") ||
-			strings.HasPrefix(name, "singbox") ||
-			strings.HasPrefix(name, "VMware") ||
-			strings.Contains(name, "tun") {
-			continue
-		}
-
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() { //转换为IPNet类型，同时去除回环地址
-				if ipnet.IP.To4() != nil {
-					return ipnet.IP.String(), nil
-				}
-			}
-		}
-	}
-	return "", fmt.Errorf("未找到本机IP地址")
+	return o.LocalIP, nil
 }
 
 // 获取公网ip
 func GetPublicIP(stunServer string) (string, error) {
 
-	// 链接STUN服务器
-	conn, err := net.DialTimeout("tcp4", stunServer, 3*time.Second) //指定tcp4
+	// 链接STUN服务器：从出口网卡发，不然开着 TUN 时问到的是代理节点的 IP
+	conn, err := CurrentOutboundIface().DialTCP(stunServer, 3*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("连接STUN服务器失败: %w", err)
 	}

@@ -2,6 +2,7 @@ package stun
 
 import (
 	"context"
+	"linkstar/modules/stun/model"
 	"strings"
 	"time"
 
@@ -27,6 +28,8 @@ func RunNetworkRuntimeUpdater(ctx context.Context) {
 
 // 更新网络信息
 func refreshNetworkRuntime() {
+	refreshOutboundIface()
+
 	// 获取STUN服务器
 	stunServer, err := Runtime.STUNService.GetBestSTUNServer()
 	if err != nil {
@@ -107,4 +110,55 @@ func updateNatRouter() {
 		return
 	}
 	Runtime.Network.NatRouterList = natRouterList
+}
+
+// refreshOutboundIface 出口网卡换了（拔网线切 Wi-Fi、DHCP 换地址、改了网络设置）：
+// 打洞的套接字还绑在旧地址上，UPnP 映射也指着旧 IP，自己修不好，
+// 只能换上新出口、重选 UPnP 网关、把打洞服务全部重启。
+func refreshOutboundIface() {
+	cur, err := DetectOutboundIface()
+	if err != nil {
+		logrus.Warnf("获取出口网卡失败: %v", err)
+		return // 断网时什么都不动，等网络回来再比
+	}
+	old := currentOutboundIface.Swap(&cur)
+	if old == nil || old.same(cur) {
+		return
+	}
+
+	logrus.Warnf("出口网卡变化：%s → %s，重新选 UPnP 网关并重启打洞服务", old, cur)
+	gateway := DiscoverUPnPGateway()
+	SelectDefaultGateway(gateway)
+	Runtime.UpnpGateway = gateway
+
+	// 公网 IP 交给紧接着的那一轮去问；LocalIP 在这里先换掉，
+	// 不然下面重启的服务还会绑回旧地址
+	Runtime.Network.LocalIP = cur.LocalIP
+	Runtime.Network.Iface, Runtime.Network.Gateway = cur.Name, cur.Gateway
+	go updateNatRouter()
+	if Runtime.Scheduler != nil {
+		go Runtime.Scheduler.StartAll(Runtime.Config.Devices)
+	}
+}
+
+// ApplyNetworkConfig 换上新的网络设置，返回按它挑出来的出口。
+//
+// 只有挑网卡是当场做的（很快）；出口真变了的话，重选 UPnP 网关（发现要好几秒）、
+// 重启打洞服务、重查公网 IP 都放到后台，不让保存按钮转圈。
+// 新设置下挑不出网卡（指定的网卡没连上）时返回错误，但设置已经生效 ——
+// 等那张卡连上，下一轮更新器自己会切过去。
+func ApplyNetworkConfig(cfg model.NetworkConfig) (OutboundIface, error) {
+	networkConfig.Store(&cfg)
+	o, err := DetectOutboundIface()
+	if err != nil {
+		return OutboundIface{}, err
+	}
+	go func() {
+		if Runtime.STUNService == nil {
+			refreshOutboundIface() // STUN 模块没起来，起码把出口换上
+			return
+		}
+		refreshNetworkRuntime()
+	}()
+	return o, nil
 }

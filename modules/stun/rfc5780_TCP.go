@@ -8,7 +8,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/libp2p/go-reuseport"
 	"github.com/pion/stun/v3"
 )
 
@@ -18,9 +17,9 @@ import (
 // 不做 Filtering：CHANGE-REQUEST 依赖无连接的 UDP 让服务端换源地址回包，
 // TCP 面向连接做不到这一点，所以只测 Mapping。
 func detectTCPMapping(server *RFC5780Server) (MappingBehavior, error) {
-	// Test I：主地址，本地端口留给系统分配（"0.0.0.0:0"），
+	// Test I：主地址，本地地址取出口网卡、端口留给系统分配，
 	// 这条连接全程保持打开以占住端口，后面两个 Test 靠它复用本地端口。
-	conn1, m1, err := tcpBindingRequest("0.0.0.0:0", server.Primary.String())
+	conn1, m1, err := tcpBindingRequest(net.JoinHostPort(CurrentOutboundIface().LocalIP, "0"), server.Primary.String())
 	if err != nil {
 		return MappingUnknown, fmt.Errorf("Test I 失败: %w", err)
 	}
@@ -54,13 +53,13 @@ func tcpAddrEqual(a, b *net.TCPAddr) bool {
 	return a != nil && b != nil && a.IP.Equal(b.IP) && a.Port == b.Port
 }
 
-// tcpBindingRequest 用 reuseport.Dial 建立一条 TCP 连接并发一次 STUN Binding 请求。
-// localAddr 为 "0.0.0.0:0" 时由系统分配临时端口（第一条连接）；
+// tcpBindingRequest 建立一条端口复用、钉在出口网卡上的 TCP 连接并发一次 STUN Binding 请求。
+// localAddr 端口为 0 时由系统分配临时端口（第一条连接）；
 // 非 0 时强制复用该本地地址，reuseport 内部已经处理好 SO_REUSEADDR/SO_REUSEPORT，
 // 不需要自己写平台相关代码。
 // 连接不在函数内关闭，交给调用方决定何时释放——第一条连接必须保持打开才能占住端口。
 func tcpBindingRequest(localAddr, remoteAddr string) (net.Conn, *net.TCPAddr, error) {
-	conn, err := reuseport.Dial("tcp4", localAddr, remoteAddr)
+	conn, err := CurrentOutboundIface().DialReusable("tcp4", localAddr, remoteAddr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("连接 %s 失败: %w", remoteAddr, err)
 	}
