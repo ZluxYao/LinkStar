@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"linkstar/modules/stun/model"
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -27,11 +29,17 @@ import (
 
 // OutboundIface 一张出口网卡
 type OutboundIface struct {
-	Name      string // 网卡名，Windows 上是「以太网」「WLAN」这种友好名
-	Index     int    // 网卡序号，钉网卡用
-	LocalIP   string // 本机在这张卡上的 IPv4
-	PrefixLen int    // 本机地址的前缀长度，0 表示不知道
-	Gateway   string // IPv4 网关；PPP 这种点对点链路可能为空
+	Name      string `json:"name"`    // 网卡名，Windows 上是「以太网」「WLAN」这种友好名
+	Index     int    `json:"-"`       // 网卡序号，钉网卡用；0 表示不钉（跟随系统）
+	LocalIP   string `json:"localIP"` // 本机在这张卡上的 IPv4
+	PrefixLen int    `json:"-"`       // 本机地址的前缀长度，0 表示不知道
+	Gateway   string `json:"gateway"` // IPv4 网关；PPP 这种点对点链路可能为空
+
+	Tunnel bool `json:"tunnel"` // TUN / VPN 这类隧道，自动模式不会选它
+	Auto   bool `json:"auto"`   // 自动模式会选的就是它，只在网卡列表里标
+
+	candidate bool   // 平台判断这张能当出口：有默认路由、不是隧道
+	metric    uint32 // 候选之间比大小，小的优先
 }
 
 func (o OutboundIface) String() string {
@@ -39,6 +47,12 @@ func (o OutboundIface) String() string {
 		return "无可用出口"
 	}
 	return fmt.Sprintf("%s(%s 网关 %s)", o.Name, o.LocalIP, o.Gateway)
+}
+
+// same 出口变没变：卡、地址、网关有一样不同就算变了
+func (o OutboundIface) same(p OutboundIface) bool {
+	return o.Name == p.Name && o.Index == p.Index && o.LocalIP == p.LocalIP &&
+		o.PrefixLen == p.PrefixLen && o.Gateway == p.Gateway
 }
 
 // Subnet 本机所在的网段，前缀长度不知道时按家用最常见的 /24
@@ -57,9 +71,86 @@ func (o OutboundIface) Subnet() *net.IPNet {
 
 var errNoOutboundIface = errors.New("没有可用的出口网卡（需要已连接、不是 TUN/VPN、有 IPv4 网关）")
 
-// DetectOutboundIface 现查一次出口网卡，不走缓存
+// networkConfig 当前生效的网络设置（出口网卡、DNS 用哪种模式），
+// InitSTUN 和设置接口写，挑网卡、解析域名时读
+var networkConfig atomic.Pointer[model.NetworkConfig]
+
+func currentNetworkConfig() model.NetworkConfig {
+	if c := networkConfig.Load(); c != nil {
+		return *c
+	}
+	return model.NetworkConfig{}
+}
+
+// DetectOutboundIface 按网络设置现查一次出口网卡，不走缓存
 func DetectOutboundIface() (OutboundIface, error) {
-	return detectOutboundIface()
+	list, err := listIfaces()
+	if err != nil {
+		return OutboundIface{}, err
+	}
+	switch cfg := currentNetworkConfig(); cfg.IfaceMode {
+	case model.ModeSystem:
+		return systemRouteIface(list)
+	case model.ModeCustom:
+		for _, o := range list {
+			if o.Name == cfg.Iface {
+				return o, nil
+			}
+		}
+		// 不自动换别的卡：指定网卡多半是两条宽带选线路，换过去 DDNS 就把域名推到另一条上了
+		return OutboundIface{}, fmt.Errorf("指定的网卡 %s 现在不可用（没连上或没有 IPv4）", cfg.Iface)
+	default:
+		return pickAutoIface(list)
+	}
+}
+
+// ListOutboundIfaces 本机所有已连接、有 IPv4 的网卡，自动模式会选的那张标上 Auto
+func ListOutboundIfaces() ([]OutboundIface, error) {
+	list, err := listIfaces()
+	if err != nil {
+		return nil, err
+	}
+	if auto, err := pickAutoIface(list); err == nil {
+		for i := range list {
+			list[i].Auto = list[i].same(auto)
+		}
+	}
+	return list, nil
+}
+
+// pickAutoIface 候选里跃点数最小的；并列取先出现的
+func pickAutoIface(list []OutboundIface) (OutboundIface, error) {
+	var best *OutboundIface
+	for i := range list {
+		if list[i].candidate && (best == nil || list[i].metric < best.metric) {
+			best = &list[i]
+		}
+	}
+	if best == nil {
+		return OutboundIface{}, errNoOutboundIface
+	}
+	return *best, nil
+}
+
+// systemRouteIface 跟随系统：让系统对公网地址选一次路，用它挑的那个源地址。
+// UDP 的 Dial 不发包。Index 置 0，不钉网卡 —— 开着 TUN 时就是从 TUN 出去。
+func systemRouteIface(list []OutboundIface) (OutboundIface, error) {
+	conn, err := net.Dial("udp4", "114.114.114.114:53")
+	if err != nil {
+		return OutboundIface{}, fmt.Errorf("系统没有可用的路由: %w", err)
+	}
+	ip := conn.LocalAddr().(*net.UDPAddr).IP.String()
+	conn.Close()
+
+	o := OutboundIface{LocalIP: ip}
+	for _, item := range list {
+		if item.LocalIP == ip {
+			o = item
+			break
+		}
+	}
+	o.Index = 0
+	return o, nil
 }
 
 // currentOutboundIface 由网络更新器每 5 秒刷新一次（network.go）
@@ -156,6 +247,24 @@ func (o OutboundIface) ResolveUDP(addr string) (*net.UDPAddr, error) {
 	return net.ResolveUDPAddr("udp4", addr)
 }
 
+// listUpIfaces 已连接、有 IPv4、不是回环的网卡；网关、候选由各平台按路由表补上
+func listUpIfaces() ([]OutboundIface, error) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("读取网卡列表失败: %w", err)
+	}
+	var list []OutboundIface
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		if ip, prefix := firstIPv4(&iface); ip != "" {
+			list = append(list, OutboundIface{Name: iface.Name, Index: iface.Index, LocalIP: ip, PrefixLen: prefix})
+		}
+	}
+	return list, nil
+}
+
 // firstIPv4 网卡上第一个能用的 IPv4（排除回环和 169.254 链路本地）
 func firstIPv4(iface *net.Interface) (ip string, prefixLen int) {
 	addrs, err := iface.Addrs()
@@ -192,11 +301,24 @@ func isTunnelName(name string) bool {
 
 // ===================== DNS =====================
 
-// stunDNSServers STUN 服务器域名不走系统 DNS。
+// DefaultDNSServers STUN 服务器域名默认不走系统 DNS。
 //
 // 代理开着 fake-ip 时，系统 DNS 把所有域名都解析成 198.18.x.x —— 那是 TUN 自己的
 // 网段，包发过去必进 TUN，源地址绑得再对也没用。所以从出口网卡直连公共 DNS。
-var stunDNSServers = []string{"114.114.114.114:53", "119.29.29.29:53"}
+var DefaultDNSServers = []string{"114.114.114.114", "119.29.29.29"}
+
+// dnsServers 按设置挑 DNS；返回 nil 表示跟随系统
+func dnsServers() []string {
+	cfg := currentNetworkConfig()
+	switch {
+	case cfg.DNSMode == model.ModeSystem:
+		return nil
+	case cfg.DNSMode == model.ModeCustom && len(cfg.DNS) > 0:
+		return cfg.DNS
+	default:
+		return DefaultDNSServers
+	}
+}
 
 // resolve 把 "host:port" 里的域名换成 IPv4；本来就是 IP 的原样返回
 func (o OutboundIface) resolve(addr string) (string, error) {
@@ -208,15 +330,53 @@ func (o OutboundIface) resolve(addr string) (string, error) {
 		return addr, nil
 	}
 
+	servers := dnsServers()
+	if servers == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
+		if err != nil {
+			return "", fmt.Errorf("解析 %s 失败: %w", host, err)
+		}
+		return net.JoinHostPort(ips[0].String(), port), nil
+	}
+
 	var lastErr error
-	for _, server := range stunDNSServers {
-		ips, err := o.lookupVia(server, host)
+	for _, server := range servers {
+		ips, err := o.lookupVia(withDNSPort(server), host)
 		if err == nil {
 			return net.JoinHostPort(ips[0].String(), port), nil
 		}
 		lastErr = err
 	}
 	return "", fmt.Errorf("解析 %s 失败: %w", host, lastErr)
+}
+
+// withDNSPort "114.114.114.114" → "114.114.114.114:53"，带了端口的原样返回
+func withDNSPort(server string) string {
+	if _, _, err := net.SplitHostPort(server); err == nil {
+		return server
+	}
+	return net.JoinHostPort(server, "53")
+}
+
+// NormalizeDNSServer 校验并整理用户填的一个 DNS 地址，只认 IPv4，可带端口
+func NormalizeDNSServer(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	host, port := s, ""
+	if h, p, err := net.SplitHostPort(s); err == nil {
+		host, port = h, p
+	}
+	if ip := net.ParseIP(host); ip == nil || ip.To4() == nil {
+		return "", fmt.Errorf("「%s」不是 IPv4 地址", s)
+	}
+	if port == "" {
+		return host, nil
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return "", fmt.Errorf("「%s」的端口不对", s)
+	}
+	return net.JoinHostPort(host, port), nil
 }
 
 // lookupVia 从出口网卡去问指定的那台 DNS

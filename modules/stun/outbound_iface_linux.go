@@ -5,7 +5,6 @@ package stun
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"linkstar/modules/stun/model"
 	"net"
@@ -18,19 +17,32 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// detectOutboundIface 读主路由表里的默认路由，跳过 TUN / 隧道，跃点数最小的那条。
+// listIfaces 本机网卡，主路由表里有默认路由、又不是 TUN / 隧道的标 candidate，跃点数小的优先。
 //
 // 只看主路由表正好绕开了代理：sing-box / Clash 的 auto_route 是另开一张表再用
 // ip rule 把流量引过去，主表里的默认路由还是物理网卡的；直接改主表默认路由的
-// 老式 TUN 被下面的网卡类型判断排除掉。
-func detectOutboundIface() (OutboundIface, error) {
-	data, err := os.ReadFile("/proc/net/route")
+// 老式 TUN 被网卡类型判断排除掉。
+func listIfaces() ([]OutboundIface, error) {
+	list, err := listUpIfaces()
 	if err != nil {
-		return detectOutboundIfaceByName()
+		return nil, err
+	}
+	for i := range list {
+		list[i].Tunnel = isTunnelIface(list[i].Name)
 	}
 
-	var best *OutboundIface
-	bestMetric := 0
+	data, err := os.ReadFile("/proc/net/route")
+	if err != nil {
+		// /proc 没挂载这种极端情况：按名字过滤，第一张不像隧道的当候选
+		for i := range list {
+			if !list[i].Tunnel {
+				list[i].candidate = true
+				break
+			}
+		}
+		return list, nil
+	}
+
 	for _, line := range strings.Split(string(data), "\n")[1:] { // 第一行是表头
 		// Iface Destination Gateway Flags RefCnt Use Metric Mask ...
 		f := strings.Fields(line)
@@ -38,31 +50,28 @@ func detectOutboundIface() (OutboundIface, error) {
 			continue // 不是默认路由
 		}
 		flags, _ := strconv.ParseUint(f[3], 16, 32)
-		if flags&unix.RTF_UP == 0 || isTunnelIface(f[0]) {
+		if flags&unix.RTF_UP == 0 {
 			continue
 		}
-		iface, err := net.InterfaceByName(f[0])
-		if err != nil || iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		gw := procRouteIPv4(f[2])
-		if gw == "" && iface.Flags&net.FlagPointToPoint == 0 {
-			continue // 没网关又不是 PPP 这种点对点链路，不是真出口
-		}
-		ip, prefix := firstIPv4(iface)
-		if ip == "" {
-			continue
-		}
-		metric, _ := strconv.Atoi(f[6])
-		if best == nil || metric < bestMetric {
-			best = &OutboundIface{Name: iface.Name, Index: iface.Index, LocalIP: ip, PrefixLen: prefix, Gateway: gw}
-			bestMetric = metric
+		for i := range list {
+			o := &list[i]
+			if o.Name != f[0] || o.Tunnel || o.candidate {
+				continue
+			}
+			o.Gateway = procRouteIPv4(f[2])
+			if o.Gateway == "" && !isPointToPoint(o.Name) {
+				continue // 没网关又不是 PPP 这种点对点链路，不是真出口
+			}
+			metric, _ := strconv.Atoi(f[6])
+			o.candidate, o.metric = true, uint32(metric)
 		}
 	}
-	if best == nil {
-		return OutboundIface{}, errNoOutboundIface
-	}
-	return *best, nil
+	return list, nil
+}
+
+func isPointToPoint(name string) bool {
+	iface, err := net.InterfaceByName(name)
+	return err == nil && iface.Flags&net.FlagPointToPoint != 0
 }
 
 // procRouteIPv4 /proc/net/route 打印的是「网络序 4 字节按本机字节序读成的整数」，
@@ -192,21 +201,4 @@ func readICMPError(fd int, timeout time.Duration) (hop string, reached bool) {
 			}
 		}
 	}
-}
-
-// detectOutboundIfaceByName /proc 没挂载这种极端情况：按名字过滤后取第一张有 IPv4 的
-func detectOutboundIfaceByName() (OutboundIface, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return OutboundIface{}, errors.Join(errNoOutboundIface, err)
-	}
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || isTunnelName(iface.Name) {
-			continue
-		}
-		if ip, prefix := firstIPv4(&iface); ip != "" {
-			return OutboundIface{Name: iface.Name, Index: iface.Index, LocalIP: ip, PrefixLen: prefix}, nil
-		}
-	}
-	return OutboundIface{}, errNoOutboundIface
 }

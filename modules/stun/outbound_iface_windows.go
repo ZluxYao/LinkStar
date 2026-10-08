@@ -15,14 +15,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// detectOutboundIface 已连接 + 有 MAC + 有 IPv4 网关 + 有 IPv4，跃点数最小的那张。
+// listIfaces 已连接、有 IPv4 的网卡。能当出口的（有 MAC + 有 IPv4 网关）标 candidate，
+// 跃点数小的优先：
 //
 //   - 没有 MAC 的是代理 TUN（Wintun）、EasyTier、WireGuard 这类隧道；
 //   - 没有网关的是 VMware / Hyper-V 的内部网卡；
 //   - 有线和 Wi-Fi 都连着时，跃点数小的就是 Windows 实际走的那张。
 //
-// 一张都不符合时再看 PPP 拨号（直接在电脑上拨 PPPoE）：它同样没有 MAC。
-func detectOutboundIface() (OutboundIface, error) {
+// PPP 拨号（直接在电脑上拨 PPPoE）同样没有 MAC，只在一张正常网卡都没有时才当候选。
+func listIfaces() ([]OutboundIface, error) {
 	size := uint32(15000)
 	var buf []byte
 	var head *windows.IpAdapterAddresses
@@ -35,18 +36,18 @@ func detectOutboundIface() (OutboundIface, error) {
 		}
 		// 缓冲区不够时系统会把需要的大小写回 size
 		if err != windows.ERROR_BUFFER_OVERFLOW || tries >= 3 {
-			return OutboundIface{}, fmt.Errorf("读取网卡列表失败: %w", err)
+			return nil, fmt.Errorf("读取网卡列表失败: %w", err)
 		}
 	}
 	defer runtime.KeepAlive(buf) // 链表节点都在 buf 里
 
-	var best, bestPPP *OutboundIface
-	var bestMetric, bestPPPMetric uint32
+	var list []OutboundIface
+	var ppp []int
 	for a := head; a != nil; a = a.Next {
-		if a.OperStatus != windows.IfOperStatusUp {
+		if a.OperStatus != windows.IfOperStatusUp || a.IfType == windows.IF_TYPE_SOFTWARE_LOOPBACK {
 			continue
 		}
-		o := OutboundIface{Name: windows.UTF16PtrToString(a.FriendlyName), Index: int(a.IfIndex)}
+		o := OutboundIface{Name: windows.UTF16PtrToString(a.FriendlyName), Index: int(a.IfIndex), metric: a.Ipv4Metric}
 		for u := a.FirstUnicastAddress; u != nil; u = u.Next {
 			if ip := u.Address.IP().To4(); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
 				o.LocalIP, o.PrefixLen = ip.String(), int(u.OnLinkPrefixLength)
@@ -63,24 +64,21 @@ func detectOutboundIface() (OutboundIface, error) {
 			continue
 		}
 
-		switch {
-		case a.PhysicalAddressLength > 0 && o.Gateway != "":
-			if best == nil || a.Ipv4Metric < bestMetric {
-				best, bestMetric = &o, a.Ipv4Metric
-			}
-		case a.IfType == windows.IF_TYPE_PPP:
-			if bestPPP == nil || a.Ipv4Metric < bestPPPMetric {
-				bestPPP, bestPPPMetric = &o, a.Ipv4Metric
-			}
+		isPPP := a.IfType == windows.IF_TYPE_PPP
+		o.Tunnel = a.PhysicalAddressLength == 0 && !isPPP
+		o.candidate = a.PhysicalAddressLength > 0 && o.Gateway != ""
+		if isPPP {
+			ppp = append(ppp, len(list))
+		}
+		list = append(list, o)
+	}
+
+	if _, err := pickAutoIface(list); err != nil {
+		for _, i := range ppp {
+			list[i].candidate = true
 		}
 	}
-	if best == nil {
-		best = bestPPP
-	}
-	if best == nil {
-		return OutboundIface{}, errNoOutboundIface
-	}
-	return *best, nil
+	return list, nil
 }
 
 // bindToIface IP_UNICAST_IF：指定单播从哪张网卡出去，值是网络字节序的网卡序号

@@ -1,6 +1,7 @@
 package stun
 
 import (
+	"linkstar/modules/stun/model"
 	"net"
 	"testing"
 )
@@ -123,5 +124,94 @@ func TestIsTunnelName(t *testing.T) {
 		if isTunnelName(name) {
 			t.Errorf("isTunnelName(%q) = true，这是物理网卡或拨号", name)
 		}
+	}
+}
+
+// TestPickAutoIface 自动模式：候选里跃点数最小的；隧道、没网关的虚拟网卡都不选
+func TestPickAutoIface(t *testing.T) {
+	list := []OutboundIface{
+		{Name: "Meta", LocalIP: "198.18.0.1", Tunnel: true},
+		{Name: "VMware Network Adapter VMnet8", LocalIP: "192.168.80.1"},
+		{Name: "WLAN", LocalIP: "192.168.100.120", Gateway: "192.168.100.1", candidate: true, metric: 35},
+		{Name: "以太网", LocalIP: "192.168.100.187", Gateway: "192.168.100.1", candidate: true, metric: 20},
+	}
+	got, err := pickAutoIface(list)
+	if err != nil || got.Name != "以太网" {
+		t.Fatalf("pickAutoIface = %v, %v，想要以太网（跃点 20 < 35）", got, err)
+	}
+
+	if _, err := pickAutoIface(list[:2]); err == nil {
+		t.Fatal("只有隧道和虚拟网卡时应该报没有出口")
+	}
+}
+
+// TestDetectOutboundIfaceCustom 指定的网卡不在时报错，不偷偷换成别的
+func TestDetectOutboundIfaceCustom(t *testing.T) {
+	old := networkConfig.Load()
+	t.Cleanup(func() { networkConfig.Store(old) })
+
+	networkConfig.Store(&model.NetworkConfig{IfaceMode: model.ModeCustom, Iface: "一张不存在的网卡"})
+	if o, err := DetectOutboundIface(); err == nil {
+		t.Fatalf("指定的网卡不存在，却挑出了 %v", o)
+	}
+}
+
+// TestDNSServers 三种 DNS 模式各自用谁
+func TestDNSServers(t *testing.T) {
+	old := networkConfig.Load()
+	t.Cleanup(func() { networkConfig.Store(old) })
+
+	cases := []struct {
+		name string
+		cfg  model.NetworkConfig
+		want []string
+	}{
+		{"老配置没这一段，用内置", model.NetworkConfig{}, DefaultDNSServers},
+		{"跟随系统", model.NetworkConfig{DNSMode: model.ModeSystem}, nil},
+		{"自定义", model.NetworkConfig{DNSMode: model.ModeCustom, DNS: []string{"192.168.100.1"}}, []string{"192.168.100.1"}},
+		{"自定义却一个没填，退回内置", model.NetworkConfig{DNSMode: model.ModeCustom}, DefaultDNSServers},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			networkConfig.Store(&c.cfg)
+			got := dnsServers()
+			if len(got) != len(c.want) || (got == nil) != (c.want == nil) {
+				t.Fatalf("got %v，want %v", got, c.want)
+			}
+			for i := range got {
+				if got[i] != c.want[i] {
+					t.Fatalf("got %v，want %v", got, c.want)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeDNSServer 用户填的 DNS 地址只认 IPv4，可以带端口
+func TestNormalizeDNSServer(t *testing.T) {
+	ok := map[string]string{
+		"114.114.114.114":    "114.114.114.114",
+		" 192.168.100.1 ":    "192.168.100.1",
+		"192.168.100.1:5353": "192.168.100.1:5353",
+	}
+	for in, want := range ok {
+		if got, err := NormalizeDNSServer(in); err != nil || got != want {
+			t.Errorf("NormalizeDNSServer(%q) = %q, %v，want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"dns.example.com", "2001:db8::1", "192.168.100.1:0", "192.168.100.1:70000", ""} {
+		if got, err := NormalizeDNSServer(in); err == nil {
+			t.Errorf("NormalizeDNSServer(%q) = %q，应该报错", in, got)
+		}
+	}
+}
+
+// TestWithDNSPort 没写端口补 53
+func TestWithDNSPort(t *testing.T) {
+	if got := withDNSPort("114.114.114.114"); got != "114.114.114.114:53" {
+		t.Errorf("got %q", got)
+	}
+	if got := withDNSPort("192.168.100.1:5353"); got != "192.168.100.1:5353" {
+		t.Errorf("got %q", got)
 	}
 }

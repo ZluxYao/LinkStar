@@ -39,6 +39,17 @@ func StunRouters(g *gin.RouterGroup) {
 		app.StunStatusEventsView,
 	)
 
+	// 网络设置：打洞走哪张网卡、STUN 域名找谁解析
+	g.GET(
+		"stun/network",
+		app.GetStunNetworkView,
+	)
+	g.PUT(
+		"stun/network",
+		middleware.BindJsonMiddleware[stun_api.StunNetworkUpdateRequest],
+		app.StunNetworkUpdateView,
+	)
+
 	// 新增服务
 	g.POST(
 		"stun/service/add",

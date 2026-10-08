@@ -31,6 +31,7 @@ func InitSTUN() error {
 	})
 
 	// 先认出口网卡：下面测 STUN 服务器、扫路由、选 UPnP 网关、查公网 IP 都从这张卡出去
+	networkConfig.Store(&Runtime.Config.Network)
 	outbound, err := DetectOutboundIface()
 	if err != nil {
 		logrus.Warnf("获取出口网卡失败: %v", err)

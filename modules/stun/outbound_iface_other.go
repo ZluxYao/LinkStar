@@ -18,21 +18,31 @@ import (
 
 // macOS 和 BSD 一路。
 
-// detectOutboundIface 读整张 IPv4 路由表，挑不经过 utun 等隧道的默认路由。
+// listIfaces 本机网卡，路由表里有不经过 utun 等隧道的默认路由的标 candidate。
 //
 // 代理 TUN 在 macOS 上加的是 1/8、2/7 …… 128/1 这一串拆分路由，原来那条
 // default → en0 一直都在，所以只认目的和掩码都是 0 的那条就绕开了。
 // 不用 `route get default`：开着 TUN 时它给的就是 utun。
-func detectOutboundIface() (OutboundIface, error) {
+func listIfaces() ([]OutboundIface, error) {
+	list, err := listUpIfaces()
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		list[i].Tunnel = isTunnelName(list[i].Name)
+	}
+
 	rib, err := route.FetchRIB(unix.AF_INET, route.RIBTypeRoute, 0)
 	if err != nil {
-		return OutboundIface{}, fmt.Errorf("读路由表失败: %w", err)
+		return nil, fmt.Errorf("读路由表失败: %w", err)
 	}
 	msgs, err := route.ParseRIB(route.RIBTypeRoute, rib)
 	if err != nil {
-		return OutboundIface{}, fmt.Errorf("解析路由表失败: %w", err)
+		return nil, fmt.Errorf("解析路由表失败: %w", err)
 	}
 
+	// 路由表按优先级排好了，越靠前的默认路由越是系统本来会走的，用顺序当跃点数
+	rank := uint32(0)
 	for _, m := range msgs {
 		rm, ok := m.(*route.RouteMessage)
 		if !ok || rm.Flags&unix.RTF_UP == 0 || rm.Flags&unix.RTF_GATEWAY == 0 || len(rm.Addrs) <= unix.RTAX_NETMASK {
@@ -45,22 +55,17 @@ func detectOutboundIface() (OutboundIface, error) {
 		if !ok {
 			continue
 		}
-		iface, err := net.InterfaceByIndex(rm.Index)
-		if err != nil || isTunnelName(iface.Name) {
-			continue
+		for i := range list {
+			o := &list[i]
+			if o.Index != rm.Index || o.Tunnel || o.candidate {
+				continue
+			}
+			o.Gateway = net.IP(gw.IP[:]).String()
+			o.candidate, o.metric = true, rank
+			rank++
 		}
-		ip, prefix := firstIPv4(iface)
-		if ip == "" {
-			continue
-		}
-		// 路由表按优先级排好了，第一条能用的就是系统本来会走的
-		return OutboundIface{
-			Name: iface.Name, Index: iface.Index,
-			LocalIP: ip, PrefixLen: prefix,
-			Gateway: net.IP(gw.IP[:]).String(),
-		}, nil
 	}
-	return OutboundIface{}, errNoOutboundIface
+	return list, nil
 }
 
 func isZeroIPv4(a route.Addr) bool {
