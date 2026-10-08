@@ -139,11 +139,14 @@ func (s *STUNService) UpdateSTUNService() {
 }
 
 // 获取连接延时
+//
+// 从出口网卡发出：开着 TUN 时不指定出口，量到的是到代理节点的延迟，
+// 挑出来的「最快」服务器对真实出口毫无意义。
 func getSTUNServerDelay(srv string) (*STUNServiceDelay, error) {
 	star := time.Now()
 
 	// 建立TCP连接
-	conn, err := net.DialTimeout("tcp", srv, 3*time.Second)
+	conn, err := CurrentOutboundIface().DialTCP(srv, 3*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("TCP connection failed to be established")
 	}

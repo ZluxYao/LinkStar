@@ -27,6 +27,8 @@ func RunNetworkRuntimeUpdater(ctx context.Context) {
 
 // 更新网络信息
 func refreshNetworkRuntime() {
+	refreshOutboundIface()
+
 	// 获取STUN服务器
 	stunServer, err := Runtime.STUNService.GetBestSTUNServer()
 	if err != nil {
@@ -107,4 +109,33 @@ func updateNatRouter() {
 		return
 	}
 	Runtime.Network.NatRouterList = natRouterList
+}
+
+// refreshOutboundIface 出口网卡换了（拔网线切 Wi-Fi、DHCP 换地址、开关 TUN）：
+// 打洞的套接字还绑在旧地址上，UPnP 映射也指着旧 IP，自己修不好，
+// 只能换上新出口、重选 UPnP 网关、把打洞服务全部重启。
+func refreshOutboundIface() {
+	cur, err := DetectOutboundIface()
+	if err != nil {
+		logrus.Warnf("获取出口网卡失败: %v", err)
+		return // 断网时什么都不动，等网络回来再比
+	}
+	old := currentOutboundIface.Swap(&cur)
+	if old == nil || *old == cur {
+		return
+	}
+
+	logrus.Warnf("出口网卡变化：%s → %s，重新选 UPnP 网关并重启打洞服务", old, cur)
+	gateway := DiscoverUPnPGateway()
+	SelectDefaultGateway(gateway)
+	Runtime.UpnpGateway = gateway
+
+	// 公网 IP 交给紧接着的那一轮去问；LocalIP 在这里先换掉，
+	// 不然下面重启的服务还会绑回旧地址
+	Runtime.Network.LocalIP = cur.LocalIP
+	Runtime.Network.Iface, Runtime.Network.Gateway = cur.Name, cur.Gateway
+	go updateNatRouter()
+	if Runtime.Scheduler != nil {
+		go Runtime.Scheduler.StartAll(Runtime.Config.Devices)
+	}
 }

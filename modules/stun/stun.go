@@ -35,9 +35,9 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 		}
 	}
 
-	// 端口复用连接STUN服务器
+	// 端口复用连接STUN服务器，钉在出口网卡上：开着 TUN 时不钉，包会被 TUN 接走
 	localAddr := fmt.Sprintf("%s:0", localIP)
-	stunConn, err := reuseport.Dial(protocol, localAddr, stunServer)
+	stunConn, err := CurrentOutboundIface().DialReusable(protocol, localAddr, stunServer)
 	if err != nil {
 		primaryErr := err
 		primarySTUNServer := stunServer
@@ -47,7 +47,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 			return fmt.Errorf("connect stun server %s failed: %v; get backup stun server: %w", primarySTUNServer, primaryErr, err)
 		}
 		// 再次发起连接
-		stunConn, err = reuseport.Dial(protocol, localAddr, stunServer)
+		stunConn, err = CurrentOutboundIface().DialReusable(protocol, localAddr, stunServer)
 		if err != nil {
 			return fmt.Errorf("connect stun server %s failed: %v; connect backup stun server %s: %w", primarySTUNServer, primaryErr, stunServer, err)
 		}
@@ -221,7 +221,14 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 
 	}()
 
-	return <-errCh
+	// 取消时保活 goroutine 什么都不发，Accept 又要等这里返回、defer 关掉监听器才醒，
+	// 只等 errCh 会两边互相等，调度器白等 12 秒才放弃
+	select {
+	case <-ctx.Done():
+		return nil
+	case err := <-errCh:
+		return err
+	}
 }
 
 // ===================== 内部 函数 ===============
@@ -382,7 +389,7 @@ func tcpStunHealthKeepAlive(
 			}
 
 			localAddr := fmt.Sprintf("%s:%d", localIP, localPort)
-			newConn, dialErr := reuseport.Dial("tcp", localAddr, stunServer)
+			newConn, dialErr := CurrentOutboundIface().DialReusable("tcp", localAddr, stunServer)
 			if dialErr != nil {
 				return fmt.Errorf("reconnect stun server %s failed: %w", stunServer, dialErr)
 			}
@@ -526,7 +533,7 @@ func udpReconnectSTUN(localIP string, localPort uint16) (net.Conn, int, error) {
 			return nil, 0, fmt.Errorf("get stun server: %w", err)
 		}
 	}
-	conn, err := reuseport.Dial("udp", fmt.Sprintf("%s:%d", localIP, localPort), stunServer)
+	conn, err := CurrentOutboundIface().DialReusable("udp", fmt.Sprintf("%s:%d", localIP, localPort), stunServer)
 	if err != nil {
 		return nil, 0, fmt.Errorf("dial stun %s: %w", stunServer, err)
 	}
