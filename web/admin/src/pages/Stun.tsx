@@ -428,16 +428,17 @@ interface ServiceFormState {
   name: string
   internalPort: string
   protocol: 'TCP' | 'UDP'
-  upnpMappedPort: string
   useUpnp: boolean
-  /** 只管链接展示成 http:// 还是 https://，不影响转发 */
-  https: boolean
   domain: string
   tlsTerminate: boolean
   /** 证书 ID，'0' 表示按域名自动匹配 */
   certId: string
-  /** 转发给内网时也用 tls.Dial，等价 nginx 的 proxy_pass https://；仅在 tlsTerminate 时成立 */
-  backendHttps: boolean
+  /**
+   * 内网服务本身就是 HTTPS。界面上只有这一个勾，存的时候拆回后端那两个字段：
+   * 加了证书时是 backendHttps（LinkStar 解密后再用 HTTPS 连内网），
+   * 没加证书时是 https（洞口不碰字节，只决定链接写成 https://）。见 formToPayloadTLS。
+   */
+  internalHttps: boolean
   enabled: boolean
   showOnHome: boolean
   description: string
@@ -445,7 +446,22 @@ interface ServiceFormState {
   redirect: RedirectConfig
 }
 
+/** 界面上那一个「内网是 HTTPS」拆回后端的 https / backendHttps，语义和 stun.PublicScheme 一致 */
+function formToPayloadTLS(form: ServiceFormState) {
+  const tls = form.tlsTerminate && form.protocol === 'TCP'
+  return {
+    tlsTerminate: tls,
+    certId: tls ? Number(form.certId) || 0 : 0,
+    backendHttps: tls && form.internalHttps,
+    https: !tls && form.protocol === 'TCP' && form.internalHttps,
+  }
+}
+
 type ServiceModalTab = 'basic' | 'webhook' | 'redirect'
+
+const fieldLabelCls = 'mb-1 text-xs font-semibold text-slate-500'
+const fieldInputCls =
+  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400'
 
 const emptyRedirect: RedirectConfig = {
   enabled: false,
@@ -472,13 +488,11 @@ const emptyService: ServiceFormState = {
   name: '',
   internalPort: '',
   protocol: 'TCP',
-  upnpMappedPort: '0',
   useUpnp: true,
-  https: false,
   domain: '',
   tlsTerminate: false,
   certId: '0',
-  backendHttps: false,
+  internalHttps: false,
   enabled: true,
   showOnHome: false,
   description: '',
@@ -546,13 +560,11 @@ function serviceToForm(svc: StunService, showOnHome: boolean): ServiceFormState 
     name: svc.name,
     internalPort: String(svc.internalPort || ''),
     protocol: (svc.protocol as 'TCP' | 'UDP') || 'TCP',
-    upnpMappedPort: String(svc.upnpMappedPort || 0),
     useUpnp: !!svc.useUpnp,
-    https: !!svc.https,
     domain: svc.domain || '',
     tlsTerminate: !!svc.tlsTerminate,
     certId: String(svc.certId || 0),
-    backendHttps: !!svc.backendHttps,
+    internalHttps: !!svc.backendHttps || !!svc.https,
     enabled: svc.enabled !== false,
     showOnHome,
     description: svc.description || '',
@@ -573,7 +585,6 @@ function serviceToPayload(deviceId: number, svc: StunService): api.StunServicePa
     name: svc.name,
     internalPort: svc.internalPort,
     protocol: svc.protocol || 'TCP',
-    upnpMappedPort: svc.upnpMappedPort || 0,
     useUpnp: !!svc.useUpnp,
     https: !!svc.https,
     domain: svc.domain || '',
@@ -680,10 +691,10 @@ function ServiceModal({
   const redirectPreviewTarget = useMemo(() => {
     const port = status?.externalPort ?? 0
     if (!port) return status?.redirectTarget ?? ''
-    // 与 stun.PublicScheme 同一套判断
-    const scheme = form.tlsTerminate || (!form.backendHttps && form.https) ? 'https' : 'http'
+    // 与 stun.PublicScheme 同一套判断：加了证书，或者内网自己就是 HTTPS，外面都是 https
+    const scheme = form.tlsTerminate || form.internalHttps ? 'https' : 'http'
     return `${scheme}://${form.domain.trim() || '公网IP'}:${port}`
-  }, [status?.externalPort, status?.redirectTarget, form.tlsTerminate, form.backendHttps, form.https, form.domain])
+  }, [status?.externalPort, status?.redirectTarget, form.tlsTerminate, form.internalHttps, form.domain])
 
   // 下面两个按钮打的是后端「已保存」的配置，不是眼前这张表单。
   // 刚勾上启用还没保存就点同步，后端读到的 enabled 还是 false，
@@ -903,9 +914,11 @@ function ServiceModal({
     setErr('')
     setBusy(true)
     try {
-      // UDP 没有洞口 TLS 一说，先勾选过再改协议的情况在这里抹掉
+      // UDP 没有证书、HTTPS、入口重定向一说，先勾选过再改协议的情况在这里抹掉
       await onSubmit(
-        form.protocol === 'UDP' ? { ...form, tlsTerminate: false, certId: '0' } : form,
+        form.protocol === 'UDP'
+          ? { ...form, tlsTerminate: false, certId: '0', internalHttps: false, redirect: { ...form.redirect, enabled: false } }
+          : form,
       )
     } catch (e) {
       setErr(e instanceof Error ? e.message : '操作失败')
@@ -934,8 +947,9 @@ function ServiceModal({
         <div className="flex gap-8 border-b border-slate-100 px-6">
           {[
             { key: 'basic' as const, label: '基础配置' },
+            // 入口重定向是 HTTP 307，只有浏览器听得懂；UDP 根本没有这回事
+            ...(form.protocol === 'TCP' ? [{ key: 'redirect' as const, label: '对外入口' }] : []),
             { key: 'webhook' as const, label: 'Webhook' },
-            { key: 'redirect' as const, label: 'CF 重定向' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -954,65 +968,175 @@ function ServiceModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {activeTab === 'basic' && (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">服务名称</div>
-                <input
-                  autoFocus
-                  value={form.name}
-                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="如 SSH / Web管理"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">内网端口</div>
-                <input
-                  type="number"
-                  value={form.internalPort}
-                  onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
-                  placeholder="如 22"
-                  min={1}
-                  max={65535}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">协议类型</div>
-                <select
-                  value={form.protocol}
-                  onChange={(e) => setForm((p) => ({ ...p, protocol: e.target.value as 'TCP' | 'UDP' }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                >
-                  <option value="TCP">TCP</option>
-                  <option value="UDP">UDP</option>
-                </select>
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">UPnP 映射端口</div>
-                <input
-                  type="number"
-                  value={form.upnpMappedPort}
-                  onChange={(e) => setForm((p) => ({ ...p, upnpMappedPort: e.target.value }))}
-                  placeholder="0 表示自动"
-                  min={0}
-                  max={65535}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className={fieldLabelCls}>服务名称</div>
+                  <input
+                    autoFocus
+                    value={form.name}
+                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="如 我的世界 / NAS 后台"
+                    className={fieldInputCls}
+                  />
+                </label>
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className={fieldLabelCls}>内网端口</div>
+                  <input
+                    type="number"
+                    value={form.internalPort}
+                    onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
+                    placeholder="如 25565"
+                    min={1}
+                    max={65535}
+                    className={fieldInputCls}
+                  />
+                </label>
+              </div>
 
-              <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {/* 协议决定了下面能配什么：证书、HTTPS、入口重定向都只有 TCP 才有 */}
+              <div>
+                <div className={fieldLabelCls}>协议</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: 'TCP', hint: '网页、MC Java 版、SSH、远程桌面…' },
+                      { value: 'UDP', hint: 'MC 基岩版、WireGuard、部分游戏…' },
+                    ] as const
+                  ).map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, protocol: o.value }))}
+                      className={`rounded-xl border px-3 py-2 text-left transition ${
+                        form.protocol === o.value
+                          ? 'border-blue-300 bg-blue-50/60 ring-1 ring-blue-200'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div
+                        className={`text-sm font-bold ${form.protocol === o.value ? 'text-blue-600' : 'text-slate-700'}`}
+                      >
+                        {o.value}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-400">{o.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                  <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
+                  对外访问
+                </div>
+
+                <label className="block">
+                  <div className={fieldLabelCls}>对外域名</div>
+                  <input
+                    value={form.domain}
+                    onChange={(e) => setForm((p) => ({ ...p, domain: e.target.value }))}
+                    placeholder={tlsOn ? '必须是证书覆盖的域名' : '如 mc.example.com，留空用公网 IP'}
+                    className={fieldInputCls}
+                  />
+                  <div className="mt-1 text-[11px] text-slate-400">要在 DDNS 页解析到你的公网 IP</div>
+                </label>
+
+                {form.protocol === 'TCP' && (
+                  <>
+                    {/* 洞口一终结 TLS，非 HTTPS 的连接全会被当成敲错地址的浏览器回 302，
+                        MC、SSH 这类直接连不上——这是最容易配错的一项，旁边必须写明 */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={form.tlsTerminate}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            tlsTerminate: e.target.checked,
+                            // 证书按域名签，对外域名不能再空着回落 IP；证书上有现成的具体域名就直接填上
+                            domain:
+                              e.target.checked && !p.domain.trim() ? pickCertDomain(certs, p.certId) : p.domain,
+                          }))
+                        }
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-slate-700">加 HTTPS 证书</span>
+                        <span className="block text-[11px] text-slate-400">
+                          只有网页才勾。MC、SSH、远程桌面勾了会连不上
+                        </span>
+                      </span>
+                    </label>
+
+                    {tlsOn && (
+                      <label className="ml-6 block">
+                        <select
+                          value={form.certId}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              certId: e.target.value,
+                              domain: p.domain.trim() ? p.domain : pickCertDomain(certs, e.target.value),
+                            }))
+                          }
+                          className={fieldInputCls}
+                        >
+                          <option value="0">自动（按域名匹配）</option>
+                          {certs.map((c) => (
+                            <option key={c.id} value={String(c.id)}>
+                              {c.name}
+                              {c.domains.length > 0 ? ` — ${c.domains.join('、')}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {certs.length === 0 && (
+                          <div className="mt-1 text-[11px] text-amber-600">还没有证书，先去「证书」页加一张</div>
+                        )}
+                      </label>
+                    )}
+
+                    {/* 证书按域名签：域名空着或不在证书范围内，浏览器必报证书错误，只在这时才说 */}
+                    {tlsOn && certDomains.length > 0 && (!domainValue || !domainCovered) && (
+                      <div className="ml-6 flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
+                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          对外域名要填证书覆盖的：
+                          <span className="font-mono font-semibold">{certDomains.join('、')}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 一个勾两种含义，后端拆成 backendHttps / https，见 formToPayloadTLS */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={form.internalHttps}
+                        onChange={(e) => setForm((p) => ({ ...p, internalHttps: e.target.checked }))}
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-slate-700">内网服务本身就是 HTTPS</span>
+                        <span className="block text-[11px] text-slate-400">
+                          {tlsOn
+                            ? '勾了 LinkStar 会用 HTTPS 去连它；它是明文就别勾，不然连不上'
+                            : '它自带证书就勾，外面的链接会写成 https://'}
+                        </span>
+                      </span>
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {[
-                  { key: 'useUpnp' as const, label: '启用 UPnP', hint: '' },
-                  {
-                    key: 'https' as const,
-                    label: '链接显示 https',
-                    // 这个勾只改链接长什么样。真正决定「怎么连内网」的是下面对外访问里的
-                    // 「转发给内网时也用 HTTPS」——两者必须让人一眼看出区别。
-                    hint: '只影响首页/卡片上的链接写成 http:// 还是 https://，不改变转发行为',
-                  },
                   { key: 'enabled' as const, label: '启用服务', hint: '' },
-                  { key: 'showOnHome' as const, label: '主页显示', hint: '' },
+                  {
+                    key: 'useUpnp' as const,
+                    label: '启用 UPnP',
+                    hint: form.protocol === 'UDP' ? 'UDP 目前不做 UPnP 映射，勾了不起作用' : '',
+                  },
+                  { key: 'showOnHome' as const, label: '在导航主页显示', hint: '' },
                 ].map((opt) => (
                   <label
                     key={opt.key}
@@ -1026,177 +1150,18 @@ function ServiceModal({
                       className="h-3.5 w-3.5"
                     />
                     {opt.label}
+                    {opt.hint && <span className="text-[10px] text-slate-400">（UDP 无效）</span>}
                   </label>
                 ))}
               </div>
 
-              {/* 对外访问：域名 + 洞口终结 TLS。洞是 LinkStar 自己 Accept 的，
-                  所以可以直接在洞口把 TLS 终结掉，外部看到的就是 https:// */}
-              <div className="col-span-2 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                  <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
-                  对外访问
-                </div>
-
-                <label className="block">
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-500">对外域名</span>
-                    {tlsOn && certDomains.length > 0 ? (
-                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-                        终结 TLS 时必填
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">可选</span>
-                    )}
-                  </div>
-                  <input
-                    value={form.domain}
-                    onChange={(e) => setForm((p) => ({ ...p, domain: e.target.value }))}
-                    placeholder={
-                      tlsOn ? '如 fw.example.com；必须是证书覆盖的域名' : '如 fw.example.com；留空则用公网 IP'
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                  />
-                  <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                    该域名需要解析到你的公网 IP（可在 DDNS 页面配一条记录）。
-                    多个服务共用同一域名不同端口时，Cookie 按 RFC 6265 §8.5 不做端口隔离，会话会互相覆盖——
-                    建议每个服务用独立子域名。
-                  </div>
-                </label>
-
-                {/* 终结 TLS = 洞口出示证书，而证书是按域名签的。对外域名留空会回落公网 IP，
-                    IP 不发 SNI（RFC 6066）、证书也不可能覆盖 IP，首页链接和 /go 跳转就会
-                    带用户去一个必报 ERR_CERT_COMMON_NAME_INVALID 的地址。 */}
-                {tlsOn && certDomains.length > 0 && !domainValue && (
-                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      证书覆盖的是{' '}
-                      <span className="font-mono font-semibold">{certDomains.join('、')}</span>
-                      ，这里留空就会回落到公网 IP。证书盖不住 IP，用 IP 访问必报
-                      ERR_CERT_COMMON_NAME_INVALID——填一个证书覆盖的域名。
-                    </span>
-                  </div>
-                )}
-
-                {tlsOn && certDomains.length > 0 && domainValue && !domainCovered && (
-                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      <span className="font-mono font-semibold">{domainValue}</span> 不在证书覆盖范围内（
-                      {certDomains.join('、')}），浏览器会报 ERR_CERT_COMMON_NAME_INVALID。
-                    </span>
-                  </div>
-                )}
-
-                <label
-                  className={`flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200 ${
-                    form.protocol === 'UDP' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    disabled={form.protocol === 'UDP'}
-                    checked={form.tlsTerminate && form.protocol !== 'UDP'}
-                    onChange={(e) =>
-                      setForm((p) => ({
-                        ...p,
-                        tlsTerminate: e.target.checked,
-                        // 不终结就没有「LinkStar 怎么拨内网」这回事，洞是纯管道，
-                        // 留着这个勾会变成双层 TLS
-                        backendHttps: e.target.checked ? p.backendHttps : false,
-                        // 终结要出示证书，证书按域名签，对外域名就不能再空着回落 IP。
-                        // 证书上有现成的具体域名就直接填上；用户已经填了的不动
-                        domain:
-                          e.target.checked && !p.domain.trim()
-                            ? pickCertDomain(certs, p.certId)
-                            : p.domain,
-                      }))
-                    }
-                    className="h-3.5 w-3.5"
-                  />
-                  由 LinkStar 在洞口终结 TLS（外部访问变成 https://）
-                </label>
-
-                {form.protocol === 'UDP' && (
-                  <div className="flex gap-2 text-[11px] leading-relaxed text-amber-600">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    UDP 洞口不支持终结 TLS，那是 DTLS，是另一套协议。
-                  </div>
-                )}
-
-                {form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <label className="block">
-                    <div className="mb-1 text-xs font-semibold text-slate-500">使用证书</div>
-                    <select
-                      value={form.certId}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          certId: e.target.value,
-                          // 换证书时对外域名还空着，就用新证书上的域名补上
-                          domain: p.domain.trim() ? p.domain : pickCertDomain(certs, e.target.value),
-                        }))
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                    >
-                      <option value="0">自动（按 SNI 域名匹配，匹配不上用默认证书）</option>
-                      {certs.map((c) => (
-                        <option key={c.id} value={String(c.id)}>
-                          {c.name}
-                          {c.domains.length > 0 ? ` — ${c.domains.join('、')}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                      {certs.length === 0
-                        ? '还没有证书，先去「证书」页添加一张，否则握手会失败。'
-                        : '证书续期时只热替换内存里的指针，洞不会断，也不用重启穿透。'}
-                    </div>
-                  </label>
-                )}
-
-                {/* 「转发给内网时也用 HTTPS」只有在洞口终结了 TLS 时才成立：
-                    那时 LinkStar 才真的要解密再加密一遍。洞口不终结时洞是纯字节管道，
-                    LinkStar 一个字节都不解析，浏览器的 TLS 直达内网服务——
-                    这时再让它 tls.Dial 就是双层 TLS，浏览器必报 ERR_SSL_PROTOCOL_ERROR。
-                    所以这里做成父子关系，让那个组合压根勾不出来。 */}
-                {form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <div className="ml-4 border-l-2 border-slate-200 pl-3">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={form.backendHttps}
-                        onChange={(e) => setForm((p) => ({ ...p, backendHttps: e.target.checked }))}
-                        className="h-3.5 w-3.5"
-                      />
-                      转发给内网时也用 HTTPS（内网服务自己带证书就勾）
-                    </label>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                      {form.backendHttps
-                        ? '相当于 nginx 的 proxy_pass https://，自签证书不校验。内网其实是明文时会连不上。'
-                        : '相当于 nginx 的 proxy_pass http://。绝大多数自建服务都是明文，保持不勾即可。'}
-                    </div>
-                  </div>
-                )}
-
-                {!form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <div className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 ring-1 ring-slate-200">
-                    不终结时洞口是纯管道，只搬字节不拆包。
-                    <span className="font-semibold">内网服务自己是 HTTPS 也不用在这里填</span>
-                    ——浏览器直接和它握手，用的就是它那张证书，外面照样是{' '}
-                    <span className="font-mono">https://</span>。
-                  </div>
-                )}
-              </div>
-
-              <label className="col-span-2 block">
-                <div className="mb-1 text-xs font-semibold text-slate-500">描述（可选）</div>
+              <label className="block">
+                <div className={fieldLabelCls}>描述（可选）</div>
                 <input
                   value={form.description}
                   onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                  placeholder="服务描述信息"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  placeholder="给自己看的备注"
+                  className={fieldInputCls}
                 />
               </label>
             </div>
@@ -1414,7 +1379,7 @@ function ServiceModal({
             </div>
           )}
 
-          {activeTab === 'redirect' && (
+          {activeTab === 'redirect' && form.protocol === 'TCP' && (
             <div className="mx-auto max-w-2xl">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-800">
@@ -1425,7 +1390,7 @@ function ServiceModal({
                     className="h-3.5 w-3.5"
                   />
                   <CornerUpRight className="h-4 w-4 text-blue-500" />
-                  CF 重定向
+                  网页入口（Cloudflare 重定向）
                 </label>
                 <span
                   className={`rounded-md px-2 py-1 text-xs font-semibold ${
@@ -1437,20 +1402,16 @@ function ServiceModal({
               </div>
 
               <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-                外网端口一变，Cloudflare 那条重定向规则跟着改。用户永远访问下面这个固定域名，
-                Cloudflare 307 跳到这个服务当前的地址。
+                端口会变，入口域名不变：浏览器访问入口域名，Cloudflare 自动跳到当前端口。
+                <span className="text-slate-400">只对网页有用，MC、SSH 这类不认跳转。</span>
                 <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
                   <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
                     {form.redirect.entryHost.trim() || '入口域名'}
                   </span>
-                  <span className="text-slate-400">— 307 →</span>
+                  <span className="text-slate-400">→</span>
                   <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
                     {redirectPreviewTarget || '等服务跑起来才知道端口'}
                   </span>
-                </div>
-                <div className="mt-2">
-                  zone / ruleset / rule 三个 ID 都不用填，LinkStar 自己查；
-                  你在 Cloudflare 后台手写的其它规则不会被动。
                 </div>
               </div>
 
@@ -1585,15 +1546,8 @@ function ServiceModal({
                   <div className="mt-1 text-[11px] text-slate-400">
                     {cfProviders.length === 0
                       ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
-                      : '用 DDNS 里配好的那个，Token 不用再贴一遍'}
+                      : '令牌要有 DNS 编辑 + 单一重定向编辑两项权限'}
                   </div>
-                  {/* 只有 DNS 权限的 Token 解析能用、重定向必 403，事后看报错很难想到这一层 */}
-                  {cfProviders.length > 0 && (
-                    <div className="mt-1 text-[11px] text-amber-600">
-                      这个 Token 要同时有 Zone → DNS → 编辑 和 Zone → Dynamic URL Redirects →
-                      编辑，两项得在同一条策略里，少一项会报 403
-                    </div>
-                  )}
                 </label>
 
                 <label className="col-span-2 block sm:col-span-1">
@@ -1606,8 +1560,7 @@ function ServiceModal({
                     className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
                   />
                   <div className="mt-1 text-[11px] text-slate-400">
-                    外面记的就是这个名字。保存后 LinkStar 会顺手在 Cloudflare 建好这条记录（A
-                    记录 + 小黄云），不用自己去加。别填成下面那个落地域名——那条得关着小黄云
+                    外面记的就是这个，LinkStar 会自己建好；别和基础配置里的对外域名填成同一个
                   </div>
                 </label>
 
@@ -2148,13 +2101,9 @@ export function Stun() {
       name: form.name.trim(),
       internalPort: Number(form.internalPort),
       protocol: form.protocol,
-      upnpMappedPort: Number(form.upnpMappedPort) || 0,
       useUpnp: form.useUpnp,
-      https: form.https,
       domain: form.domain.trim().toLowerCase(),
-      tlsTerminate: form.tlsTerminate,
-      certId: Number(form.certId) || 0,
-      backendHttps: form.backendHttps,
+      ...formToPayloadTLS(form),
       enabled: form.enabled,
       description: form.description.trim(),
       webhookconfig: {
@@ -2212,7 +2161,6 @@ export function Stun() {
       prefill: {
         ...src,
         name: `${svc.name || '未命名服务'} 副本`,
-        upnpMappedPort: '0',
         redirect: { ...src.redirect, enabled: false, entryHost: '' },
         webhookconfig: { ...src.webhookconfig, enabled: false },
       },
@@ -2604,28 +2552,21 @@ export function Stun() {
                                 UPnP
                               </span>
                             )}
-                            {svc.https && (
-                              <span
-                                className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600"
-                                title="链接按 https:// 展示（不影响转发）"
-                              >
-                                HTTPS
-                              </span>
-                            )}
-                            {svc.backendHttps && (
-                              <span
-                                className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-600"
-                                title="洞口终结 TLS 后，再用 HTTPS 转发给内网（proxy_pass https://）"
-                              >
-                                内网 TLS
-                              </span>
-                            )}
+                            {/* 和服务表单同一套说法：证书 = 洞口加 HTTPS，内网 HTTPS = 内网服务自己带证书 */}
                             {svc.tlsTerminate && (
                               <span
                                 className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-600"
-                                title="LinkStar 在洞口终结 TLS"
+                                title="LinkStar 用证书给外面加 HTTPS"
                               >
-                                TLS 终结
+                                证书
+                              </span>
+                            )}
+                            {(svc.backendHttps || svc.https) && (
+                              <span
+                                className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-600"
+                                title="内网服务本身就是 HTTPS"
+                              >
+                                内网 HTTPS
                               </span>
                             )}
                           </span>

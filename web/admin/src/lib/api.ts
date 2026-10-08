@@ -258,7 +258,6 @@ export interface StunServicePayload {
   name: string
   internalPort: number
   protocol: string
-  upnpMappedPort: number
   useUpnp: boolean
   /** 仅影响链接展示成 http:// 还是 https://，不改变转发行为 */
   https: boolean

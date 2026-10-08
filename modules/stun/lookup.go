@@ -62,17 +62,19 @@ func FindServiceByName(name string) (*model.Device, *model.Service) {
 	return nil, nil
 }
 
-// LiveExternalPort 取服务当前的外部端口：优先调度器实时值，回落 UPnP 映射端口
+// LiveExternalPort 取服务当前的外部端口，只认调度器里打洞拿到的实时值。
+//
+// 原来洞没通时回落 service.UPnPMappedPort，但那是用户在表单里随手填的数，
+// 从来没有代码把真实映射写回去 —— 首页链接和 /go 跳转会带人去一个不存在的端口。
+// 返回 0 时上层会如实显示「穿透尚未就绪」。
 func LiveExternalPort(deviceID uint, service *model.Service) uint16 {
-	if service == nil {
+	if service == nil || Runtime.Scheduler == nil {
 		return 0
 	}
-	if Runtime.Scheduler != nil {
-		if ev, ok := Runtime.Scheduler.Get(deviceID, service.ID); ok && ev.ExternalPort != 0 {
-			return ev.ExternalPort
-		}
+	if ev, ok := Runtime.Scheduler.Get(deviceID, service.ID); ok {
+		return ev.ExternalPort
 	}
-	return service.UPnPMappedPort
+	return 0
 }
 
 // ServiceEndpoint 计算服务当前的对外访问点

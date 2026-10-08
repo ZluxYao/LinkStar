@@ -74,8 +74,10 @@ type Service struct {
 	BackendHTTPS bool `json:"backendHttps"`
 
 	// UPnP 相关配置
-	UseUPnP        bool   `json:"useUpnp"`        // 是否启用 UPnP 自动端口映射 (默认 true)
-	UPnPMappedPort uint16 `json:"upnpMappedPort"` // UPnP 实际映射成功的端口号
+	UseUPnP bool `json:"useUpnp"` // 是否启用 UPnP 自动端口映射 (默认 true)
+	// UPnPMappedPort 已废弃：表单曾经让人填，但从来没有代码拿它建映射，也没有代码写回真实值。
+	// 只为老配置文件能原样读进来保留，新代码别再用。
+	UPnPMappedPort uint16 `json:"upnpMappedPort"`
 
 	Enabled     bool   `json:"enabled"`     // 服务是否启用 (默认 true)
 	Description string `json:"description"` // 服务描述信息 (可选)
