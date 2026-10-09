@@ -126,6 +126,13 @@ func StunRouters(g *gin.RouterGroup) {
 		app.StunRedirectRemoveView,
 	)
 
+	// 立即同步 MC 入口（SRV 记录）
+	g.POST(
+		"stun/mc-entry/sync",
+		middleware.BindJsonMiddleware[stun_api.StunRedirectRequest],
+		app.StunMCEntrySyncView,
+	)
+
 	// 切换某个 service 是否在 home 显示（与 home 模块联动）
 	g.PUT(
 		"stun/service/show-on-home",

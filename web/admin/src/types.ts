@@ -36,6 +36,22 @@ export interface StunService {
   description: string
   webhookconfig?: WebhookConfig
   redirect?: RedirectConfig
+  mcEntry?: MCEntryConfig
+}
+
+/** MC Java 版联机：_minecraft._tcp.<host> 这条 SRV 跟着外部端口走，朋友只填域名 */
+export interface MCEntryConfig {
+  enabled: boolean
+  providerId: number
+  /** 朋友在 MC 里填的域名，如 mc.example.com */
+  host: string
+  /** 主域名；留空按 host 的后两段取 */
+  zoneDomain: string
+  /**
+   * SRV 指向的主机。空 = 指向 host 自己（DDNS 里没有就自动补一条 A 记录）；
+   * 填了 = 指向这个已经解析好的域名，不再补记录。
+   */
+  target: string
 }
 
 /**
@@ -233,6 +249,11 @@ export interface StunStatusEvent {
   /** 服务商是否接受了「保留原始路径」的写法 */
   redirectKeepPath?: boolean
   redirectAt?: string
+  /** MC 入口（SRV）：ok / failed，空表示还没同步过 */
+  mcEntryStatus?: string
+  mcEntryPort?: number
+  mcEntryError?: string
+  mcEntryAt?: string
 }
 
 export type DnsProviderType =

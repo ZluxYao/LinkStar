@@ -9,6 +9,7 @@ import {
   CornerUpRight,
   ExternalLink,
   FileText,
+  Gamepad2,
   Globe,
   Home as HomeIcon,
   Info,
@@ -42,6 +43,7 @@ import type {
   StunDevice,
   RedirectConfig,
   RedirectInspection,
+  MCEntryConfig,
   StunService,
   StunStatusEvent,
   WebhookConfig,
@@ -428,30 +430,55 @@ interface ServiceFormState {
   name: string
   internalPort: string
   protocol: 'TCP' | 'UDP'
-  upnpMappedPort: string
   useUpnp: boolean
-  /** 只管链接展示成 http:// 还是 https://，不影响转发 */
-  https: boolean
   domain: string
   tlsTerminate: boolean
   /** 证书 ID，'0' 表示按域名自动匹配 */
   certId: string
-  /** 转发给内网时也用 tls.Dial，等价 nginx 的 proxy_pass https://；仅在 tlsTerminate 时成立 */
-  backendHttps: boolean
+  /**
+   * 内网服务本身就是 HTTPS。界面上只有这一个勾，存的时候拆回后端那两个字段：
+   * 加了证书时是 backendHttps（LinkStar 解密后再用 HTTPS 连内网），
+   * 没加证书时是 https（洞口不碰字节，只决定链接写成 https://）。见 formToPayloadTLS。
+   */
+  internalHttps: boolean
   enabled: boolean
   showOnHome: boolean
   description: string
   webhookconfig: WebhookConfig
   redirect: RedirectConfig
+  mcEntry: MCEntryConfig
+}
+
+/** 界面上那一个「内网是 HTTPS」拆回后端的 https / backendHttps，语义和 stun.PublicScheme 一致 */
+function formToPayloadTLS(form: ServiceFormState) {
+  const tls = form.tlsTerminate && form.protocol === 'TCP'
+  return {
+    tlsTerminate: tls,
+    certId: tls ? Number(form.certId) || 0 : 0,
+    backendHttps: tls && form.internalHttps,
+    https: !tls && form.protocol === 'TCP' && form.internalHttps,
+  }
 }
 
 type ServiceModalTab = 'basic' | 'webhook' | 'redirect'
+
+const fieldLabelCls = 'mb-1 text-xs font-semibold text-slate-500'
+const fieldInputCls =
+  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400'
 
 const emptyRedirect: RedirectConfig = {
   enabled: false,
   providerId: 0,
   entryHost: '',
   zoneDomain: '',
+}
+
+const emptyMCEntry: MCEntryConfig = {
+  enabled: false,
+  providerId: 0,
+  host: '',
+  zoneDomain: '',
+  target: '',
 }
 
 const emptyWebhook: WebhookConfig = {
@@ -472,18 +499,17 @@ const emptyService: ServiceFormState = {
   name: '',
   internalPort: '',
   protocol: 'TCP',
-  upnpMappedPort: '0',
   useUpnp: true,
-  https: false,
   domain: '',
   tlsTerminate: false,
   certId: '0',
-  backendHttps: false,
+  internalHttps: false,
   enabled: true,
   showOnHome: false,
   description: '',
   webhookconfig: emptyWebhook,
   redirect: emptyRedirect,
+  mcEntry: emptyMCEntry,
 }
 
 /** *.example.com 这种通配证书挑不出具体主机名——用哪个标签只能由用户决定 */
@@ -546,18 +572,17 @@ function serviceToForm(svc: StunService, showOnHome: boolean): ServiceFormState 
     name: svc.name,
     internalPort: String(svc.internalPort || ''),
     protocol: (svc.protocol as 'TCP' | 'UDP') || 'TCP',
-    upnpMappedPort: String(svc.upnpMappedPort || 0),
     useUpnp: !!svc.useUpnp,
-    https: !!svc.https,
     domain: svc.domain || '',
     tlsTerminate: !!svc.tlsTerminate,
     certId: String(svc.certId || 0),
-    backendHttps: !!svc.backendHttps,
+    internalHttps: !!svc.backendHttps || !!svc.https,
     enabled: svc.enabled !== false,
     showOnHome,
     description: svc.description || '',
     webhookconfig: normalizeWebhook(svc.webhookconfig),
     redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+    mcEntry: { ...emptyMCEntry, ...(svc.mcEntry ?? {}) },
   }
 }
 
@@ -573,7 +598,6 @@ function serviceToPayload(deviceId: number, svc: StunService): api.StunServicePa
     name: svc.name,
     internalPort: svc.internalPort,
     protocol: svc.protocol || 'TCP',
-    upnpMappedPort: svc.upnpMappedPort || 0,
     useUpnp: !!svc.useUpnp,
     https: !!svc.https,
     domain: svc.domain || '',
@@ -584,6 +608,7 @@ function serviceToPayload(deviceId: number, svc: StunService): api.StunServicePa
     description: svc.description || '',
     webhookconfig: normalizeWebhook(svc.webhookconfig),
     redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+    mcEntry: { ...emptyMCEntry, ...(svc.mcEntry ?? {}) },
   }
 }
 
@@ -635,6 +660,7 @@ function ServiceModal({
   const [templateDescription, setTemplateDescription] = useState('')
   const [certs, setCerts] = useState<Certificate[]>([])
   const [cfProviders, setCfProviders] = useState<DdnsProvider[]>([])
+  const [ddnsHosts, setDdnsHosts] = useState<string[]>([])
   const [redirectBusy, setRedirectBusy] = useState(false)
   const [inspect, setInspect] = useState<RedirectInspection | null>(null)
   const [inspecting, setInspecting] = useState(false)
@@ -652,7 +678,8 @@ function ServiceModal({
     }
   }, [])
 
-  // 重定向规则目前只有 Cloudflare 能写，别的服务商列出来只会让人白填
+  // 重定向规则目前只有 Cloudflare 能写，别的服务商列出来只会让人白填。
+  // DDNS 里现成的 A 记录也一起拿：MC 入口的 SRV 可以直接指过去，不用再建一条
   useEffect(() => {
     let alive = true
     api
@@ -660,6 +687,11 @@ function ServiceModal({
       .then((cfg) => {
         if (!alive) return
         setCfProviders((cfg.providers ?? []).filter((p) => p.type === 'cloudflare'))
+        setDdnsHosts(
+          (cfg.records ?? [])
+            .filter((r) => r.recordType === 'A')
+            .map((r) => (r.subDomain && r.subDomain !== '@' ? `${r.subDomain}.${r.domain}` : r.domain).toLowerCase()),
+        )
       })
       .catch(() => {})
     return () => {
@@ -670,6 +702,37 @@ function ServiceModal({
   const updateRedirect = (patch: Partial<RedirectConfig>) =>
     setForm((p) => ({ ...p, redirect: { ...p.redirect, ...patch } }))
 
+  const updateMCEntry = (patch: Partial<MCEntryConfig>) =>
+    setForm((p) => ({ ...p, mcEntry: { ...p.mcEntry, ...patch } }))
+
+  // 两个都开着（老配置）时先显示网页那块：它是先有的，用户多半就是为它开的
+  const entryKind: 'none' | 'web' | 'mc' = form.redirect.enabled ? 'web' : form.mcEntry.enabled ? 'mc' : 'none'
+
+  // 立即同步打的是已保存的配置，表单改了没保存就按不动（和入口重定向同一个道理）
+  const mcEntryDirty = useMemo(() => {
+    const saved = { ...emptyMCEntry, ...(initial?.mcEntry ?? {}) }
+    const norm = (v?: string) => (v ?? '').trim().toLowerCase()
+    return (
+      !!saved.enabled !== form.mcEntry.enabled ||
+      (saved.providerId || 0) !== form.mcEntry.providerId ||
+      norm(saved.host) !== norm(form.mcEntry.host) ||
+      norm(saved.zoneDomain) !== norm(form.mcEntry.zoneDomain) ||
+      norm(saved.target) !== norm(form.mcEntry.target)
+    )
+  }, [initial, form.mcEntry])
+  const [mcEntryBusy, setMCEntryBusy] = useState(false)
+  const syncMCEntry = async () => {
+    if (!initial) return
+    setMCEntryBusy(true)
+    try {
+      const r = await api.syncStunMCEntry(deviceId, initial.id)
+      onToast(r.msg || '已同步')
+    } catch (e) {
+      onToast('同步失败: ' + (e instanceof Error ? e.message : ''))
+    } finally {
+      setMCEntryBusy(false)
+    }
+  }
   /** 入口域名后两段，和后端 redirectZone 留空时的算法一致 */
   const redirectGuessedZone = useMemo(() => {
     const parts = form.redirect.entryHost.trim().toLowerCase().split('.').filter(Boolean)
@@ -680,10 +743,10 @@ function ServiceModal({
   const redirectPreviewTarget = useMemo(() => {
     const port = status?.externalPort ?? 0
     if (!port) return status?.redirectTarget ?? ''
-    // 与 stun.PublicScheme 同一套判断
-    const scheme = form.tlsTerminate || (!form.backendHttps && form.https) ? 'https' : 'http'
+    // 与 stun.PublicScheme 同一套判断：加了证书，或者内网自己就是 HTTPS，外面都是 https
+    const scheme = form.tlsTerminate || form.internalHttps ? 'https' : 'http'
     return `${scheme}://${form.domain.trim() || '公网IP'}:${port}`
-  }, [status?.externalPort, status?.redirectTarget, form.tlsTerminate, form.backendHttps, form.https, form.domain])
+  }, [status?.externalPort, status?.redirectTarget, form.tlsTerminate, form.internalHttps, form.domain])
 
   // 下面两个按钮打的是后端「已保存」的配置，不是眼前这张表单。
   // 刚勾上启用还没保存就点同步，后端读到的 enabled 还是 false，
@@ -900,12 +963,36 @@ function ServiceModal({
       )
       return
     }
+    // 只留选择条上选中的那一种入口：老配置两个都开着时，没显示的那个就是要关掉的
+    const entry = {
+      redirect: { ...form.redirect, enabled: entryKind === 'web' },
+      mcEntry: { ...form.mcEntry, enabled: entryKind === 'mc' },
+    }
+    if (form.protocol === 'TCP' && entry.mcEntry.enabled) {
+      if (!form.mcEntry.providerId) {
+        setErr('MC 入口要选一个 Cloudflare 账号')
+        return
+      }
+      if (!form.mcEntry.host.trim().includes('.')) {
+        setErr('MC 入口要填联机域名，如 mc.example.com')
+        return
+      }
+    }
     setErr('')
     setBusy(true)
     try {
-      // UDP 没有洞口 TLS 一说，先勾选过再改协议的情况在这里抹掉
+      // UDP 没有证书、HTTPS、入口重定向、SRV 一说，先勾选过再改协议的情况在这里抹掉
       await onSubmit(
-        form.protocol === 'UDP' ? { ...form, tlsTerminate: false, certId: '0' } : form,
+        form.protocol === 'UDP'
+          ? {
+              ...form,
+              tlsTerminate: false,
+              certId: '0',
+              internalHttps: false,
+              redirect: { ...form.redirect, enabled: false },
+              mcEntry: { ...form.mcEntry, enabled: false },
+            }
+          : { ...form, ...entry },
       )
     } catch (e) {
       setErr(e instanceof Error ? e.message : '操作失败')
@@ -934,8 +1021,9 @@ function ServiceModal({
         <div className="flex gap-8 border-b border-slate-100 px-6">
           {[
             { key: 'basic' as const, label: '基础配置' },
+            // 入口重定向是 HTTP 307，只有浏览器听得懂；UDP 根本没有这回事
+            ...(form.protocol === 'TCP' ? [{ key: 'redirect' as const, label: '对外入口' }] : []),
             { key: 'webhook' as const, label: 'Webhook' },
-            { key: 'redirect' as const, label: 'CF 重定向' },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -954,65 +1042,175 @@ function ServiceModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {activeTab === 'basic' && (
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">服务名称</div>
-                <input
-                  autoFocus
-                  value={form.name}
-                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="如 SSH / Web管理"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">内网端口</div>
-                <input
-                  type="number"
-                  value={form.internalPort}
-                  onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
-                  placeholder="如 22"
-                  min={1}
-                  max={65535}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">协议类型</div>
-                <select
-                  value={form.protocol}
-                  onChange={(e) => setForm((p) => ({ ...p, protocol: e.target.value as 'TCP' | 'UDP' }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                >
-                  <option value="TCP">TCP</option>
-                  <option value="UDP">UDP</option>
-                </select>
-              </label>
-              <label className="block col-span-2 sm:col-span-1">
-                <div className="mb-1 text-xs font-semibold text-slate-500">UPnP 映射端口</div>
-                <input
-                  type="number"
-                  value={form.upnpMappedPort}
-                  onChange={(e) => setForm((p) => ({ ...p, upnpMappedPort: e.target.value }))}
-                  placeholder="0 表示自动"
-                  min={0}
-                  max={65535}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                />
-              </label>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className={fieldLabelCls}>服务名称</div>
+                  <input
+                    autoFocus
+                    value={form.name}
+                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="如 我的世界 / NAS 后台"
+                    className={fieldInputCls}
+                  />
+                </label>
+                <label className="col-span-2 block sm:col-span-1">
+                  <div className={fieldLabelCls}>内网端口</div>
+                  <input
+                    type="number"
+                    value={form.internalPort}
+                    onChange={(e) => setForm((p) => ({ ...p, internalPort: e.target.value }))}
+                    placeholder="如 25565"
+                    min={1}
+                    max={65535}
+                    className={fieldInputCls}
+                  />
+                </label>
+              </div>
 
-              <div className="col-span-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {/* 协议决定了下面能配什么：证书、HTTPS、入口重定向都只有 TCP 才有 */}
+              <div>
+                <div className={fieldLabelCls}>协议</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { value: 'TCP', hint: '网页、MC Java 版、SSH、远程桌面…' },
+                      { value: 'UDP', hint: 'MC 基岩版、WireGuard、部分游戏…' },
+                    ] as const
+                  ).map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => setForm((p) => ({ ...p, protocol: o.value }))}
+                      className={`rounded-xl border px-3 py-2 text-left transition ${
+                        form.protocol === o.value
+                          ? 'border-blue-300 bg-blue-50/60 ring-1 ring-blue-200'
+                          : 'border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <div
+                        className={`text-sm font-bold ${form.protocol === o.value ? 'text-blue-600' : 'text-slate-700'}`}
+                      >
+                        {o.value}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-slate-400">{o.hint}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                  <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
+                  对外访问
+                </div>
+
+                <label className="block">
+                  <div className={fieldLabelCls}>对外域名</div>
+                  <input
+                    value={form.domain}
+                    onChange={(e) => setForm((p) => ({ ...p, domain: e.target.value }))}
+                    placeholder={tlsOn ? '必须是证书覆盖的域名' : '如 mc.example.com，留空用公网 IP'}
+                    className={fieldInputCls}
+                  />
+                  <div className="mt-1 text-[11px] text-slate-400">要在 DDNS 页解析到你的公网 IP</div>
+                </label>
+
+                {form.protocol === 'TCP' && (
+                  <>
+                    {/* 洞口一终结 TLS，非 HTTPS 的连接全会被当成敲错地址的浏览器回 302，
+                        MC、SSH 这类直接连不上——这是最容易配错的一项，旁边必须写明 */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={form.tlsTerminate}
+                        onChange={(e) =>
+                          setForm((p) => ({
+                            ...p,
+                            tlsTerminate: e.target.checked,
+                            // 证书按域名签，对外域名不能再空着回落 IP；证书上有现成的具体域名就直接填上
+                            domain:
+                              e.target.checked && !p.domain.trim() ? pickCertDomain(certs, p.certId) : p.domain,
+                          }))
+                        }
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-slate-700">加 HTTPS 证书</span>
+                        <span className="block text-[11px] text-slate-400">
+                          只有网页才勾。MC、SSH、远程桌面勾了会连不上
+                        </span>
+                      </span>
+                    </label>
+
+                    {tlsOn && (
+                      <label className="ml-6 block">
+                        <select
+                          value={form.certId}
+                          onChange={(e) =>
+                            setForm((p) => ({
+                              ...p,
+                              certId: e.target.value,
+                              domain: p.domain.trim() ? p.domain : pickCertDomain(certs, e.target.value),
+                            }))
+                          }
+                          className={fieldInputCls}
+                        >
+                          <option value="0">自动（按域名匹配）</option>
+                          {certs.map((c) => (
+                            <option key={c.id} value={String(c.id)}>
+                              {c.name}
+                              {c.domains.length > 0 ? ` — ${c.domains.join('、')}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {certs.length === 0 && (
+                          <div className="mt-1 text-[11px] text-amber-600">还没有证书，先去「证书」页加一张</div>
+                        )}
+                      </label>
+                    )}
+
+                    {/* 证书按域名签：域名空着或不在证书范围内，浏览器必报证书错误，只在这时才说 */}
+                    {tlsOn && certDomains.length > 0 && (!domainValue || !domainCovered) && (
+                      <div className="ml-6 flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
+                        <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          对外域名要填证书覆盖的：
+                          <span className="font-mono font-semibold">{certDomains.join('、')}</span>
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 一个勾两种含义，后端拆成 backendHttps / https，见 formToPayloadTLS */}
+                    <label className="flex cursor-pointer items-start gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={form.internalHttps}
+                        onChange={(e) => setForm((p) => ({ ...p, internalHttps: e.target.checked }))}
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <span>
+                        <span className="block text-xs font-semibold text-slate-700">内网服务本身就是 HTTPS</span>
+                        <span className="block text-[11px] text-slate-400">
+                          {tlsOn
+                            ? '勾了 LinkStar 会用 HTTPS 去连它；它是明文就别勾，不然连不上'
+                            : '它自带证书就勾，外面的链接会写成 https://'}
+                        </span>
+                      </span>
+                    </label>
+                  </>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {[
-                  { key: 'useUpnp' as const, label: '启用 UPnP', hint: '' },
-                  {
-                    key: 'https' as const,
-                    label: '链接显示 https',
-                    // 这个勾只改链接长什么样。真正决定「怎么连内网」的是下面对外访问里的
-                    // 「转发给内网时也用 HTTPS」——两者必须让人一眼看出区别。
-                    hint: '只影响首页/卡片上的链接写成 http:// 还是 https://，不改变转发行为',
-                  },
                   { key: 'enabled' as const, label: '启用服务', hint: '' },
-                  { key: 'showOnHome' as const, label: '主页显示', hint: '' },
+                  {
+                    key: 'useUpnp' as const,
+                    label: '启用 UPnP',
+                    hint: form.protocol === 'UDP' ? 'UDP 目前不做 UPnP 映射，勾了不起作用' : '',
+                  },
+                  { key: 'showOnHome' as const, label: '在导航主页显示', hint: '' },
                 ].map((opt) => (
                   <label
                     key={opt.key}
@@ -1026,177 +1224,18 @@ function ServiceModal({
                       className="h-3.5 w-3.5"
                     />
                     {opt.label}
+                    {opt.hint && <span className="text-[10px] text-slate-400">（UDP 无效）</span>}
                   </label>
                 ))}
               </div>
 
-              {/* 对外访问：域名 + 洞口终结 TLS。洞是 LinkStar 自己 Accept 的，
-                  所以可以直接在洞口把 TLS 终结掉，外部看到的就是 https:// */}
-              <div className="col-span-2 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
-                  <ShieldCheck className="h-3.5 w-3.5 text-blue-500" />
-                  对外访问
-                </div>
-
-                <label className="block">
-                  <div className="mb-1 flex items-center gap-2">
-                    <span className="text-xs font-semibold text-slate-500">对外域名</span>
-                    {tlsOn && certDomains.length > 0 ? (
-                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-                        终结 TLS 时必填
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">可选</span>
-                    )}
-                  </div>
-                  <input
-                    value={form.domain}
-                    onChange={(e) => setForm((p) => ({ ...p, domain: e.target.value }))}
-                    placeholder={
-                      tlsOn ? '如 fw.example.com；必须是证书覆盖的域名' : '如 fw.example.com；留空则用公网 IP'
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                  />
-                  <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                    该域名需要解析到你的公网 IP（可在 DDNS 页面配一条记录）。
-                    多个服务共用同一域名不同端口时，Cookie 按 RFC 6265 §8.5 不做端口隔离，会话会互相覆盖——
-                    建议每个服务用独立子域名。
-                  </div>
-                </label>
-
-                {/* 终结 TLS = 洞口出示证书，而证书是按域名签的。对外域名留空会回落公网 IP，
-                    IP 不发 SNI（RFC 6066）、证书也不可能覆盖 IP，首页链接和 /go 跳转就会
-                    带用户去一个必报 ERR_CERT_COMMON_NAME_INVALID 的地址。 */}
-                {tlsOn && certDomains.length > 0 && !domainValue && (
-                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      证书覆盖的是{' '}
-                      <span className="font-mono font-semibold">{certDomains.join('、')}</span>
-                      ，这里留空就会回落到公网 IP。证书盖不住 IP，用 IP 访问必报
-                      ERR_CERT_COMMON_NAME_INVALID——填一个证书覆盖的域名。
-                    </span>
-                  </div>
-                )}
-
-                {tlsOn && certDomains.length > 0 && domainValue && !domainCovered && (
-                  <div className="flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      <span className="font-mono font-semibold">{domainValue}</span> 不在证书覆盖范围内（
-                      {certDomains.join('、')}），浏览器会报 ERR_CERT_COMMON_NAME_INVALID。
-                    </span>
-                  </div>
-                )}
-
-                <label
-                  className={`flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200 ${
-                    form.protocol === 'UDP' ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    disabled={form.protocol === 'UDP'}
-                    checked={form.tlsTerminate && form.protocol !== 'UDP'}
-                    onChange={(e) =>
-                      setForm((p) => ({
-                        ...p,
-                        tlsTerminate: e.target.checked,
-                        // 不终结就没有「LinkStar 怎么拨内网」这回事，洞是纯管道，
-                        // 留着这个勾会变成双层 TLS
-                        backendHttps: e.target.checked ? p.backendHttps : false,
-                        // 终结要出示证书，证书按域名签，对外域名就不能再空着回落 IP。
-                        // 证书上有现成的具体域名就直接填上；用户已经填了的不动
-                        domain:
-                          e.target.checked && !p.domain.trim()
-                            ? pickCertDomain(certs, p.certId)
-                            : p.domain,
-                      }))
-                    }
-                    className="h-3.5 w-3.5"
-                  />
-                  由 LinkStar 在洞口终结 TLS（外部访问变成 https://）
-                </label>
-
-                {form.protocol === 'UDP' && (
-                  <div className="flex gap-2 text-[11px] leading-relaxed text-amber-600">
-                    <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    UDP 洞口不支持终结 TLS，那是 DTLS，是另一套协议。
-                  </div>
-                )}
-
-                {form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <label className="block">
-                    <div className="mb-1 text-xs font-semibold text-slate-500">使用证书</div>
-                    <select
-                      value={form.certId}
-                      onChange={(e) =>
-                        setForm((p) => ({
-                          ...p,
-                          certId: e.target.value,
-                          // 换证书时对外域名还空着，就用新证书上的域名补上
-                          domain: p.domain.trim() ? p.domain : pickCertDomain(certs, e.target.value),
-                        }))
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
-                    >
-                      <option value="0">自动（按 SNI 域名匹配，匹配不上用默认证书）</option>
-                      {certs.map((c) => (
-                        <option key={c.id} value={String(c.id)}>
-                          {c.name}
-                          {c.domains.length > 0 ? ` — ${c.domains.join('、')}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                      {certs.length === 0
-                        ? '还没有证书，先去「证书」页添加一张，否则握手会失败。'
-                        : '证书续期时只热替换内存里的指针，洞不会断，也不用重启穿透。'}
-                    </div>
-                  </label>
-                )}
-
-                {/* 「转发给内网时也用 HTTPS」只有在洞口终结了 TLS 时才成立：
-                    那时 LinkStar 才真的要解密再加密一遍。洞口不终结时洞是纯字节管道，
-                    LinkStar 一个字节都不解析，浏览器的 TLS 直达内网服务——
-                    这时再让它 tls.Dial 就是双层 TLS，浏览器必报 ERR_SSL_PROTOCOL_ERROR。
-                    所以这里做成父子关系，让那个组合压根勾不出来。 */}
-                {form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <div className="ml-4 border-l-2 border-slate-200 pl-3">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                      <input
-                        type="checkbox"
-                        checked={form.backendHttps}
-                        onChange={(e) => setForm((p) => ({ ...p, backendHttps: e.target.checked }))}
-                        className="h-3.5 w-3.5"
-                      />
-                      转发给内网时也用 HTTPS（内网服务自己带证书就勾）
-                    </label>
-                    <div className="mt-1 text-[11px] leading-relaxed text-slate-400">
-                      {form.backendHttps
-                        ? '相当于 nginx 的 proxy_pass https://，自签证书不校验。内网其实是明文时会连不上。'
-                        : '相当于 nginx 的 proxy_pass http://。绝大多数自建服务都是明文，保持不勾即可。'}
-                    </div>
-                  </div>
-                )}
-
-                {!form.tlsTerminate && form.protocol !== 'UDP' && (
-                  <div className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500 ring-1 ring-slate-200">
-                    不终结时洞口是纯管道，只搬字节不拆包。
-                    <span className="font-semibold">内网服务自己是 HTTPS 也不用在这里填</span>
-                    ——浏览器直接和它握手，用的就是它那张证书，外面照样是{' '}
-                    <span className="font-mono">https://</span>。
-                  </div>
-                )}
-              </div>
-
-              <label className="col-span-2 block">
-                <div className="mb-1 text-xs font-semibold text-slate-500">描述（可选）</div>
+              <label className="block">
+                <div className={fieldLabelCls}>描述（可选）</div>
                 <input
                   value={form.description}
                   onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                  placeholder="服务描述信息"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
+                  placeholder="给自己看的备注"
+                  className={fieldInputCls}
                 />
               </label>
             </div>
@@ -1414,286 +1453,460 @@ function ServiceModal({
             </div>
           )}
 
-          {activeTab === 'redirect' && (
+          {activeTab === 'redirect' && form.protocol === 'TCP' && (
             <div className="mx-auto max-w-2xl">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <label className="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-800">
-                  <input
-                    type="checkbox"
-                    checked={form.redirect.enabled}
-                    onChange={(e) => updateRedirect({ enabled: e.target.checked })}
-                    className="h-3.5 w-3.5"
-                  />
-                  <CornerUpRight className="h-4 w-4 text-blue-500" />
-                  CF 重定向
-                </label>
-                <span
-                  className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                    form.redirect.enabled ? 'bg-blue-50 text-blue-600' : 'bg-slate-100 text-slate-500'
-                  }`}
-                >
-                  {form.redirect.enabled ? '已启用' : '未启用'}
-                </span>
+              {/* 一个服务只用一种入口：网页走 307，MC 走 SRV。选哪个就只显示哪块，另一个自动关掉 */}
+              <div className="mb-4 inline-flex w-full flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
+                {(
+                  [
+                    { key: 'none', label: '不用', icon: null },
+                    { key: 'web', label: '网页 · Cloudflare 重定向', icon: CornerUpRight },
+                    { key: 'mc', label: 'MC Java 版 · SRV', icon: Gamepad2 },
+                  ] as const
+                ).map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() =>
+                      setForm((p) => ({
+                        ...p,
+                        redirect: { ...p.redirect, enabled: o.key === 'web' },
+                        mcEntry: { ...p.mcEntry, enabled: o.key === 'mc' },
+                      }))
+                    }
+                    className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      entryKind === o.key ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {o.icon && <o.icon className="h-3.5 w-3.5" />}
+                    {o.label}
+                  </button>
+                ))}
               </div>
 
-              <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-                外网端口一变，Cloudflare 那条重定向规则跟着改。用户永远访问下面这个固定域名，
-                Cloudflare 307 跳到这个服务当前的地址。
-                <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
-                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
-                    {form.redirect.entryHost.trim() || '入口域名'}
-                  </span>
-                  <span className="text-slate-400">— 307 →</span>
-                  <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
-                    {redirectPreviewTarget || '等服务跑起来才知道端口'}
-                  </span>
-                </div>
-                <div className="mt-2">
-                  zone / ruleset / rule 三个 ID 都不用填，LinkStar 自己查；
-                  你在 Cloudflare 后台手写的其它规则不会被动。
-                </div>
-              </div>
-
-              {/*
-                规则写对了也可能访问不了，差的是这两条解析记录。
-                它们的状态只有 Cloudflare 那边知道，本地配置里一点都看不出来，
-                出了问题也不报错——只表现为「打不开」。所以现场查出来摆在这儿。
-              */}
-              {initial && savedRedirectOn && (
-                <div className="mb-4 rounded-xl border border-slate-200 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-slate-500">Cloudflare 上的解析记录</div>
-                    <button
-                      type="button"
-                      disabled={inspecting}
-                      onClick={() => void loadInspect()}
-                      className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
-                    >
-                      <RotateCw className={`h-3 w-3 ${inspecting ? 'animate-spin' : ''}`} />
-                      {inspecting ? '查询中' : '刷新'}
-                    </button>
-                  </div>
-
-                  {inspectErr && <div className="text-[11px] leading-5 text-rose-500">查不了：{inspectErr}</div>}
-                  {!inspectErr && !inspect && (
-                    <div className="text-[11px] text-slate-400">
-                      {inspecting ? '正在去 Cloudflare 查…' : '点右上角刷新看现在什么样'}
-                    </div>
-                  )}
-
-                  {inspect && (
-                    <div className="space-y-2.5">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
-                            入口
-                          </span>
-                          <span className="font-mono text-slate-700">{inspect.entry.host}</span>
-                          {inspect.entry.found && (
-                            <span className="font-mono text-slate-400">
-                              {inspect.entry.type} {inspect.entry.content}
-                            </span>
-                          )}
-                          {inspect.entry.byLinkStar && (
-                            <span className="text-slate-400">· LinkStar 建的</span>
-                          )}
-                        </div>
-                        <div className="mt-1 text-[11px] leading-5">
-                          {inspect.entry.warn ? (
-                            <span className="text-amber-600">{inspect.entry.warn}</span>
-                          ) : !inspect.entry.found ? (
-                            <span className="text-rose-500">
-                              还没有这条记录，现在访问它会提示域名不存在。点下面「立即同步」，LinkStar
-                              会建好
-                            </span>
-                          ) : inspect.entry.proxied ? (
-                            <span className="text-emerald-600">小黄云开着，重定向能生效</span>
-                          ) : (
-                            <span className="text-amber-600">
-                              小黄云是关的 ——
-                              请求根本到不了 Cloudflare，重定向不会执行，访问只会停在{' '}
-                              <span className="font-mono">{inspect.entry.wantIP}</span>{' '}
-                              这个谁都不在的地址上。去 Cloudflare 的 DNS
-                              里把这条记录的云朵点成橙色
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                          <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
-                            落地
-                          </span>
-                          <span className="font-mono text-slate-700">
-                            {inspect.landingHost || '还没定'}
-                          </span>
-                          {inspect.landing.managed && inspect.landing.lastIP && (
-                            <span className="font-mono text-slate-400">A {inspect.landing.lastIP}</span>
-                          )}
-                        </div>
-                        <div className="mt-1 text-[11px] leading-5">
-                          {!inspect.landingHost ? (
-                            <span className="text-slate-400">
-                              这个服务没填对外域名，307 直接跳到公网 IP，不需要解析记录
-                            </span>
-                          ) : inspect.landing.managed && inspect.landing.status === 'failed' ? (
-                            // 「在改」和「没改成」凑一句话会自相矛盾，失败就只说失败
-                            <span className="text-amber-600">
-                              DDNS 记录「{inspect.landing.name}」上次没改成 ——{' '}
-                              {inspect.landing.message || '未知原因'}
-                            </span>
-                          ) : inspect.landing.managed ? (
-                            <span className="text-emerald-600">
-                              DDNS 记录「{inspect.landing.name}」跟着公网 IP 在改
-                              {fmtTime(inspect.landing.at) ? `（${fmtTime(inspect.landing.at)}）` : ''}
-                            </span>
-                          ) : (
-                            <span className="text-amber-600">
-                              DDNS 里没有记录管它，公网 IP
-                              一变这个域名就指错地方了。点一次下面的「立即同步」，LinkStar 会加上
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-2.5 border-t border-slate-100 pt-2 text-[11px] leading-5 text-slate-400">
-                    两条的要求正好相反：入口那条要开小黄云，落地那条要关 —— 开了的话 Cloudflare
-                    不转发打洞出来的高位端口，一样访问不了。
-                  </div>
+              {/* 老配置可能两个都开着（那时候没这个选择条），说清楚保存后会怎样 */}
+              {form.redirect.enabled && form.mcEntry.enabled && (
+                <div className="mb-4 flex gap-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-700 ring-1 ring-amber-200">
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  两种入口现在都开着，上面选一个，另一个保存后会关掉、Cloudflare 上对应的记录也会清掉。
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
-                <label className="col-span-2 block sm:col-span-1">
-                  <div className="mb-1 text-xs font-semibold text-slate-500">Cloudflare 账号</div>
-                  <select
-                    value={String(form.redirect.providerId || 0)}
-                    disabled={!form.redirect.enabled}
-                    onChange={(e) => updateRedirect({ providerId: Number(e.target.value) || 0 })}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
-                  >
-                    <option value="0">请选择</option>
-                    {cfProviders.map((p) => (
-                      <option key={p.id} value={String(p.id)}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    {cfProviders.length === 0
-                      ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
-                      : '用 DDNS 里配好的那个，Token 不用再贴一遍'}
+              {entryKind === 'none' && (
+                <div className="rounded-xl bg-slate-50 p-4 text-xs leading-6 text-slate-500">
+                  外部端口会变。想让别人用一个固定的名字找到这个服务，选一种入口：
+                  <div className="mt-1">
+                    · <span className="font-semibold text-slate-600">网页</span>：浏览器访问入口域名，自动跳到当前端口
                   </div>
-                  {/* 只有 DNS 权限的 Token 解析能用、重定向必 403，事后看报错很难想到这一层 */}
-                  {cfProviders.length > 0 && (
-                    <div className="mt-1 text-[11px] text-amber-600">
-                      这个 Token 要同时有 Zone → DNS → 编辑 和 Zone → Dynamic URL Redirects →
-                      编辑，两项得在同一条策略里，少一项会报 403
+                  <div>
+                    · <span className="font-semibold text-slate-600">MC Java 版</span>：朋友在 MC 里只填域名，不用填端口
+                  </div>
+                  <div className="text-slate-400">SSH、远程桌面这类两种都用不了，只能用「域名 + 当前端口」。</div>
+                </div>
+              )}
+
+              {entryKind === 'web' && (
+                <>
+                  <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+                    端口会变，入口域名不变：浏览器访问入口域名，Cloudflare 自动跳到当前端口。
+                    <span className="text-slate-400">只对网页有用，MC、SSH 这类不认跳转。</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
+                      <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
+                        {form.redirect.entryHost.trim() || '入口域名'}
+                      </span>
+                      <span className="text-slate-400">→</span>
+                      <span className="rounded-md bg-white px-2 py-1 ring-1 ring-slate-200">
+                        {redirectPreviewTarget || '等服务跑起来才知道端口'}
+                      </span>
                     </div>
-                  )}
-                </label>
-
-                <label className="col-span-2 block sm:col-span-1">
-                  <div className="mb-1 text-xs font-semibold text-slate-500">入口域名</div>
-                  <input
-                    value={form.redirect.entryHost}
-                    disabled={!form.redirect.enabled}
-                    onChange={(e) => updateRedirect({ entryHost: e.target.value })}
-                    placeholder="linkstar.example.com"
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    外面记的就是这个名字。保存后 LinkStar 会顺手在 Cloudflare 建好这条记录（A
-                    记录 + 小黄云），不用自己去加。别填成下面那个落地域名——那条得关着小黄云
                   </div>
-                </label>
 
-                <label className="col-span-2 block sm:col-span-1">
-                  <div className="mb-1 text-xs font-semibold text-slate-500">主域名</div>
-                  <input
-                    value={form.redirect.zoneDomain}
-                    disabled={!form.redirect.enabled}
-                    onChange={(e) => updateRedirect({ zoneDomain: e.target.value })}
-                    placeholder={redirectGuessedZone || 'example.com'}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                  <div className="mt-1 text-[11px] text-slate-400">
-                    {redirectGuessedZone
-                      ? `留空就按 ${redirectGuessedZone} 算；域名多一层（如 a.b.co.uk）才需要填`
-                      : '留空按入口域名的后两段算'}
-                  </div>
-                </label>
-              </div>
+                  {/*
+                    规则写对了也可能访问不了，差的是这两条解析记录。
+                    它们的状态只有 Cloudflare 那边知道，本地配置里一点都看不出来，
+                    出了问题也不报错——只表现为「打不开」。所以现场查出来摆在这儿。
+                  */}
+                  {initial && savedRedirectOn && (
+                    <div className="mb-4 rounded-xl border border-slate-200 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-slate-500">Cloudflare 上的解析记录</div>
+                        <button
+                          type="button"
+                          disabled={inspecting}
+                          onClick={() => void loadInspect()}
+                          className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 text-[11px] font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                        >
+                          <RotateCw className={`h-3 w-3 ${inspecting ? 'animate-spin' : ''}`} />
+                          {inspecting ? '查询中' : '刷新'}
+                        </button>
+                      </div>
 
-              {initial ? (
-                <div className="mt-4 rounded-xl border border-slate-200 p-3">
-                  <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
-                  {status?.redirectStatus === 'ok' && (
-                    <div className="text-xs text-emerald-600">
-                      成功 → <span className="font-mono">{status.redirectTarget}</span>
-                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
-                      {status.redirectKeepPath === false && (
-                        <div className="mt-1 text-amber-600">
-                          服务商没接受保留路径的写法，从子路径进来会落到根路径
+                      {inspectErr && <div className="text-[11px] leading-5 text-rose-500">查不了：{inspectErr}</div>}
+                      {!inspectErr && !inspect && (
+                        <div className="text-[11px] text-slate-400">
+                          {inspecting ? '正在去 Cloudflare 查…' : '点右上角刷新看现在什么样'}
                         </div>
                       )}
-                    </div>
-                  )}
-                  {status?.redirectStatus === 'stale' && (
-                    <div className="text-xs text-amber-600">
-                      外网端口已经换了，现在从入口域名进来打不开 —— 那边还指着上一个地址{' '}
-                      <span className="font-mono">{status.redirectTarget}</span>
-                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
-                      <div className="mt-1 text-slate-400">
-                        洞确认通了会自己改过去，一般几十秒。等不及就点下面的「立即同步」
+
+                      {inspect && (
+                        <div className="space-y-2.5">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
+                                入口
+                              </span>
+                              <span className="font-mono text-slate-700">{inspect.entry.host}</span>
+                              {inspect.entry.found && (
+                                <span className="font-mono text-slate-400">
+                                  {inspect.entry.type} {inspect.entry.content}
+                                </span>
+                              )}
+                              {inspect.entry.byLinkStar && (
+                                <span className="text-slate-400">· LinkStar 建的</span>
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] leading-5">
+                              {inspect.entry.warn ? (
+                                <span className="text-amber-600">{inspect.entry.warn}</span>
+                              ) : !inspect.entry.found ? (
+                                <span className="text-rose-500">
+                                  还没有这条记录，现在访问它会提示域名不存在。点下面「立即同步」，LinkStar
+                                  会建好
+                                </span>
+                              ) : inspect.entry.proxied ? (
+                                <span className="text-emerald-600">小黄云开着，重定向能生效</span>
+                              ) : (
+                                <span className="text-amber-600">
+                                  小黄云是关的 ——
+                                  请求根本到不了 Cloudflare，重定向不会执行，访问只会停在{' '}
+                                  <span className="font-mono">{inspect.entry.wantIP}</span>{' '}
+                                  这个谁都不在的地址上。去 Cloudflare 的 DNS
+                                  里把这条记录的云朵点成橙色
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500">
+                                落地
+                              </span>
+                              <span className="font-mono text-slate-700">
+                                {inspect.landingHost || '还没定'}
+                              </span>
+                              {inspect.landing.managed && inspect.landing.lastIP && (
+                                <span className="font-mono text-slate-400">A {inspect.landing.lastIP}</span>
+                              )}
+                            </div>
+                            <div className="mt-1 text-[11px] leading-5">
+                              {!inspect.landingHost ? (
+                                <span className="text-slate-400">
+                                  这个服务没填对外域名，307 直接跳到公网 IP，不需要解析记录
+                                </span>
+                              ) : inspect.landing.managed && inspect.landing.status === 'failed' ? (
+                                // 「在改」和「没改成」凑一句话会自相矛盾，失败就只说失败
+                                <span className="text-amber-600">
+                                  DDNS 记录「{inspect.landing.name}」上次没改成 ——{' '}
+                                  {inspect.landing.message || '未知原因'}
+                                </span>
+                              ) : inspect.landing.managed ? (
+                                <span className="text-emerald-600">
+                                  DDNS 记录「{inspect.landing.name}」跟着公网 IP 在改
+                                  {fmtTime(inspect.landing.at) ? `（${fmtTime(inspect.landing.at)}）` : ''}
+                                </span>
+                              ) : (
+                                <span className="text-amber-600">
+                                  DDNS 里没有记录管它，公网 IP
+                                  一变这个域名就指错地方了。点一次下面的「立即同步」，LinkStar 会加上
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-2.5 border-t border-slate-100 pt-2 text-[11px] leading-5 text-slate-400">
+                        两条的要求正好相反：入口那条要开小黄云，落地那条要关 —— 开了的话 Cloudflare
+                        不转发打洞出来的高位端口，一样访问不了。
                       </div>
                     </div>
                   )}
-                  {status?.redirectStatus === 'failed' && (
-                    <div className="text-xs text-rose-500">
-                      失败：{status.redirectError || '未知原因'}
-                      {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
-                    </div>
-                  )}
-                  {!status?.redirectStatus && (
-                    <div className="text-xs text-slate-400">还没同步过</div>
-                  )}
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={redirectBusy || redirectDirty}
-                      onClick={() => runRedirect('sync')}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
-                    >
-                      <RotateCw className="h-3.5 w-3.5" />
-                      立即同步
-                    </button>
-                    <button
-                      type="button"
-                      disabled={redirectBusy || redirectDirty}
-                      onClick={() => runRedirect('remove')}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      删掉 Cloudflare 上的规则
-                    </button>
-                    {redirectDirty ? (
-                      <span className="text-[11px] font-semibold text-amber-600">
-                        上面改的还没保存 —— 点右下角「保存」，几秒后自己就同步了，不用回来点这两个
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">
-                        端口一变会自动同步，这里是手动再跑一遍
-                      </span>
-                    )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="col-span-2 block sm:col-span-1">
+                      <div className="mb-1 text-xs font-semibold text-slate-500">Cloudflare 账号</div>
+                      <select
+                        value={String(form.redirect.providerId || 0)}
+                        onChange={(e) => updateRedirect({ providerId: Number(e.target.value) || 0 })}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                      >
+                        <option value="0">请选择</option>
+                        {cfProviders.map((p) => (
+                          <option key={p.id} value={String(p.id)}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        {cfProviders.length === 0
+                          ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
+                          : '令牌要有 DNS 编辑 + 单一重定向编辑两项权限'}
+                      </div>
+                    </label>
+
+                    <label className="col-span-2 block sm:col-span-1">
+                      <div className="mb-1 text-xs font-semibold text-slate-500">入口域名</div>
+                      <input
+                        value={form.redirect.entryHost}
+                        onChange={(e) => updateRedirect({ entryHost: e.target.value })}
+                        placeholder="linkstar.example.com"
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        外面记的就是这个，LinkStar 会自己建好；别和基础配置里的对外域名填成同一个
+                      </div>
+                    </label>
+
+                    <label className="col-span-2 block sm:col-span-1">
+                      <div className="mb-1 text-xs font-semibold text-slate-500">主域名</div>
+                      <input
+                        value={form.redirect.zoneDomain}
+                        onChange={(e) => updateRedirect({ zoneDomain: e.target.value })}
+                        placeholder={redirectGuessedZone || 'example.com'}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+                      />
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        {redirectGuessedZone
+                          ? `留空就按 ${redirectGuessedZone} 算；域名多一层（如 a.b.co.uk）才需要填`
+                          : '留空按入口域名的后两段算'}
+                      </div>
+                    </label>
                   </div>
+
+                  {initial ? (
+                    <div className="mt-4 rounded-xl border border-slate-200 p-3">
+                      <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
+                      {status?.redirectStatus === 'ok' && (
+                        <div className="text-xs text-emerald-600">
+                          成功 → <span className="font-mono">{status.redirectTarget}</span>
+                          {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                          {status.redirectKeepPath === false && (
+                            <div className="mt-1 text-amber-600">
+                              服务商没接受保留路径的写法，从子路径进来会落到根路径
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {status?.redirectStatus === 'stale' && (
+                        <div className="text-xs text-amber-600">
+                          外网端口已经换了，现在从入口域名进来打不开 —— 那边还指着上一个地址{' '}
+                          <span className="font-mono">{status.redirectTarget}</span>
+                          {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                          <div className="mt-1 text-slate-400">
+                            洞确认通了会自己改过去，一般几十秒。等不及就点下面的「立即同步」
+                          </div>
+                        </div>
+                      )}
+                      {status?.redirectStatus === 'failed' && (
+                        <div className="text-xs text-rose-500">
+                          失败：{status.redirectError || '未知原因'}
+                          {status.redirectAt ? `（${fmtTime(status.redirectAt)}）` : ''}
+                        </div>
+                      )}
+                      {!status?.redirectStatus && (
+                        <div className="text-xs text-slate-400">还没同步过</div>
+                      )}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={redirectBusy || redirectDirty}
+                          onClick={() => runRedirect('sync')}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                        >
+                          <RotateCw className="h-3.5 w-3.5" />
+                          立即同步
+                        </button>
+                        <button
+                          type="button"
+                          disabled={redirectBusy || redirectDirty}
+                          onClick={() => runRedirect('remove')}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          删掉 Cloudflare 上的规则
+                        </button>
+                        {redirectDirty ? (
+                          <span className="text-[11px] font-semibold text-amber-600">
+                            上面改的还没保存 —— 点右下角「保存」，几秒后自己就同步了，不用回来点这两个
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-400">
+                            端口一变会自动同步，这里是手动再跑一遍
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
+                  )}
+                </>
+              )}
+
+              {entryKind === 'mc' && (
+                <div>
+                  <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+                    朋友在 MC 里只填域名，不用填端口；端口变了 LinkStar 自动改 SRV 记录。
+                    <span className="text-slate-400">基岩版不认 SRV，用不上。</span>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
+                      <span className="text-slate-400">朋友填</span>
+                      <span className="rounded-md bg-white px-2 py-1 font-semibold ring-1 ring-slate-200">
+                        {form.mcEntry.host.trim() || 'mc.example.com'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="col-span-2 block sm:col-span-1">
+                      <div className={fieldLabelCls}>Cloudflare 账号</div>
+                      <select
+                        value={String(form.mcEntry.providerId || 0)}
+                        onChange={(e) => updateMCEntry({ providerId: Number(e.target.value) || 0 })}
+                        className={`${fieldInputCls} disabled:bg-slate-50 disabled:text-slate-400`}
+                      >
+                        <option value="0">请选择</option>
+                        {cfProviders.map((p) => (
+                          <option key={p.id} value={String(p.id)}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-1 text-[11px] text-slate-400">
+                        {cfProviders.length === 0
+                          ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
+                          : '「编辑区域 DNS」模板建的令牌就够'}
+                      </div>
+                    </label>
+
+                    <label className="col-span-2 block sm:col-span-1">
+                      <div className={fieldLabelCls}>联机域名</div>
+                      <input
+                        value={form.mcEntry.host}
+                        onChange={(e) => updateMCEntry({ host: e.target.value })}
+                        placeholder="mc.example.com"
+                        className={`${fieldInputCls} disabled:bg-slate-50 disabled:text-slate-400`}
+                      />
+                      <div className="mt-1 text-[11px] text-slate-400">朋友在 MC 里填的就是它</div>
+                    </label>
+
+                    {/* SRV 只能指向域名不能指向 IP，那个域名自己得解析到公网 IP。
+                        要么让 LinkStar 替联机域名新建一条，要么直接用 DDNS 里现成的 */}
+                    <div className="col-span-2">
+                      <div className={fieldLabelCls}>SRV 指向</div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        {(
+                          [
+                            {
+                              existing: false,
+                              title: '新建一条',
+                              hint: `在 DDNS 里给 ${form.mcEntry.host.trim() || '联机域名'} 加一条 A 记录`,
+                            },
+                            { existing: true, title: '用 DDNS 里已有的', hint: '指向已经解析好的域名，不多建记录' },
+                          ] as const
+                        ).map((o) => {
+                          const on = !!form.mcEntry.target === o.existing
+                          return (
+                            <button
+                              key={o.title}
+                              type="button"
+                              onClick={() =>
+                                updateMCEntry({
+                                  target: o.existing ? form.mcEntry.target || form.domain.trim() || ddnsHosts[0] || '' : '',
+                                })
+                              }
+                              className={`rounded-xl border px-3 py-2 text-left transition disabled:opacity-50 ${
+                                on ? 'border-blue-300 bg-blue-50/60 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300'
+                              }`}
+                            >
+                              <div className={`text-xs font-bold ${on ? 'text-blue-600' : 'text-slate-700'}`}>{o.title}</div>
+                              <div className="mt-0.5 text-[11px] text-slate-400">{o.hint}</div>
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {!!form.mcEntry.target && (
+                        <select
+                          value={form.mcEntry.target}
+                          onChange={(e) => updateMCEntry({ target: e.target.value })}
+                          className={`${fieldInputCls} mt-2 disabled:bg-slate-50 disabled:text-slate-400`}
+                        >
+                          {/* 存着的那个不在 DDNS 里了（被删了）也得让人看见选的是谁 */}
+                          {!ddnsHosts.includes(form.mcEntry.target) && (
+                            <option value={form.mcEntry.target}>{form.mcEntry.target}（DDNS 里没有这条）</option>
+                          )}
+                          {ddnsHosts.map((h) => (
+                            <option key={h} value={h}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      <div className="mt-2 font-mono text-[11px] text-slate-500">
+                        _minecraft._tcp.{form.mcEntry.host.trim() || 'mc.example.com'} →{' '}
+                        {form.mcEntry.target || form.mcEntry.host.trim() || 'mc.example.com'}:端口
+                      </div>
+                    </div>
+                  </div>
+
+                  {initial ? (
+                    <div className="mt-4 rounded-xl border border-slate-200 p-3">
+                      <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
+                      {status?.mcEntryStatus === 'ok' && (
+                        <div className="text-xs text-emerald-600">
+                          成功 →{' '}
+                          <span className="font-mono">
+                            {initial.mcEntry?.target || initial.mcEntry?.host}:{status.mcEntryPort}
+                          </span>
+                          {status.mcEntryAt ? `（${fmtTime(status.mcEntryAt)}）` : ''}
+                          {!!status.externalPort && status.externalPort !== status.mcEntryPort && (
+                            <div className="mt-1 text-amber-600">
+                              外部端口已经换成 {status.externalPort}，洞确认通了会自己改过去
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {status?.mcEntryStatus === 'failed' && (
+                        <div className="text-xs text-rose-500">
+                          失败：{status.mcEntryError || '未知原因'}
+                          {status.mcEntryAt ? `（${fmtTime(status.mcEntryAt)}）` : ''}
+                        </div>
+                      )}
+                      {!status?.mcEntryStatus && <div className="text-xs text-slate-400">还没同步过</div>}
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={mcEntryBusy || mcEntryDirty || !initial.mcEntry?.enabled}
+                          onClick={syncMCEntry}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                        >
+                          <RotateCw className="h-3.5 w-3.5" />
+                          立即同步
+                        </button>
+                        <span
+                          className={`text-[11px] ${mcEntryDirty ? 'font-semibold text-amber-600' : 'text-slate-400'}`}
+                        >
+                          {mcEntryDirty ? '上面改的还没保存 —— 点右下角「保存」，几秒后自己就同步了' : '端口一变会自动同步'}
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
+                  )}
                 </div>
-              ) : (
-                <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
               )}
             </div>
           )}
@@ -2148,13 +2361,9 @@ export function Stun() {
       name: form.name.trim(),
       internalPort: Number(form.internalPort),
       protocol: form.protocol,
-      upnpMappedPort: Number(form.upnpMappedPort) || 0,
       useUpnp: form.useUpnp,
-      https: form.https,
       domain: form.domain.trim().toLowerCase(),
-      tlsTerminate: form.tlsTerminate,
-      certId: Number(form.certId) || 0,
-      backendHttps: form.backendHttps,
+      ...formToPayloadTLS(form),
       enabled: form.enabled,
       description: form.description.trim(),
       webhookconfig: {
@@ -2166,6 +2375,12 @@ export function Stun() {
         ...form.redirect,
         entryHost: form.redirect.entryHost.trim().toLowerCase(),
         zoneDomain: form.redirect.zoneDomain.trim().toLowerCase(),
+      },
+      mcEntry: {
+        ...form.mcEntry,
+        host: form.mcEntry.host.trim().toLowerCase(),
+        zoneDomain: form.mcEntry.zoneDomain.trim().toLowerCase(),
+        target: form.mcEntry.target.trim().toLowerCase(),
       },
     }
     let serviceId: number | undefined
@@ -2212,8 +2427,9 @@ export function Stun() {
       prefill: {
         ...src,
         name: `${svc.name || '未命名服务'} 副本`,
-        upnpMappedPort: '0',
         redirect: { ...src.redirect, enabled: false, entryHost: '' },
+        // 两个服务抢同一条 SRV 会互相把端口按回去，副本里先关掉
+        mcEntry: { ...src.mcEntry, enabled: false, host: '' },
         webhookconfig: { ...src.webhookconfig, enabled: false },
       },
     })
@@ -2604,28 +2820,21 @@ export function Stun() {
                                 UPnP
                               </span>
                             )}
-                            {svc.https && (
-                              <span
-                                className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600"
-                                title="链接按 https:// 展示（不影响转发）"
-                              >
-                                HTTPS
-                              </span>
-                            )}
-                            {svc.backendHttps && (
-                              <span
-                                className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-600"
-                                title="洞口终结 TLS 后，再用 HTTPS 转发给内网（proxy_pass https://）"
-                              >
-                                内网 TLS
-                              </span>
-                            )}
+                            {/* 和服务表单同一套说法：证书 = 洞口加 HTTPS，内网 HTTPS = 内网服务自己带证书 */}
                             {svc.tlsTerminate && (
                               <span
                                 className="rounded-md bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-600"
-                                title="LinkStar 在洞口终结 TLS"
+                                title="LinkStar 用证书给外面加 HTTPS"
                               >
-                                TLS 终结
+                                证书
+                              </span>
+                            )}
+                            {(svc.backendHttps || svc.https) && (
+                              <span
+                                className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-600"
+                                title="内网服务本身就是 HTTPS"
+                              >
+                                内网 HTTPS
                               </span>
                             )}
                           </span>

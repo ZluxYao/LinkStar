@@ -47,6 +47,12 @@ type StateEvent struct {
 	RedirectError    string    `json:"redirectError"`    // 失败原因
 	RedirectKeepPath bool      `json:"redirectKeepPath"` // 服务商是否接受了「保留原始路径」的写法
 	RedirectAt       time.Time `json:"redirectAt"`       // 最近一次同步时间
+
+	// MC 入口（SRV）的同步结果，同样只在运行时保存
+	MCEntryStatus string    `json:"mcEntryStatus"` // ok / failed，空表示还没同步过
+	MCEntryPort   uint16    `json:"mcEntryPort"`   // 最近一次写进 SRV 的端口
+	MCEntryError  string    `json:"mcEntryError"`  // 失败原因
+	MCEntryAt     time.Time `json:"mcEntryAt"`     // 最近一次同步时间
 }
 
 const maxServiceLogs = 30
@@ -116,6 +122,14 @@ type serviceEntry struct {
 	redirectKeepPath bool      // 服务商是否接受了保留路径的写法
 	redirectAt       time.Time // 最近一次同步时间
 	redirectRetryAt  time.Time // 失败后的冷却时间，到点前不重试
+
+	// MC 入口：端口没变、上次成功就不打 API；失败了和入口重定向一样冷却
+	mcEntryPort    uint16
+	mcEntryPending bool
+	mcEntryStatus  string
+	mcEntryError   string
+	mcEntryAt      time.Time
+	mcEntryRetryAt time.Time
 }
 
 // newServiceEntry 创建服务实例
@@ -217,6 +231,11 @@ func (e *serviceEntry) snapshot(key string, kind EventKind) StateEvent {
 		RedirectError:    e.redirectError,
 		RedirectKeepPath: e.redirectKeepPath,
 		RedirectAt:       e.redirectAt,
+
+		MCEntryStatus: e.mcEntryStatus,
+		MCEntryPort:   e.mcEntryPort,
+		MCEntryError:  e.mcEntryError,
+		MCEntryAt:     e.mcEntryAt,
 	}
 }
 
@@ -502,6 +521,7 @@ func (s *Scheduler) runService(ctx context.Context, key string, entry *serviceEn
 				phaseChanged := s.transition(entry, key, PhaseRunning, state.ExternalPort, state.Log)
 				s.sendServiceWebhook(entry, key, req, state, phaseChanged)
 				s.syncServiceRedirect(entry, key, req, state)
+				s.syncServiceMCEntry(entry, key, req, state)
 			case STUNFailed:
 				s.transition(entry, key, PhaseRestarting, 0, state.Log)
 			case STUNLog:
@@ -610,6 +630,7 @@ func buildSTUNRequest(device *model.Device, service *model.Service) STUNRequest 
 		UseUPnP:       service.UseUPnP,
 		WebhookConfig: service.WebHookConfig,
 		Redirect:      service.Redirect,
+		MCEntry:       service.MCEntry,
 
 		// UDP 洞口不支持终结 TLS（那是 DTLS，另一回事）
 		TLSTerminate: service.TLSTerminate && !strings.EqualFold(service.Protocol, "udp"),
@@ -845,4 +866,73 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+// syncServiceMCEntry 洞确认通了就把 SRV 指到当前端口，和入口重定向同一个触发点。
+//
+// 保活心跳每隔几秒就来一次，端口没变、上次成功的话不打 API；
+// 失败了冷却 redirectFailCooldown，配错了（令牌没权限）不至于一直刷服务商。
+func (s *Scheduler) syncServiceMCEntry(entry *serviceEntry, key string, req STUNRequest, state STUNState) {
+	cfg := req.MCEntry
+	if !mcEntryReady(cfg, state.ExternalPort) || !entry.shouldSyncMCEntry(state.ExternalPort) {
+		return
+	}
+	go func() {
+		msg, changed, err := SyncMCEntry(cfg, state.ExternalPort)
+		entry.recordMCEntry(state.ExternalPort, err)
+		s.emit(entry.snapshot(key, EventLogAppended))
+		if err != nil {
+			logrus.WithError(err).Warnf("MC 入口同步失败: key=%s", key)
+			s.log(entry, key, fmt.Sprintf("MC 入口同步失败：%v", err))
+			return
+		}
+		if changed {
+			s.log(entry, key, msg)
+		}
+	}()
+}
+
+func (e *serviceEntry) shouldSyncMCEntry(port uint16) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.mcEntryPending {
+		return false
+	}
+	if e.mcEntryPort == port {
+		if e.mcEntryStatus == "ok" || time.Now().Before(e.mcEntryRetryAt) {
+			return false
+		}
+	}
+	e.mcEntryPending = true
+	return true
+}
+
+func (e *serviceEntry) recordMCEntry(port uint16, err error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.mcEntryPending = false
+	e.mcEntryPort = port
+	e.mcEntryAt = time.Now()
+	if err != nil {
+		e.mcEntryStatus = "failed"
+		e.mcEntryError = err.Error()
+		e.mcEntryRetryAt = time.Now().Add(redirectFailCooldown)
+		return
+	}
+	e.mcEntryStatus = "ok"
+	e.mcEntryError = ""
+	e.mcEntryRetryAt = time.Time{}
+}
+
+// recordMCEntryFor 「立即同步」的结果也记进运行状态，界面那行才会跟着变
+func (s *Scheduler) recordMCEntryFor(deviceID, serviceID uint, port uint16, err error) {
+	key := serviceKey(deviceID, serviceID)
+	s.mu.RLock()
+	entry, ok := s.service[key]
+	s.mu.RUnlock()
+	if !ok || entry == nil {
+		return
+	}
+	entry.recordMCEntry(port, err)
+	s.emit(entry.snapshot(key, EventLogAppended))
 }

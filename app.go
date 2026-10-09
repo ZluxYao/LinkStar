@@ -174,6 +174,19 @@ func registerSTUNRedirectSyncer() {
 	stun.RegisterLandingRecordEnsurer(ddns.Runtime.EnsureLandingRecord)
 	stun.RegisterLandingRecordReleaser(ddns.Runtime.ReleaseLandingRecord)
 
+	// MC 入口的 SRV 记录：服务商凭证在 DDNS 那边，和重定向同一个路子
+	stun.RegisterSRVSyncerFactory(func(id uint) (dns.SRVRecordProvider, error) {
+		p, ok := ddns.Runtime.FindProvider(id)
+		if !ok {
+			return nil, fmt.Errorf("DNS 服务商 %d 不存在，请先在 DDNS 里配置", id)
+		}
+		s := dns.BuildSRVClient(p)
+		if s == nil {
+			return nil, fmt.Errorf("服务商 %s 暂不支持 SRV 记录，目前只有 Cloudflare 可以", p.Type)
+		}
+		return s, nil
+	})
+
 	// 界面上要显示落地域名归哪条记录管：状态在 DDNS 那边，翻译成 stun 认识的样子
 	stun.RegisterLandingRecordInspector(func(host string) (stun.LandingRecordState, bool) {
 		rec, ok := ddns.Runtime.FindRecordByHost(host)

@@ -17,6 +17,8 @@ type STUNRequest struct {
 
 	// Redirect 入口域名跟着外部端口走的配置
 	Redirect model.RedirectConfig
+	// MCEntry MC Java 版联机的 SRV 记录跟着外部端口走
+	MCEntry model.MCEntryConfig
 
 	// TLSTerminate 是否由 LinkStar 在洞口终结 TLS（仅 TCP 有效）
 	TLSTerminate bool
