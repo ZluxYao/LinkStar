@@ -1,12 +1,12 @@
 {
   "fixed": {
-    "file_version": "0.6.5",
-    "product_version": "0.6.5"
+    "file_version": "0.7.0",
+    "product_version": "0.7.0"
   },
   "info": {
     "0409": {
-      "FileVersion": "0.6.5",
-      "ProductVersion": "0.6.5",
+      "FileVersion": "0.7.0",
+      "ProductVersion": "0.7.0",
       "OriginalFilename": "linkstar-desktop.exe",
       "InternalName": "linkstar",
       "CompanyName": "LinkStar",
