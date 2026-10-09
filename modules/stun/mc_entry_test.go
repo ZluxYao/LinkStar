@@ -137,3 +137,43 @@ func TestShouldSyncMCEntry(t *testing.T) {
 		t.Fatal("刚失败，还在冷却")
 	}
 }
+
+// TestSyncMCEntryExistingTarget 选「指定」：SRV 指向 DDNS 里现成的那个域名，不再替联机域名补 A 记录
+func TestSyncMCEntryExistingTarget(t *testing.T) {
+	f := &fakeSRV{}
+	useFakeSRV(t, f)
+	ensured := ""
+	landingRecordEnsurer = func(_ uint, _ string, host string) (bool, error) {
+		ensured = host
+		return true, nil
+	}
+
+	cfg := model.MCEntryConfig{Enabled: true, ProviderID: 3, Host: "mc.example.com", Target: "example.com"}
+	msg, _, err := SyncMCEntry(cfg, 18083)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.name != "_minecraft._tcp.mc.example.com" || f.target != "example.com" {
+		t.Fatalf("SRV 应该是 _minecraft._tcp.mc.example.com → example.com，实际 %s → %s", f.name, f.target)
+	}
+	if ensured != "" || strings.Contains(msg, "DDNS") {
+		t.Fatalf("指向现成域名不该再补记录，却补了 %q（%s）", ensured, msg)
+	}
+}
+
+// TestMCEntryOwnedHost 只有「新建」那种才是 LinkStar 替联机域名维护着的 A 记录
+func TestMCEntryOwnedHost(t *testing.T) {
+	cases := map[string]struct {
+		cfg  model.MCEntryConfig
+		want string
+	}{
+		"新建":  {model.MCEntryConfig{Enabled: true, Host: "mc.example.com"}, "mc.example.com"},
+		"指定":  {model.MCEntryConfig{Enabled: true, Host: "mc.example.com", Target: "example.com"}, ""},
+		"关着的": {model.MCEntryConfig{Host: "mc.example.com"}, ""},
+	}
+	for name, c := range cases {
+		if got := MCEntryOwnedHost(c.cfg); got != c.want {
+			t.Errorf("%s：got %q，want %q", name, got, c.want)
+		}
+	}
+}

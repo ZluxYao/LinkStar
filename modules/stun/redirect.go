@@ -325,7 +325,7 @@ func domainInUse(host string) bool {
 			if sameHost(svc.Domain, host) {
 				return true
 			}
-			if svc.MCEntry.Enabled && sameHost(svc.MCEntry.Host, host) {
+			if sameHost(MCEntryOwnedHost(svc.MCEntry), host) {
 				return true
 			}
 		}

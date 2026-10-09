@@ -46,7 +46,15 @@ func mcEntryReady(cfg model.MCEntryConfig, port uint16) bool {
 	return cfg.Enabled && strings.TrimSpace(cfg.Host) != "" && port != 0
 }
 
-// SyncMCEntry 把 SRV 记录指到当前外部端口，并保证域名本身有 DDNS 记录跟着公网 IP 走。
+// mcEntryTarget SRV 指向哪个主机；ownRecord 表示要 LinkStar 自己替它在 DDNS 里维护 A 记录
+func mcEntryTarget(cfg model.MCEntryConfig) (target string, ownRecord bool) {
+	if t := strings.Trim(strings.TrimSpace(cfg.Target), "."); t != "" {
+		return t, false
+	}
+	return strings.Trim(strings.TrimSpace(cfg.Host), "."), true
+}
+
+// SyncMCEntry 把 SRV 记录指到当前外部端口；SRV 指向联机域名自己时，顺带保证它有 DDNS 记录。
 // 返回给人看的一句话；记录没变时 changed 为 false。
 func SyncMCEntry(cfg model.MCEntryConfig, port uint16) (msg string, changed bool, err error) {
 	if !mcEntryReady(cfg, port) {
@@ -57,21 +65,24 @@ func SyncMCEntry(cfg model.MCEntryConfig, port uint16) (msg string, changed bool
 		return "", false, err
 	}
 	host := strings.Trim(strings.TrimSpace(cfg.Host), ".")
-	changed, err = syncer.SyncSRVRecord(mcEntryZone(cfg), mcSRVName(host), host, port)
+	target, ownRecord := mcEntryTarget(cfg)
+	changed, err = syncer.SyncSRVRecord(mcEntryZone(cfg), mcSRVName(host), target, port)
 	if err != nil {
 		return "", false, err
 	}
-	msg = fmt.Sprintf("MC 入口已更新：%s → %s:%d", mcSRVName(host), host, port)
+	msg = fmt.Sprintf("MC 入口已更新：%s → %s:%d", mcSRVName(host), target, port)
 
+	// 指向的是别人维护的域名（DDNS 里现成的那条），它的解析不归这里管
+	if !ownRecord || landingRecordEnsurer == nil {
+		return msg, changed, nil
+	}
 	// 域名本身指不到这台机器，SRV 再对也连不上；补不上不算失败，说出来就行
-	if landingRecordEnsurer != nil {
-		added, lerr := landingRecordEnsurer(cfg.ProviderID, mcEntryZone(cfg), host)
-		switch {
-		case lerr != nil:
-			msg += fmt.Sprintf("；但 %s 自己的解析没能自动接管：%v", host, lerr)
-		case added:
-			msg += fmt.Sprintf("；%s 已加进 DDNS，会跟着公网 IP 走", host)
-		}
+	added, lerr := landingRecordEnsurer(cfg.ProviderID, mcEntryZone(cfg), target)
+	switch {
+	case lerr != nil:
+		msg += fmt.Sprintf("；但 %s 自己的解析没能自动接管：%v", target, lerr)
+	case added:
+		msg += fmt.Sprintf("；%s 已加进 DDNS，会跟着公网 IP 走", target)
 	}
 	return msg, changed, nil
 }
@@ -122,4 +133,15 @@ func MCEntryChanged(old, cur model.MCEntryConfig) bool {
 		return false
 	}
 	return !cur.Enabled || !sameHost(old.Host, cur.Host) || old.ProviderID != cur.ProviderID
+}
+
+// MCEntryOwnedHost 这份配置让 LinkStar 替哪个域名维护着 A 记录；指向现成域名时返回空
+func MCEntryOwnedHost(cfg model.MCEntryConfig) string {
+	if !cfg.Enabled {
+		return ""
+	}
+	if host, own := mcEntryTarget(cfg); own {
+		return host
+	}
+	return ""
 }

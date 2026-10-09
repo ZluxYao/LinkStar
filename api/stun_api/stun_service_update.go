@@ -94,6 +94,11 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	if stun.MCEntryChanged(oldMCEntry, svc.MCEntry) {
 		stun.CleanupMCEntry(oldMCEntry)
 	}
+	// 原来是「新建」、LinkStar 替联机域名补过 A 记录，现在改成指向别的域名或关掉了：
+	// 那条自动建的收回去（还有别的服务用着就不动，CleanupLandingRecord 自己会看）
+	if old := stun.MCEntryOwnedHost(oldMCEntry); old != "" && old != stun.MCEntryOwnedHost(svc.MCEntry) {
+		stun.CleanupLandingRecord(old)
+	}
 
 	// 重启该服务的 STUN 穿透（停旧起新）
 	// 修复：原版调用已删除的全局函数 stun.StartService，改为调度器实例方法

@@ -478,6 +478,7 @@ const emptyMCEntry: MCEntryConfig = {
   providerId: 0,
   host: '',
   zoneDomain: '',
+  target: '',
 }
 
 const emptyWebhook: WebhookConfig = {
@@ -659,6 +660,7 @@ function ServiceModal({
   const [templateDescription, setTemplateDescription] = useState('')
   const [certs, setCerts] = useState<Certificate[]>([])
   const [cfProviders, setCfProviders] = useState<DdnsProvider[]>([])
+  const [ddnsHosts, setDdnsHosts] = useState<string[]>([])
   const [redirectBusy, setRedirectBusy] = useState(false)
   const [inspect, setInspect] = useState<RedirectInspection | null>(null)
   const [inspecting, setInspecting] = useState(false)
@@ -676,7 +678,8 @@ function ServiceModal({
     }
   }, [])
 
-  // 重定向规则目前只有 Cloudflare 能写，别的服务商列出来只会让人白填
+  // 重定向规则目前只有 Cloudflare 能写，别的服务商列出来只会让人白填。
+  // DDNS 里现成的 A 记录也一起拿：MC 入口的 SRV 可以直接指过去，不用再建一条
   useEffect(() => {
     let alive = true
     api
@@ -684,6 +687,11 @@ function ServiceModal({
       .then((cfg) => {
         if (!alive) return
         setCfProviders((cfg.providers ?? []).filter((p) => p.type === 'cloudflare'))
+        setDdnsHosts(
+          (cfg.records ?? [])
+            .filter((r) => r.recordType === 'A')
+            .map((r) => (r.subDomain && r.subDomain !== '@' ? `${r.subDomain}.${r.domain}` : r.domain).toLowerCase()),
+        )
       })
       .catch(() => {})
     return () => {
@@ -705,7 +713,8 @@ function ServiceModal({
       !!saved.enabled !== form.mcEntry.enabled ||
       (saved.providerId || 0) !== form.mcEntry.providerId ||
       norm(saved.host) !== norm(form.mcEntry.host) ||
-      norm(saved.zoneDomain) !== norm(form.mcEntry.zoneDomain)
+      norm(saved.zoneDomain) !== norm(form.mcEntry.zoneDomain) ||
+      norm(saved.target) !== norm(form.mcEntry.target)
     )
   }, [initial, form.mcEntry])
   const [mcEntryBusy, setMCEntryBusy] = useState(false)
@@ -1771,10 +1780,70 @@ function ServiceModal({
                       placeholder="mc.example.com"
                       className={`${fieldInputCls} disabled:bg-slate-50 disabled:text-slate-400`}
                     />
-                    <div className="mt-1 text-[11px] text-slate-400">
-                      没有解析记录的话，LinkStar 会在 DDNS 里自动加一条跟着公网 IP 走
-                    </div>
+                    <div className="mt-1 text-[11px] text-slate-400">朋友在 MC 里填的就是它</div>
                   </label>
+
+                  {/* SRV 只能指向域名不能指向 IP，那个域名自己得解析到公网 IP。
+                      要么让 LinkStar 替联机域名新建一条，要么直接用 DDNS 里现成的 */}
+                  <div className="col-span-2">
+                    <div className={fieldLabelCls}>SRV 指向</div>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {(
+                        [
+                          {
+                            existing: false,
+                            title: '新建一条',
+                            hint: `在 DDNS 里给 ${form.mcEntry.host.trim() || '联机域名'} 加一条 A 记录`,
+                          },
+                          { existing: true, title: '用 DDNS 里已有的', hint: '指向已经解析好的域名，不多建记录' },
+                        ] as const
+                      ).map((o) => {
+                        const on = !!form.mcEntry.target === o.existing
+                        return (
+                          <button
+                            key={o.title}
+                            type="button"
+                            disabled={!form.mcEntry.enabled}
+                            onClick={() =>
+                              updateMCEntry({
+                                target: o.existing ? form.mcEntry.target || form.domain.trim() || ddnsHosts[0] || '' : '',
+                              })
+                            }
+                            className={`rounded-xl border px-3 py-2 text-left transition disabled:opacity-50 ${
+                              on ? 'border-blue-300 bg-blue-50/60 ring-1 ring-blue-200' : 'border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            <div className={`text-xs font-bold ${on ? 'text-blue-600' : 'text-slate-700'}`}>{o.title}</div>
+                            <div className="mt-0.5 text-[11px] text-slate-400">{o.hint}</div>
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {!!form.mcEntry.target && (
+                      <select
+                        value={form.mcEntry.target}
+                        disabled={!form.mcEntry.enabled}
+                        onChange={(e) => updateMCEntry({ target: e.target.value })}
+                        className={`${fieldInputCls} mt-2 disabled:bg-slate-50 disabled:text-slate-400`}
+                      >
+                        {/* 存着的那个不在 DDNS 里了（被删了）也得让人看见选的是谁 */}
+                        {!ddnsHosts.includes(form.mcEntry.target) && (
+                          <option value={form.mcEntry.target}>{form.mcEntry.target}（DDNS 里没有这条）</option>
+                        )}
+                        {ddnsHosts.map((h) => (
+                          <option key={h} value={h}>
+                            {h}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    <div className="mt-2 font-mono text-[11px] text-slate-500">
+                      _minecraft._tcp.{form.mcEntry.host.trim() || 'mc.example.com'} →{' '}
+                      {form.mcEntry.target || form.mcEntry.host.trim() || 'mc.example.com'}:端口
+                    </div>
+                  </div>
                 </div>
 
                 {initial ? (
@@ -1782,7 +1851,10 @@ function ServiceModal({
                     <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
                     {status?.mcEntryStatus === 'ok' && (
                       <div className="text-xs text-emerald-600">
-                        成功 → <span className="font-mono">{form.mcEntry.host}:{status.mcEntryPort}</span>
+                        成功 →{' '}
+                        <span className="font-mono">
+                          {initial.mcEntry?.target || initial.mcEntry?.host}:{status.mcEntryPort}
+                        </span>
                         {status.mcEntryAt ? `（${fmtTime(status.mcEntryAt)}）` : ''}
                         {!!status.externalPort && status.externalPort !== status.mcEntryPort && (
                           <div className="mt-1 text-amber-600">
@@ -2292,6 +2364,7 @@ export function Stun() {
         ...form.mcEntry,
         host: form.mcEntry.host.trim().toLowerCase(),
         zoneDomain: form.mcEntry.zoneDomain.trim().toLowerCase(),
+        target: form.mcEntry.target.trim().toLowerCase(),
       },
     }
     let serviceId: number | undefined

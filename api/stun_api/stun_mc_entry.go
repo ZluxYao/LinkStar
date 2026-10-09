@@ -18,6 +18,10 @@ func normalizeMCEntry(protocol string, cfg model.MCEntryConfig) model.MCEntryCon
 	}
 	cfg.Host = strings.ToLower(strings.Trim(strings.TrimSpace(cfg.Host), "."))
 	cfg.ZoneDomain = strings.ToLower(strings.Trim(strings.TrimSpace(cfg.ZoneDomain), "."))
+	cfg.Target = strings.ToLower(strings.Trim(strings.TrimSpace(cfg.Target), "."))
+	if cfg.Target == cfg.Host {
+		cfg.Target = "" // 指向自己就是「新建」那条路，存成空省得两种写法同一个意思
+	}
 	return cfg
 }
 

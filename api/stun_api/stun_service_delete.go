@@ -71,7 +71,8 @@ func (StunApi) StunServiceDeleteView(c *gin.Context) {
 	stun.CleanupRedirect(redirectCfg, cr.DeviceID, cr.ServiceID)
 	if mcEntryCfg.Enabled {
 		stun.CleanupMCEntry(mcEntryCfg)
-		stun.CleanupLandingRecord(mcEntryCfg.Host)
+		// 只有「新建」那种是 LinkStar 替联机域名补的 A 记录；指向现成域名的不归这里收
+		stun.CleanupLandingRecord(stun.MCEntryOwnedHost(mcEntryCfg))
 	}
 	// 当初替这个域名自动加的那条 DDNS 记录也收回去，别留一条谁也不认识的记录在那空转
 	stun.CleanupLandingRecord(landingHost)

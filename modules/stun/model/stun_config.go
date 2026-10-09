@@ -100,6 +100,11 @@ type MCEntryConfig struct {
 	ProviderID uint   `json:"providerId"` // DDNS 里的服务商，目前只有 Cloudflare 能写 SRV
 	Host       string `json:"host"`       // 朋友在 MC 里填的那个域名，如 mc.example.com
 	ZoneDomain string `json:"zoneDomain"` // 主域名；留空按 Host 的后两段取
+
+	// Target SRV 指向的主机。SRV 只能写域名不能写 IP，这个域名自己得解析到公网 IP。
+	//   - 留空：指向 Host 自己，Host 在 DDNS 里没有记录就自动补一条；
+	//   - 填了：指向这个已经解析好的域名（一般是 DDNS 里现成的那条），不再补记录。
+	Target string `json:"target"`
 }
 
 // RedirectConfig 让一个固定的域名，始终指向这个服务当前的外网地址。

@@ -47,6 +47,11 @@ export interface MCEntryConfig {
   host: string
   /** 主域名；留空按 host 的后两段取 */
   zoneDomain: string
+  /**
+   * SRV 指向的主机。空 = 指向 host 自己（DDNS 里没有就自动补一条 A 记录）；
+   * 填了 = 指向这个已经解析好的域名，不再补记录。
+   */
+  target: string
 }
 
 /**
