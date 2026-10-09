@@ -54,6 +54,23 @@ type RedirectRuleProvider interface {
 	InspectEntryRecord(zoneDomain, entryHost string) (EntryRecordState, error)
 }
 
+// SRVRecordProvider 可选接口：服务商支持维护 SRV 记录。
+//
+// 给 MC Java 版这种认 SRV 的客户端用：打洞的外部端口会变，朋友在 MC 里只填域名，
+// 端口由 _minecraft._tcp.<域名> 这条 SRV 告诉它。端口一变，记录就得跟着改。
+//
+// 和 RedirectRuleProvider 一样不并入 DNSProvider：各家 SRV 的写法都不一样
+// （有的拆字段，有的拼成「优先级 权重 端口 目标」一个串），没适配的在类型断言处自然失败。
+//
+// 语义要求：按记录名认领，同名下只能有一条 SRV。用户先手建过的同名记录直接接管
+// （改端口、打上标记），这样从 Webhook 模板迁过来的人不会多出一条重复的。
+type SRVRecordProvider interface {
+	// SyncSRVRecord 让 name（如 _minecraft._tcp.mc.example.com）指向 target:port，返回是否真的改了
+	SyncSRVRecord(zoneDomain, name, target string, port uint16) (changed bool, err error)
+	// RemoveSRVRecord 删掉 name 这条 SRV；只删带 LinkStar 标记的，本来就没有时返回 false, nil
+	RemoveSRVRecord(zoneDomain, name string) (removed bool, err error)
+}
+
 // EntryRecordState 入口域名那条解析记录的现状，给界面照实摆出来用。
 //
 // 这条记录和 DDNS 那些记录不是一回事：它的内容是个永远不变的占位地址，

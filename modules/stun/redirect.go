@@ -318,11 +318,14 @@ func CleanupLandingRecord(host string) {
 	}
 }
 
-// domainInUse 还有没有别的服务用着这个域名
+// domainInUse 还有没有别的服务用着这个域名（对外域名，或者 MC 入口的联机域名）
 func domainInUse(host string) bool {
 	for _, dev := range Runtime.Config.Devices {
 		for _, svc := range dev.Services {
 			if sameHost(svc.Domain, host) {
+				return true
+			}
+			if svc.MCEntry.Enabled && sameHost(svc.MCEntry.Host, host) {
 				return true
 			}
 		}

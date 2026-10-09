@@ -9,6 +9,7 @@ import {
   CornerUpRight,
   ExternalLink,
   FileText,
+  Gamepad2,
   Globe,
   Home as HomeIcon,
   Info,
@@ -42,6 +43,7 @@ import type {
   StunDevice,
   RedirectConfig,
   RedirectInspection,
+  MCEntryConfig,
   StunService,
   StunStatusEvent,
   WebhookConfig,
@@ -444,6 +446,7 @@ interface ServiceFormState {
   description: string
   webhookconfig: WebhookConfig
   redirect: RedirectConfig
+  mcEntry: MCEntryConfig
 }
 
 /** 界面上那一个「内网是 HTTPS」拆回后端的 https / backendHttps，语义和 stun.PublicScheme 一致 */
@@ -467,6 +470,13 @@ const emptyRedirect: RedirectConfig = {
   enabled: false,
   providerId: 0,
   entryHost: '',
+  zoneDomain: '',
+}
+
+const emptyMCEntry: MCEntryConfig = {
+  enabled: false,
+  providerId: 0,
+  host: '',
   zoneDomain: '',
 }
 
@@ -498,6 +508,7 @@ const emptyService: ServiceFormState = {
   description: '',
   webhookconfig: emptyWebhook,
   redirect: emptyRedirect,
+  mcEntry: emptyMCEntry,
 }
 
 /** *.example.com 这种通配证书挑不出具体主机名——用哪个标签只能由用户决定 */
@@ -570,6 +581,7 @@ function serviceToForm(svc: StunService, showOnHome: boolean): ServiceFormState 
     description: svc.description || '',
     webhookconfig: normalizeWebhook(svc.webhookconfig),
     redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+    mcEntry: { ...emptyMCEntry, ...(svc.mcEntry ?? {}) },
   }
 }
 
@@ -595,6 +607,7 @@ function serviceToPayload(deviceId: number, svc: StunService): api.StunServicePa
     description: svc.description || '',
     webhookconfig: normalizeWebhook(svc.webhookconfig),
     redirect: { ...emptyRedirect, ...(svc.redirect ?? {}) },
+    mcEntry: { ...emptyMCEntry, ...(svc.mcEntry ?? {}) },
   }
 }
 
@@ -681,6 +694,33 @@ function ServiceModal({
   const updateRedirect = (patch: Partial<RedirectConfig>) =>
     setForm((p) => ({ ...p, redirect: { ...p.redirect, ...patch } }))
 
+  const updateMCEntry = (patch: Partial<MCEntryConfig>) =>
+    setForm((p) => ({ ...p, mcEntry: { ...p.mcEntry, ...patch } }))
+
+  // 立即同步打的是已保存的配置，表单改了没保存就按不动（和入口重定向同一个道理）
+  const mcEntryDirty = useMemo(() => {
+    const saved = { ...emptyMCEntry, ...(initial?.mcEntry ?? {}) }
+    const norm = (v?: string) => (v ?? '').trim().toLowerCase()
+    return (
+      !!saved.enabled !== form.mcEntry.enabled ||
+      (saved.providerId || 0) !== form.mcEntry.providerId ||
+      norm(saved.host) !== norm(form.mcEntry.host) ||
+      norm(saved.zoneDomain) !== norm(form.mcEntry.zoneDomain)
+    )
+  }, [initial, form.mcEntry])
+  const [mcEntryBusy, setMCEntryBusy] = useState(false)
+  const syncMCEntry = async () => {
+    if (!initial) return
+    setMCEntryBusy(true)
+    try {
+      const r = await api.syncStunMCEntry(deviceId, initial.id)
+      onToast(r.msg || '已同步')
+    } catch (e) {
+      onToast('同步失败: ' + (e instanceof Error ? e.message : ''))
+    } finally {
+      setMCEntryBusy(false)
+    }
+  }
   /** 入口域名后两段，和后端 redirectZone 留空时的算法一致 */
   const redirectGuessedZone = useMemo(() => {
     const parts = form.redirect.entryHost.trim().toLowerCase().split('.').filter(Boolean)
@@ -911,13 +951,30 @@ function ServiceModal({
       )
       return
     }
+    if (form.protocol === 'TCP' && form.mcEntry.enabled) {
+      if (!form.mcEntry.providerId) {
+        setErr('MC 入口要选一个 Cloudflare 账号')
+        return
+      }
+      if (!form.mcEntry.host.trim().includes('.')) {
+        setErr('MC 入口要填联机域名，如 mc.example.com')
+        return
+      }
+    }
     setErr('')
     setBusy(true)
     try {
-      // UDP 没有证书、HTTPS、入口重定向一说，先勾选过再改协议的情况在这里抹掉
+      // UDP 没有证书、HTTPS、入口重定向、SRV 一说，先勾选过再改协议的情况在这里抹掉
       await onSubmit(
         form.protocol === 'UDP'
-          ? { ...form, tlsTerminate: false, certId: '0', internalHttps: false, redirect: { ...form.redirect, enabled: false } }
+          ? {
+              ...form,
+              tlsTerminate: false,
+              certId: '0',
+              internalHttps: false,
+              redirect: { ...form.redirect, enabled: false },
+              mcEntry: { ...form.mcEntry, enabled: false },
+            }
           : form,
       )
     } catch (e) {
@@ -1648,6 +1705,121 @@ function ServiceModal({
               ) : (
                 <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
               )}
+
+              {/* MC 入口：和上面的网页入口并列，一个服务一般只开其中一个 */}
+              <div className="mt-6 border-t border-slate-100 pt-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-bold text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={form.mcEntry.enabled}
+                      onChange={(e) => updateMCEntry({ enabled: e.target.checked })}
+                      className="h-3.5 w-3.5"
+                    />
+                    <Gamepad2 className="h-4 w-4 text-emerald-500" />
+                    MC 入口（Java 版）
+                  </label>
+                  <span
+                    className={`rounded-md px-2 py-1 text-xs font-semibold ${
+                      form.mcEntry.enabled ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'
+                    }`}
+                  >
+                    {form.mcEntry.enabled ? '已启用' : '未启用'}
+                  </span>
+                </div>
+
+                <div className="mb-4 rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
+                  朋友在 MC 里只填域名，不用填端口；端口变了 LinkStar 自动改 SRV 记录。
+                  <span className="text-slate-400">基岩版不认 SRV，用不上。</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-slate-600">
+                    <span className="text-slate-400">朋友填</span>
+                    <span className="rounded-md bg-white px-2 py-1 font-semibold ring-1 ring-slate-200">
+                      {form.mcEntry.host.trim() || 'mc.example.com'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="col-span-2 block sm:col-span-1">
+                    <div className={fieldLabelCls}>Cloudflare 账号</div>
+                    <select
+                      value={String(form.mcEntry.providerId || 0)}
+                      disabled={!form.mcEntry.enabled}
+                      onChange={(e) => updateMCEntry({ providerId: Number(e.target.value) || 0 })}
+                      className={`${fieldInputCls} disabled:bg-slate-50 disabled:text-slate-400`}
+                    >
+                      <option value="0">请选择</option>
+                      {cfProviders.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      {cfProviders.length === 0
+                        ? '"DDNS" 页面里还没有 Cloudflare 账号，先去那边加一个'
+                        : '「编辑区域 DNS」模板建的令牌就够'}
+                    </div>
+                  </label>
+
+                  <label className="col-span-2 block sm:col-span-1">
+                    <div className={fieldLabelCls}>联机域名</div>
+                    <input
+                      value={form.mcEntry.host}
+                      disabled={!form.mcEntry.enabled}
+                      onChange={(e) => updateMCEntry({ host: e.target.value })}
+                      placeholder="mc.example.com"
+                      className={`${fieldInputCls} disabled:bg-slate-50 disabled:text-slate-400`}
+                    />
+                    <div className="mt-1 text-[11px] text-slate-400">
+                      没有解析记录的话，LinkStar 会在 DDNS 里自动加一条跟着公网 IP 走
+                    </div>
+                  </label>
+                </div>
+
+                {initial ? (
+                  <div className="mt-4 rounded-xl border border-slate-200 p-3">
+                    <div className="mb-2 text-xs font-semibold text-slate-500">最近一次同步</div>
+                    {status?.mcEntryStatus === 'ok' && (
+                      <div className="text-xs text-emerald-600">
+                        成功 → <span className="font-mono">{form.mcEntry.host}:{status.mcEntryPort}</span>
+                        {status.mcEntryAt ? `（${fmtTime(status.mcEntryAt)}）` : ''}
+                        {!!status.externalPort && status.externalPort !== status.mcEntryPort && (
+                          <div className="mt-1 text-amber-600">
+                            外部端口已经换成 {status.externalPort}，洞确认通了会自己改过去
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {status?.mcEntryStatus === 'failed' && (
+                      <div className="text-xs text-rose-500">
+                        失败：{status.mcEntryError || '未知原因'}
+                        {status.mcEntryAt ? `（${fmtTime(status.mcEntryAt)}）` : ''}
+                      </div>
+                    )}
+                    {!status?.mcEntryStatus && <div className="text-xs text-slate-400">还没同步过</div>}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={mcEntryBusy || mcEntryDirty || !initial.mcEntry?.enabled}
+                        onClick={syncMCEntry}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600 disabled:opacity-50"
+                      >
+                        <RotateCw className="h-3.5 w-3.5" />
+                        立即同步
+                      </button>
+                      <span
+                        className={`text-[11px] ${mcEntryDirty ? 'font-semibold text-amber-600' : 'text-slate-400'}`}
+                      >
+                        {mcEntryDirty ? '上面改的还没保存 —— 点右下角「保存」，几秒后自己就同步了' : '端口一变会自动同步'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 text-[11px] text-slate-400">先把服务保存了，再回来点同步</div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -2116,6 +2288,11 @@ export function Stun() {
         entryHost: form.redirect.entryHost.trim().toLowerCase(),
         zoneDomain: form.redirect.zoneDomain.trim().toLowerCase(),
       },
+      mcEntry: {
+        ...form.mcEntry,
+        host: form.mcEntry.host.trim().toLowerCase(),
+        zoneDomain: form.mcEntry.zoneDomain.trim().toLowerCase(),
+      },
     }
     let serviceId: number | undefined
     if (serviceModal.initial) {
@@ -2162,6 +2339,8 @@ export function Stun() {
         ...src,
         name: `${svc.name || '未命名服务'} 副本`,
         redirect: { ...src.redirect, enabled: false, entryHost: '' },
+        // 两个服务抢同一条 SRV 会互相把端口按回去，副本里先关掉
+        mcEntry: { ...src.mcEntry, enabled: false, host: '' },
         webhookconfig: { ...src.webhookconfig, enabled: false },
       },
     })

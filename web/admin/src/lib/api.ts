@@ -15,6 +15,7 @@ import type {
   ProxyProbeResult,
   ProxySite,
   RedirectConfig,
+  MCEntryConfig,
   RedirectInspection,
   StunConfig,
   StunNetwork,
@@ -273,6 +274,7 @@ export interface StunServicePayload {
   description: string
   webhookconfig?: WebhookConfig
   redirect?: RedirectConfig
+  mcEntry?: MCEntryConfig
 }
 
 export const addStunService = (body: StunServicePayload) =>
@@ -322,6 +324,13 @@ export const inspectStunRedirect = (deviceId: number, serviceId: number) =>
 export const removeStunRedirect = (deviceId: number, serviceId: number) =>
   request<unknown>('/api/stun/redirect', {
     method: 'DELETE',
+    body: JSON.stringify({ deviceId, serviceId }),
+  })
+
+/** 立即把当前外部端口写进 MC 入口那条 SRV；后端那句话里会带上域名 A 记录有没有补上 */
+export const syncStunMCEntry = (deviceId: number, serviceId: number) =>
+  requestWithMsg<unknown>('/api/stun/mc-entry/sync', {
+    method: 'POST',
     body: JSON.stringify({ deviceId, serviceId }),
   })
 

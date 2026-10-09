@@ -84,8 +84,22 @@ type Service struct {
 
 	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 	Redirect      RedirectConfig        `json:"redirect"`      // 固定域名跟着外部端口走
+	MCEntry       MCEntryConfig         `json:"mcEntry"`       // MC Java 版联机：SRV 记录跟着外部端口走
 
 	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
+}
+
+// MCEntryConfig 让朋友在 MC 里只填一个域名就能连上，不用管端口。
+//
+// MC Java 版连服务器时先查 _minecraft._tcp.<域名> 的 SRV 记录，里面写着真正的端口。
+// 打洞的外部端口会变，这条记录就跟着改。基岩版不认 SRV，用不上这个。
+//
+// 零值就是关闭，老配置没有这一段不受影响。
+type MCEntryConfig struct {
+	Enabled    bool   `json:"enabled"`
+	ProviderID uint   `json:"providerId"` // DDNS 里的服务商，目前只有 Cloudflare 能写 SRV
+	Host       string `json:"host"`       // 朋友在 MC 里填的那个域名，如 mc.example.com
+	ZoneDomain string `json:"zoneDomain"` // 主域名；留空按 Host 的后两段取
 }
 
 // RedirectConfig 让一个固定的域名，始终指向这个服务当前的外网地址。

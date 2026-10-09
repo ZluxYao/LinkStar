@@ -33,6 +33,7 @@ type StunServiceUpdateViewRequest struct {
 
 	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 	Redirect      model.RedirectConfig  `json:"redirect"`      // 入口域名跟着外部端口走
+	MCEntry       model.MCEntryConfig   `json:"mcEntry"`       // MC Java 版联机的 SRV 记录
 }
 
 func (StunApi) StunServiceUpdateView(c *gin.Context) {
@@ -79,12 +80,19 @@ func (StunApi) StunServiceUpdateView(c *gin.Context) {
 	svc.Description = cr.Description
 	svc.WebHookConfig = cr.WebHookConfig
 	svc.Redirect = cr.Redirect
+	oldMCEntry := svc.MCEntry
+	svc.MCEntry = normalizeMCEntry(cr.Protocol, cr.MCEntry)
 	svc.UpdatedAt = time.Now()
 
 	// 持久化配置到文件
 	if err := stun.UpdateConfig(stun.Runtime.Config); err != nil {
 		res.FailWithMsg("保存配置失败", c)
 		return
+	}
+
+	// MC 入口关了或换了域名：旧的那条 SRV 收回去，不然朋友会被送到一个没人维护的端口
+	if stun.MCEntryChanged(oldMCEntry, svc.MCEntry) {
+		stun.CleanupMCEntry(oldMCEntry)
 	}
 
 	// 重启该服务的 STUN 穿透（停旧起新）

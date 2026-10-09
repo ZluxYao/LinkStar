@@ -99,3 +99,9 @@ func SupportsRedirectRule(t model.DNSProviderType) bool {
 		return false
 	}
 }
+
+// BuildSRVClient 构建支持 SRV 记录的客户端；服务商没实现时返回 nil
+func BuildSRVClient(p model.DDNSProvider) SRVRecordProvider {
+	c, _ := BuildClient(p).(SRVRecordProvider)
+	return c
+}

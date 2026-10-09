@@ -32,6 +32,7 @@ type StunServiceAddViewRequest struct {
 
 	WebHookConfig webhook.WebhookConfig `json:"webhookconfig"` // Webhook 配置文件
 	Redirect      model.RedirectConfig  `json:"redirect"`      // 入口域名跟着外部端口走
+	MCEntry       model.MCEntryConfig   `json:"mcEntry"`       // MC Java 版联机的 SRV 记录
 }
 
 func (StunApi) StunServiceAddView(c *gin.Context) {
@@ -76,6 +77,7 @@ func (StunApi) StunServiceAddView(c *gin.Context) {
 		Description:   cr.Description,
 		WebHookConfig: cr.WebHookConfig,
 		Redirect:      cr.Redirect,
+		MCEntry:       normalizeMCEntry(cr.Protocol, cr.MCEntry),
 		UpdatedAt:     time.Now(),
 	}
 
