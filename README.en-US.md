@@ -44,7 +44,9 @@ Reaching your NAS, soft router, or Jellyfin from outside your home usually gets 
   - [Certificates](#certificates)
   - [Reverse Proxy](#reverse-proxy)
   - [DDNS](#ddns)
-  - [Entry Redirect (Cloudflare)](#entry-redirect-cloudflare)
+  - [External Entry: Web (Cloudflare Redirect)](#external-entry-web-cloudflare-redirect)
+  - [External Entry: Minecraft (SRV)](#external-entry-minecraft-srv)
+  - [Network Settings](#network-settings)
   - [Webhook Variables](#webhook-variables)
 - [Developer Guide](#developer-guide)
 - [Roadmap](#roadmap)
@@ -55,8 +57,8 @@ Reaching your NAS, soft router, or Jellyfin from outside your home usually gets 
 ## Why LinkStar
 
 - **One binary does it all.** No Docker, no stack of services to install. The frontend ships inside; `./linkstar` just runs.
-- **Works without a public IP.** STUN probes your public endpoint, UPnP creates the mapping — services behind carrier-grade NAT still become reachable.
-- **Follows address changes on its own.** When the public IP or external port changes, it updates DNS records, rewrites the Cloudflare redirect rule, and fires Webhooks. Nothing to babysit.
+- **Works without a public IP.** STUN probes your public endpoint, UPnP creates the mapping — services behind carrier-grade NAT still become reachable. A proxy running in TUN mode (Clash, sing-box) doesn't get in the way.
+- **Follows address changes on its own.** When the public IP or external port changes, it updates DNS records, rewrites the Cloudflare redirect rule and the Minecraft SRV record, and fires Webhooks. Nothing to babysit.
 - **Certificates and reverse proxy included.** No separate nginx + certbot setup. Certificates are issued and renewed automatically; the reverse proxy does what nginx does.
 - **You don't need to know the internal IP to start.** Scan your LAN, see which machines are up and which ports they have open, click one to create the service.
 - **Two form factors.** A CLI build for running as a background service, and a system-tray desktop build (Wails).
@@ -67,14 +69,16 @@ Reaching your NAS, soft router, or Jellyfin from outside your home usually gets 
 | --- | --- |
 | 🏠 Navigation Homepage | App shortcuts, categories with drag-and-drop ordering, search engine management, Bing daily / custom wallpapers, icon upload and auto-fetch |
 | 🌐 NAT Traversal | STUN probing of local / public IP and NAT chain, automatic UPnP port mapping, heartbeat keepalive, live external address |
+| 🛡️ Works with proxy TUN | Clash / sing-box TUN mode doesn't break hole punching: LinkStar finds the physical outbound interface and sends public-IP lookups, hole punching, and UPnP through it — you won't get the proxy node's IP |
 | 🧭 NAT Type Detection | RFC 5780 probing, UDP and TCP judged separately: open internet, NAT1–NAT4. Check here first when a hole won't open |
 | 🔌 Service Management | TCP / UDP services per device, duplicate a service, enable/disable from the card, `/go/{service}` to reach a service by name even after the port moves |
 | 📡 LAN Scan | Pick a subnet and scan it: online hosts and their open ports, with names for common ones (DSM, PVE, Alist, Jellyfin…). Click a port to create the service |
 | 🔐 Certificates | Upload PEM, read from a local path, ACME DNS-01, ACME HTTP-01, plus self-signed. SNI matching, wildcards, automatic renewal before expiry |
 | 🔁 Reverse Proxy | What nginx does: host-based routing, HTTP / HTTPS dual entry, per-site dedicated ports, WebSocket / SSE passthrough, access logs |
 | 🌍 DDNS | A / AAAA records, five IP sources, periodic sync to your DNS provider |
-| ↪️ Entry Redirect | One fixed domain always points at the service's current external address — no Cloudflare IDs to fill in |
-| 🔔 Webhook | HTTP requests on address change, with built-in generic JSON and Cloudflare SRV templates |
+| ↪️ External Entry | The port changes, the name doesn't: web services via Cloudflare redirect, Minecraft Java via an SRV record — no Cloudflare IDs to copy |
+| 🔔 Webhook | HTTP requests on address change, with a built-in generic JSON template |
+| ⚙️ Network Settings | Choose which interface hole punching uses and which DNS resolves STUN servers; automatic by default |
 | 📋 Runtime Logs | Read logs in the dashboard, filtered by level and keyword |
 | ⚡ Live Status | Periodic backend health checks, pushed to the UI over SSE |
 | 🔒 Password Protection | Guided setup on first use (minimum 8 characters), JWT-protected admin APIs, desktop window skips login locally |
@@ -86,13 +90,14 @@ Reaching your NAS, soft router, or Jellyfin from outside your home usually gets 
 
 LinkStar's NAT traversal is built on the standard **STUN** protocol (via [pion/stun](https://github.com/pion/stun)):
 
-1. **STUN probing** — sends Binding requests to public STUN servers to learn the public IP and port behind the NAT, and to determine the NAT type.
-2. **Port-reuse hole punching** — reuses the same local port for listening (TCP/UDP), keeping the NAT mapping opened by the STUN session alive.
-3. **Automatic UPnP mapping** — when the gateway supports UPnP, creates a port mapping pointing the public port at the internal service (TCP).
-4. **Port forwarding** — forwards inbound external connections to the target device's internal port, exposing services without a public IP.
-5. **Heartbeat keepalive** — periodic health checks and reconnection; port changes are detected and trigger DDNS / entry redirect / Webhook sync.
+1. **Find the outbound interface** — the physical NIC the system would use with the proxy turned off. Every step below goes out through it; without this, a proxy in TUN mode makes LinkStar see the proxy node's IP.
+2. **STUN probing** — sends Binding requests to public STUN servers to learn the public IP and port behind the NAT, and to determine the NAT type.
+3. **Port-reuse hole punching** — reuses the same local port for listening (TCP/UDP), keeping the NAT mapping opened by the STUN session alive.
+4. **Automatic UPnP mapping** — when the gateway supports UPnP, creates a port mapping pointing the public port at the internal service (TCP).
+5. **Port forwarding** — forwards inbound external connections to the target device's internal port, exposing services without a public IP.
+6. **Heartbeat keepalive** — periodic health checks and reconnection; port changes are detected and trigger DDNS / external entry / Webhook sync. When the outbound interface changes (unplugging Ethernet for Wi-Fi, a new DHCP lease), all holes are restarted automatically.
 
-You can also terminate TLS right at the hole, so external access is plain `https://` with no browser warning and no extra layer to set up.
+You can also terminate TLS right at the hole, so external access is plain `https://` with no browser warning and no extra layer to set up. Only do this for web services — Minecraft, SSH, and remote desktop stop working with a certificate on the hole; the checkbox in the service editor says so.
 
 > Suited to home broadband behind carrier-grade NAT and soft routers without a dedicated public IP — a lightweight self-hosted alternative to frp / ngrok.
 
@@ -168,7 +173,7 @@ Configuration lives in plain JSON files under the program's working directory:
 | Path | Contents |
 | --- | --- |
 | `config/homeConfig.json` | Homepage: shortcuts, search, categories, layout, wallpaper |
-| `config/stunConfig.json` | STUN server list, devices and services, entry redirect settings |
+| `config/stunConfig.json` | STUN server list, devices and services, external entry, network settings (outbound interface / DNS) |
 | `config/ddnsConfig.json` | DNS providers, records, sync interval |
 | `config/certConfig.json` | Certificate list and ACME options |
 | `config/proxyConfig.json` | Reverse proxy entries and sites |
@@ -230,11 +235,15 @@ Records are scanned every 5 minutes by default. **A record that failed retries a
 
 Cloudflare supports the `proxied` toggle; NameCheap currently suits IPv4 A records only.
 
-### Entry Redirect (Cloudflare)
+### External Entry: Web (Cloudflare Redirect)
+
+The "External Entry" tab in the service editor starts with a three-way choice: **None / Web · Cloudflare redirect / Minecraft Java · SRV**. A service uses one of them; only TCP services have this tab.
 
 **The problem:** the external port from hole punching changes, but a domain can only point at an IP, not a port. So every time the port moves, the address people saved stops working.
 
-**The approach:** a fixed entry hostname (say `nas.example.com`) 307-redirects to the service's current real address. You fill in the entry hostname, the landing hostname, and whether to keep the path — the zone / ruleset / rule IDs are looked up by the backend. The provider is reused from your DDNS config, so the token isn't entered twice.
+**The approach:** a fixed entry hostname (say `nas.example.com`) 307-redirects to the service's current real address. You pick a Cloudflare account and fill in the entry hostname — the zone / ruleset / rule IDs are looked up by the backend. The provider is reused from your DDNS config, so the token isn't entered twice. The token needs both "Zone → DNS → Edit" and "Zone → Single Redirect → Edit".
+
+Browsers only — a 307 is an HTTP redirect, and clients like Minecraft or SSH don't follow it.
 
 Sync rides the keepalive heartbeat and doesn't call the provider API when nothing changed. Saving the service also adds a DDNS record for the landing hostname, so it keeps up when the home IP changes.
 
@@ -246,6 +255,33 @@ The two DNS records have **opposite requirements**, and the UI shows their curre
 Get this backwards and neither side reports an error — it just doesn't work. Check those two lines in the UI.
 
 > Deleting a service also removes the DNS records, Cloudflare rules, and entry placeholder records it created. Three safeguards: records not auto-created by LinkStar are left alone, records you edited yourself are left alone, and records still used by another service are left alone.
+
+### External Entry: Minecraft (SRV)
+
+Before connecting, Minecraft Java looks up the SRV record `_minecraft._tcp.<domain>`, which holds the real port. LinkStar keeps that record following the hole's external port, so **friends only type the domain in Minecraft — no port**, and you don't have to tell them again when it changes.
+
+In the service editor → "External Entry", pick "Minecraft Java · SRV", choose a Cloudflare account, and enter a server domain (e.g. `mc.example.com`). An SRV record can only point at a hostname, not an IP, so you also pick what it points to:
+
+| SRV target | Becomes | DDNS |
+| --- | --- | --- |
+| Create one (default) | `_minecraft._tcp.mc.example.com → mc.example.com:port` | Adds an A record for `mc.example.com` automatically |
+| Use one already in DDNS | `_minecraft._tcp.mc.example.com → example.com:port` | Points at the existing record, nothing extra created |
+
+- The token only needs "Zone → DNS → Edit"; one made from Cloudflare's "Edit zone DNS" template is enough.
+- An existing SRV record with the same name is taken over rather than duplicated; priority and weight you set by hand are kept.
+- Deleting the service or turning the Minecraft entry off removes the SRV record LinkStar created; ones you made yourself are left alone.
+- **Bedrock Edition doesn't use SRV** — give friends "domain + current port" instead. Only Cloudflare can write SRV records for now.
+
+### Network Settings
+
+"System Settings → Network" only affects hole punching (public-IP lookup, STUN, UPnP, NAT detection); DDNS, certificates, and Webhooks still use the system network.
+
+| Setting | Options |
+| --- | --- |
+| Outbound interface | **Automatic** (default): the physical NIC the system would use with the proxy off; follows network changes<br>**Follow system**: no interface binding, uses system routing — with a proxy in TUN mode, holes go out through the proxy<br>**Specific interface**: picks the line when you have two ISPs; if it goes down, hole punching waits for it rather than silently switching lines |
+| DNS for STUN servers | **Built-in** (default): queries `114.114.114.114` and `119.29.29.29` directly from the outbound interface, bypassing the proxy's fake-ip<br>**Follow system**: with fake-ip on, STUN servers resolve to 198.18.x.x and can't be reached<br>**Custom**: IPv4 only, port optional, e.g. your router at `192.168.1.1` |
+
+Changes apply immediately on save; if the outbound interface changes, every hole is restarted.
 
 ### Webhook Variables
 
@@ -266,7 +302,9 @@ Runtime variables are available in the request body and URL:
 
 Useful for syncing to external systems after a port change, service restart, or address update.
 
-> If all you want is "keep one fixed domain pointing at this service", use [Entry Redirect](#entry-redirect-cloudflare) instead — no Webhook needed.
+Available variables: `#{address}` (public IP:port), `#{external_ip}`, `#{port}`, `#{internal_port}`, `#{protocol}`, `#{service_name}`, `#{device_name}`, `#{target_ip}`, `#{phase}`, `#{updated_at}`.
+
+> If all you want is "keep one fixed domain pointing at this service", use [External Entry](#external-entry-web-cloudflare-redirect) instead — no Webhook needed. For Minecraft, use the [SRV entry](#external-entry-minecraft-srv) rather than a Webhook template that edits the SRV record.
 >
 > Duplicating a service leaves its Webhook disabled. A copied URL usually targets one specific record or rule; two holes writing to the same one both report success, but that domain can only reach one of them at any moment.
 
