@@ -44,6 +44,7 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
 export function Setup({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [setupToken, setSetupToken] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -60,7 +61,7 @@ export function Setup({ onSuccess }: { onSuccess: () => void }) {
     setLoading(true)
     setError('')
     try {
-      const { token } = await setupPassword(password)
+      const { token } = await setupPassword(password, setupToken.trim())
       setToken(token)
       onSuccess()
     } catch (err) {
@@ -74,9 +75,16 @@ export function Setup({ onSuccess }: { onSuccess: () => void }) {
     <AuthLayout
       icon={<ShieldCheck className="h-7 w-7" />}
       title="欢迎使用 LinkStar"
-      subtitle="首次使用，请设置管理员密码"
+      subtitle="首次使用，请设置管理员密码。从其他设备打开时，还要填启动日志里的口令"
     >
       <form onSubmit={submit} className="space-y-4">
+        <input
+          value={setupToken}
+          onChange={(e) => setSetupToken(e.target.value)}
+          placeholder="首次设置口令（本机可留空）"
+          autoComplete="off"
+          className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+        />
         <PasswordField
           value={password}
           onChange={setPassword}

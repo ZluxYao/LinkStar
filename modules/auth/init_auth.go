@@ -11,6 +11,10 @@ func InitAuth() error {
 	}
 	Runtime.mu.Lock()
 	Runtime.Config = cfg
+	initialized := cfg.Initialized
 	Runtime.mu.Unlock()
+	if !initialized {
+		ensureSetupToken()
+	}
 	return nil
 }

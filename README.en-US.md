@@ -162,7 +162,7 @@ When the hole isn't up yet, or the service is disabled, you get a page explainin
 
 ### Password & Login
 
-- **First-time setup** — the dashboard walks you through setting an admin password, **minimum 8 characters**. Until it's set, all admin APIs refuse access.
+- **First-time setup** — the dashboard walks you through setting an admin password, **minimum 8 characters**. Until it's set, all admin APIs refuse access. Opening the page on the machine that runs LinkStar can set it directly. From another device on the LAN, enter the one-time setup code printed in the startup log, so someone else on the network cannot claim the admin password first.
 - **Session length** — login issues a JWT, valid 7 days by default; adjust `tokenTtlHours` in `config/authConfig.json`.
 - **Changing the password** — under "System Settings", after confirming the old one. **Other devices must log in again afterwards** — changing the password rotates the signing key, so tokens already issued are invalidated immediately.
 - **Forgotten password** — stop the program, delete `config/authConfig.json`, start it again to return to the setup flow (all logged-in devices are invalidated).
