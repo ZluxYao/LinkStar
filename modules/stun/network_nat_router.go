@@ -89,7 +89,8 @@ func collectHops(target string, maxHops int, probe func(ttl int) (hop string, re
 	return natChain, nil
 }
 
-// classifyIP IP分类
+// classifyIP 给路由扫描用的分类。
+// 不是公网的地址都要继续往下探：242.0.0.0/8 这类保留段以前被当成公网出口，扫描会提前停。
 func classifyIP(ipStr string) string {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
@@ -98,7 +99,7 @@ func classifyIP(ipStr string) string {
 	if cgnRange.Contains(ip) {
 		return IPTypeCGN
 	}
-	if private10.Contains(ip) || private172.Contains(ip) || private192.Contains(ip) {
+	if isNonPublicIP(ip) {
 		return IPTypePrivate
 	}
 	return IPTypePublic

@@ -2,9 +2,10 @@ package stun
 
 import (
 	"fmt"
-	"time"
+	"net"
+	"strings"
 
-	"github.com/pion/stun"
+	"github.com/sirupsen/logrus"
 )
 
 type NetworkAddressInfo struct {
@@ -17,21 +18,32 @@ type NetworkAddressInfo struct {
 func GetPublicIPInfo(stunServer string) (NetworkAddressInfo, error) {
 	var info NetworkAddressInfo
 
-	// 获取本机ip
-	LocalIP, err := GetLocalIP()
+	localIP, err := GetLocalIP()
 	if err != nil {
-		fmt.Printf("获取本机ip失败：%s \n", err)
+		logrus.Warnf("获取本机 IP 失败: %v", err)
+	} else {
+		info.LocalIP = localIP
 	}
-	info.LocalIP = LocalIP
 
-	// 获取真实公网ip
-	PublicIP, err := GetPublicIP(stunServer)
+	publicIP, err := GetPublicIP(stunServer)
 	if err != nil {
-		fmt.Printf("获取真实公网ip失败%s", err)
+		return info, fmt.Errorf("获取公网 IP 失败: %w", err)
 	}
-	info.PublicIP = PublicIP
-
+	if err := checkPublicIP(publicIP); err != nil {
+		return info, err
+	}
+	info.PublicIP = publicIP
 	return info, nil
+}
+
+// checkPublicIP 空地址、私网、回环、链路本地和 CGNAT 都不能写进公网 IP。
+// 以前只拦「10.」前缀，192.168、172.16 和 100.64 会照样推进 DDNS。
+func checkPublicIP(ip string) error {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil || isNonPublicIP(parsed) {
+		return fmt.Errorf("STUN 返回的 %q 不是可用的公网地址", ip)
+	}
+	return nil
 }
 
 // 获取本机ip：出口网卡上的那个地址，怎么挑见 outbound_iface.go。
@@ -47,39 +59,11 @@ func GetLocalIP() (string, error) {
 // 获取公网ip
 func GetPublicIP(stunServer string) (string, error) {
 
-	// 链接STUN服务器：从出口网卡发，不然开着 TUN 时问到的是代理节点的 IP
-	conn, err := CurrentOutboundIface().DialTCP(stunServer, 3*time.Second)
+	// 从出口网卡发，不然开着 TUN 时问到的是代理节点的 IP。
+	// 和选服务器一样：TCP Binding 完不成就再试 UDP，超时在写出请求之前就设好。
+	ip, err := dialSTUNBinding(stunServer)
 	if err != nil {
 		return "", fmt.Errorf("连接STUN服务器失败: %w", err)
 	}
-	defer conn.Close()
-
-	// 发送STUN请求
-	msg := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
-	if _, err := conn.Write(msg.Raw); err != nil {
-		return "", fmt.Errorf("发送STUN请求失败%s", err)
-	}
-
-	// 读取响应
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return "", fmt.Errorf("读取响应失败：%s", err)
-	}
-
-	// 解析响应
-	var response stun.Message
-	response.Raw = buf[:n]
-	if err = response.Decode(); err != nil {
-		return "", fmt.Errorf("解码stun失败%s", err)
-	}
-
-	var xorAddr stun.XORMappedAddress
-	if err = xorAddr.GetFrom(&response); err != nil {
-		return "", fmt.Errorf("获取映射地址失败: %s", err)
-
-	}
-
-	return xorAddr.IP.String(), nil
+	return ip.String(), nil
 }

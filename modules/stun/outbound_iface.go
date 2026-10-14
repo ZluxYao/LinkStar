@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-reuseport"
+	"github.com/sirupsen/logrus"
 )
 
 // 出口网卡：关掉代理 TUN 之后，系统本来会从哪张网卡、哪个网关出去。
@@ -200,6 +201,15 @@ func (o OutboundIface) DialTCP(addr string, timeout time.Duration) (net.Conn, er
 	return o.dialer("tcp4", timeout).Dial("tcp4", addr)
 }
 
+// DialUDP 从出口网卡发起 UDP 连接。STUN 选路在 TCP 失败时用它再试一次。
+func (o OutboundIface) DialUDP(addr string, timeout time.Duration) (net.Conn, error) {
+	addr, err := o.resolve(addr)
+	if err != nil {
+		return nil, err
+	}
+	return o.dialer("udp4", timeout).Dial("udp4", addr)
+}
+
 // ListenUDP 在出口网卡上开一个临时 UDP 套接字
 func (o OutboundIface) ListenUDP() (*net.UDPConn, error) {
 	lc := net.ListenConfig{Control: o.control}
@@ -307,6 +317,10 @@ func isTunnelName(name string) bool {
 // 网段，包发过去必进 TUN，源地址绑得再对也没用。所以从出口网卡直连公共 DNS。
 var DefaultDNSServers = []string{"114.114.114.114", "119.29.29.29"}
 
+// dnsLookupTimeout 问一台指定 DNS 的上限。
+// 用 var 是为了测试能把黑洞地址的等待缩短，运行时没有别的地方改它。
+var dnsLookupTimeout = 2 * time.Second
+
 // dnsServers 按设置挑 DNS；返回 nil 表示跟随系统
 func dnsServers() []string {
 	cfg := currentNetworkConfig()
@@ -332,24 +346,47 @@ func (o OutboundIface) resolve(addr string) (string, error) {
 
 	servers := dnsServers()
 	if servers == nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		defer cancel()
-		ips, err := net.DefaultResolver.LookupIP(ctx, "ip4", host)
-		if err != nil {
-			return "", fmt.Errorf("解析 %s 失败: %w", host, err)
-		}
-		return net.JoinHostPort(ips[0].String(), port), nil
+		return o.resolveViaSystem(host, port)
 	}
 
 	var lastErr error
 	for _, server := range servers {
 		ips, err := o.lookupVia(withDNSPort(server), host)
-		if err == nil {
+		if err == nil && len(ips) > 0 {
 			return net.JoinHostPort(ips[0].String(), port), nil
 		}
-		lastErr = err
+		if err != nil {
+			lastErr = err
+		}
 	}
-	return "", fmt.Errorf("解析 %s 失败: %w", host, lastErr)
+	// 只在「内置」模式回退。用户选了自定义之后，哪怕填的地址和 114/119 一模一样，
+	// 也不能再问系统解析器，否则 fake-ip 会把 STUN 域名解析进 TUN。
+	if currentNetworkConfig().DNSMode == model.ModeCustom {
+		return "", fmt.Errorf("解析 %s 失败: %w", host, lastErr)
+	}
+	logrus.Warnf("内置 DNS 解析 %s 失败，改用系统 DNS：%v", host, lastErr)
+	resolved, err := o.resolveViaSystem(host, port)
+	if err != nil {
+		return "", fmt.Errorf("解析 %s 失败: 内置 DNS %v；系统 DNS %w", host, lastErr, err)
+	}
+	return resolved, nil
+}
+
+// systemResolver 内置 DNS 失败后的系统解析器。测试换成只打回环的假 DNS，避免去公网解析。
+var systemResolver = net.DefaultResolver
+
+// resolveViaSystem 用系统解析器查 IPv4。
+func (o OutboundIface) resolveViaSystem(host, port string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	ips, err := systemResolver.LookupIP(ctx, "ip4", host)
+	if err != nil || len(ips) == 0 {
+		if err == nil {
+			err = fmt.Errorf("没有 A 记录")
+		}
+		return "", fmt.Errorf("解析 %s 失败: %w", host, err)
+	}
+	return net.JoinHostPort(ips[0].String(), port), nil
 }
 
 // withDNSPort "114.114.114.114" → "114.114.114.114:53"，带了端口的原样返回
@@ -388,7 +425,7 @@ func (o OutboundIface) lookupVia(server, host string) ([]net.IP, error) {
 			return o.dialer(network, 0).DialContext(ctx, network, server)
 		},
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
 	defer cancel()
 	return r.LookupIP(ctx, "ip4", host)
 }

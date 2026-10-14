@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"linkstar/core"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -37,7 +38,9 @@ func InitSTUN() error {
 		logrus.Warnf("获取出口网卡失败: %v", err)
 	}
 	currentOutboundIface.Store(&outbound)
+	networkMu.Lock()
 	Runtime.Network.Iface, Runtime.Network.Gateway = outbound.Name, outbound.Gateway
+	networkMu.Unlock()
 	logrus.Info("当前出口网卡：", outbound)
 
 	var g errgroup.Group
@@ -60,8 +63,8 @@ func InitSTUN() error {
 		if err != nil {
 			return fmt.Errorf("获取 NAT Router 列表失败: %w", err)
 		}
-		Runtime.Network.NatRouterList = natRouterList
-		logrus.Info("当前NAT Router：", Runtime.Network.NatRouterList)
+		setNatRouters(natRouterList)
+		logrus.Info("当前NAT Router：", NetworkSnapshot().NatRouterList)
 		return nil
 	})
 
@@ -75,20 +78,82 @@ func InitSTUN() error {
 
 	// 等待基础运行时准备完成
 	if err := g.Wait(); err != nil {
+		// 114/119 超时或开机时网还没好，这一轮会空。不能就此停掉：
+		// 调度器在下面才启动，返回之后没有人再调用 InitSTUN。
+		if Runtime.STUNService == nil || Runtime.STUNService.BestSTUNServer == "" {
+			go retrySTUNServerSelection()
+		}
 		return fmt.Errorf("初始化 STUN 运行时失败: %w", err)
 	}
 
+	startSTUNRuntime()
+	return nil
+}
+
+// stunRetryWait 选不出服务器之后隔多久再探一次。测试可改短。
+var stunRetryWait = 15 * time.Second
+
+// stunRetryMax 退避上限。翻倍之后如果超过它，就停在这里，不能再长到 8 分钟。
+const stunRetryMax = 5 * time.Minute
+
+// nextSTUNRetryWait 把等待时间翻倍，并钳在 5 分钟。240 秒再翻倍会变成 480 秒，这里截成 300 秒。
+func nextSTUNRetryWait(wait time.Duration) time.Duration {
+	if wait >= stunRetryMax {
+		return stunRetryMax
+	}
+	wait *= 2
+	if wait > stunRetryMax {
+		return stunRetryMax
+	}
+	return wait
+}
+
+var startSTUNRuntimeOnce sync.Once
+
+// retrySTUNServerSelection 在后台重试选服务器，选到之后再把打洞跑起来。
+func retrySTUNServerSelection() {
+	wait := stunRetryWait
+	for {
+		time.Sleep(wait)
+		if Runtime.STUNService == nil {
+			Runtime.STUNService = NewSTUNService(Runtime.Config.StunServerList)
+		} else {
+			Runtime.STUNService.UpdateSTUNService()
+		}
+		Runtime.Config.BestSTUN = Runtime.STUNService.BestSTUNServer
+		if Runtime.Config.BestSTUN == "" {
+			logrus.Warnf("仍然没有可用的 STUN 服务器，%s 后再试", wait)
+			wait = nextSTUNRetryWait(wait)
+			continue
+		}
+		logrus.Infof("STUN 服务器已就绪：%s", Runtime.Config.BestSTUN)
+		startSTUNRuntime()
+		return
+	}
+}
+
+// startSTUNRuntime 选出服务器之后才做的事：查公网 IP、周期刷新、拉起洞口。
+// 初始化失败后的重试和第一次成功走这里，只执行一次。
+func startSTUNRuntime() {
+	startSTUNRuntimeOnce.Do(func() {
+		finishSTUNStartup()
+	})
+}
+
+func finishSTUNStartup() {
 	// 4. 获取网络地址信息，依赖上面选出的 STUN 服务器
 	addrInfo, err := GetPublicIPInfo(Runtime.Config.BestSTUN)
 	if err != nil {
-		return fmt.Errorf("获取网络地址信息失败: %w", err)
+		// 服务器已经选出，公网 IP 这一轮失败不该把洞口也停掉。
+		// 周期刷新（下面的 RunNetworkRuntimeUpdater）下一轮还会再问。
+		logrus.Errorf("获取网络地址信息失败: %v", err)
+	} else {
+		// 和周期刷新一样持锁写，避免和 DDNS、调度器同时改 Runtime.Network。
+		setObservedAddress(addrInfo.LocalIP, addrInfo.PublicIP)
+		// DDNS 是和 STUN 并排起的，它先跑那一轮多半赶在这行之前，只能记一次失败。
+		// 这里回头叫它一声，就绪了立刻补一次，不用干等到下个周期。
+		go EmitPublicIPChanged(addrInfo.PublicIP)
 	}
-	Runtime.Network.LocalIP = addrInfo.LocalIP
-	Runtime.Network.PublicIP = addrInfo.PublicIP
-
-	// DDNS 是和 STUN 并排起的，它先跑那一轮多半赶在这行之前，只能记一次失败。
-	// 这里回头叫它一声，就绪了立刻补一次，不用干等到下个周期。
-	go EmitPublicIPChanged(addrInfo.PublicIP)
 
 	syncRuntimeConfig()
 
@@ -111,8 +176,6 @@ func InitSTUN() error {
 
 	// 7. 启动所有 STUN 服务映射
 	go Runtime.Scheduler.StartAll(Runtime.Config.Devices)
-
-	return nil
 }
 
 func syncRuntimeConfig() {

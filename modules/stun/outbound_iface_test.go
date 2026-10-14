@@ -29,6 +29,13 @@ func TestCollectHops(t *testing.T) {
 			want: []string{"192.168.1.1"},
 		},
 		{
+			name: "保留段 242 不能当成已经到了公网",
+			replies: map[int][]string{
+				1: {"10.0.6.171"}, 2: {"242.14.30.107"}, 3: {"203.0.113.1"},
+			},
+			want: []string{"10.0.6.171", "242.14.30.107"},
+		},
+		{
 			name: "CGN 第一次没回，重问一次回了",
 			replies: map[int][]string{
 				1: {"192.168.100.1"}, 2: {"", "100.72.0.1"},
@@ -213,5 +220,23 @@ func TestWithDNSPort(t *testing.T) {
 	}
 	if got := withDNSPort("192.168.100.1:5353"); got != "192.168.100.1:5353" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func Test保留地址回环和链路本地不是公网(t *testing.T) {
+	cases := map[string]string{
+		"242.14.30.107": IPTypePrivate,
+		"169.254.1.1":   IPTypePrivate,
+		"127.0.0.1":     IPTypePrivate,
+		"224.0.0.1":     IPTypePrivate,
+		"0.0.0.1":       IPTypePrivate,
+		"192.168.1.1":   IPTypePrivate,
+		"100.64.0.1":    IPTypeCGN,
+		"203.0.113.1":   IPTypePublic,
+	}
+	for ip, want := range cases {
+		if got := classifyIP(ip); got != want {
+			t.Errorf("classifyIP(%s) = %s，想要 %s", ip, got, want)
+		}
 	}
 }
