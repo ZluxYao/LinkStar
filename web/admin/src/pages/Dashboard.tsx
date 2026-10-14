@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import * as api from '../lib/api'
-import { portText, siteAddr, siteURL } from './ReverseProxy'
+import { portText, siteAddr, siteURL } from '../lib/proxyAddress'
 import type {
   Certificate,
   DdnsConfig,
@@ -81,20 +81,21 @@ export function Dashboard() {
   const [copied, setCopied] = useState('')
 
   // 每块都单独 catch：证书页没配、反代没开都不该让整个仪表盘空白
-  const refresh = useCallback(async () => {
-    try {
-      const cfg = await api.getStunConfig()
-      setConfig(cfg)
-      setLoadErr('')
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : String(e))
-    }
-    api.getNatType().then(setNatType).catch(() => {})
-    api.getDdnsConfig().then(setDdns).catch(() => {})
-    api.getCertList().then(setCerts).catch(() => {})
-    api.getProxyConfig().then(setProxy).catch(() => {})
-    api.getVersion().then((v) => setVersion(v.version)).catch(() => {})
-    setRefreshedAt(new Date())
+  const refresh = useCallback(() => {
+    return api.getStunConfig()
+      .then((cfg) => {
+        setConfig(cfg)
+        setLoadErr('')
+      })
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
+      .then(() => {
+        api.getNatType().then(setNatType).catch(() => {})
+        api.getDdnsConfig().then(setDdns).catch(() => {})
+        api.getCertList().then(setCerts).catch(() => {})
+        api.getProxyConfig().then(setProxy).catch(() => {})
+        api.getVersion().then((v) => setVersion(v.version)).catch(() => {})
+        setRefreshedAt(new Date())
+      })
   }, [])
 
   useEffect(() => {

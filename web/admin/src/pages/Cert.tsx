@@ -708,15 +708,14 @@ export function Cert() {
   const [editModal, setEditModal] = useState<{ open: boolean; initial?: Certificate }>({ open: false })
   const [uploadModal, setUploadModal] = useState<Certificate | null>(null)
 
-  const refresh = useCallback(async () => {
-    try {
-      const [list, provs] = await Promise.all([api.getCertList(), api.getCertProviders()])
-      setCerts(list)
-      setProviders(provs)
-      setLoadErr('')
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : String(e))
-    }
+  const refresh = useCallback(() => {
+    return Promise.all([api.getCertList(), api.getCertProviders()])
+      .then(([list, provs]) => {
+        setCerts(list)
+        setProviders(provs)
+        setLoadErr('')
+      })
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
   }, [])
 
   useEffect(() => {

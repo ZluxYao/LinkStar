@@ -391,15 +391,15 @@ function RecordModal({
     // 存下去要等到下一轮同步失败才看得见
     if (form.ipSource === 'interface' && form.ipSourceArg) {
       const picked = (ifaces ?? []).find((n) => n.name === form.ipSourceArg)
-      if (picked && !ifaceHasType(picked, form.recordType)) {
-        setErr(`网卡「${picked.name}」上没有 ${form.recordType === 'AAAA' ? 'IPv6' : 'IPv4'} 地址，换一块或改记录类型`)
+      if (picked && !ifaceHasType(picked, recordType)) {
+        setErr(`网卡「${picked.name}」上没有 ${recordType === 'AAAA' ? 'IPv6' : 'IPv4'} 地址，换一块或改记录类型`)
         return
       }
     }
     setErr('')
     setBusy(true)
     try {
-      await onSubmit(form)
+      await onSubmit({ ...form, recordType })
     } catch (e) {
       setErr(e instanceof Error ? e.message : '操作失败')
       setBusy(false)
@@ -414,12 +414,8 @@ function RecordModal({
   const ipv4Only = providerMeta?.ipv4Only ?? false
   const supportsProxied = providerMeta?.supportsProxied ?? false
 
-  // NameCheap 等仅支持 IPv4：强制 A 记录
-  useEffect(() => {
-    if (ipv4Only && form.recordType !== 'A') {
-      setForm((p) => ({ ...p, recordType: 'A' }))
-    }
-  }, [ipv4Only, form.recordType])
+  // 旧记录也可能带 AAAA，显示、校验和提交统一使用服务商支持的类型。
+  const recordType = ipv4Only ? 'A' : form.recordType
 
   return (
     <div
@@ -454,7 +450,12 @@ function RecordModal({
             <div className="mb-1 text-xs font-semibold text-slate-500">服务商</div>
             <select
               value={form.providerId}
-              onChange={(e) => setForm((p) => ({ ...p, providerId: e.target.value }))}
+              onChange={(e) => {
+                const providerId = e.target.value
+                const provider = providers.find((p) => String(p.id) === providerId)
+                const nextIpv4Only = provider && providerMetaMap.get(provider.type)?.ipv4Only
+                setForm((p) => ({ ...p, providerId, recordType: nextIpv4Only ? 'A' : recordType }))
+              }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
             >
               {providers.length === 0 && <option value="">请先添加服务商</option>}
@@ -486,7 +487,7 @@ function RecordModal({
           <label className="col-span-2 block sm:col-span-1">
             <div className="mb-1 text-xs font-semibold text-slate-500">记录类型</div>
             <select
-              value={form.recordType}
+              value={recordType}
               onChange={(e) => setForm((p) => ({ ...p, recordType: e.target.value as 'A' | 'AAAA' }))}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-400"
             >
@@ -530,8 +531,8 @@ function RecordModal({
               >
                 <option value="">自动挑一块</option>
                 {(ifaces ?? []).map((n) => (
-                  <option key={n.name} value={n.name} disabled={!ifaceHasType(n, form.recordType)}>
-                    {ifaceOptionText(n, form.recordType)}
+                  <option key={n.name} value={n.name} disabled={!ifaceHasType(n, recordType)}>
+                    {ifaceOptionText(n, recordType)}
                   </option>
                 ))}
                 {/* 存着的网卡现在不在了（换了机器、禁用了网卡）：留着这一项，
@@ -717,14 +718,13 @@ export function Ddns() {
   const [recordModal, setRecordModal] = useState<{ open: boolean; initial?: DdnsRecord }>({ open: false })
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  const refresh = useCallback(async () => {
-    try {
-      const cfg = await api.getDdnsConfig()
-      setConfig(cfg)
-      setLoadErr('')
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : String(e))
-    }
+  const refresh = useCallback(() => {
+    return api.getDdnsConfig()
+      .then((cfg) => {
+        setConfig(cfg)
+        setLoadErr('')
+      })
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
   }, [])
 
   useEffect(() => {
@@ -733,8 +733,8 @@ export function Ddns() {
     return () => window.clearInterval(t)
   }, [refresh])
 
-  const providers = config?.providers ?? []
-  const records = config?.records ?? []
+  const providers = useMemo(() => config?.providers ?? [], [config])
+  const records = useMemo(() => config?.records ?? [], [config])
 
   const providerName = useMemo(() => {
     const m = new Map<number, string>()

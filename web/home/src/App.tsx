@@ -906,8 +906,9 @@ function App() {
 
   // 壁纸状态。默认背景是一层纯 CSS，永远铺在最底下，所以这里只管上面那张照片：
   // photoUrl 是已经下载完、可以贴上去的图；photoLoaded 控制淡入。
-  const [photoUrl, setPhotoUrl] = useState<string | null>(null)
-  const [photoLoaded, setPhotoLoaded] = useState(false)
+  const [photo, setPhoto] = useState<{ source: string; url: string | null; loaded: boolean }>({
+    source: '', url: null, loaded: false,
+  })
 
   // 登录态：主页是公开的，改配置要登录
   const [authed, setAuthed] = useState(false)
@@ -970,12 +971,21 @@ function App() {
   }, [])
 
   useEffect(() => {
-    reload().catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
+    let canceled = false
+    const applyConfig = (data: HomeConfig) => {
+      if (!canceled) setConfig(data)
+    }
+    api.getConfig().then(applyConfig).catch((e) => {
+      if (!canceled) setLoadErr(e instanceof Error ? e.message : String(e))
+    })
     const t = window.setInterval(() => {
-      api.getConfig().then(setConfig).catch(() => undefined)
+      api.getConfig().then(applyConfig).catch(() => undefined)
     }, 15000)
-    return () => window.clearInterval(t)
-  }, [reload])
+    return () => {
+      canceled = true
+      window.clearInterval(t)
+    }
+  }, [])
 
   /* ============ 派生数据 ============ */
 
@@ -1027,7 +1037,8 @@ function App() {
     }
     return pages
   }, [pagedApps, autoPageCount, desiredPageTotal])
-  const pendingNavigatePageRef = useRef<number | null>(null)
+  // 页数缩小时在本次渲染内校正，避免先提交一个不存在的页面。
+  if (appPage >= appPages.length) setAppPage(appPages.length - 1)
 
   const grouped = useMemo(
     () => (config ? groupByCategory(config.apps, config.categories) : { groups: [], uncategorized: [] }),
@@ -1045,36 +1056,40 @@ function App() {
   //
   // 不设「几秒没下完就放弃」的超时：Bing 慢就让它慢，什么时候下完什么时候
   // 淡入，在那之前用户看到的是默认背景，页面照常能用。
+  const wallpaperMode = config?.wallpaper.mode ?? 'default'
+  const wallpaperResolution = config?.wallpaper.resolution ?? 'uhd'
+  const customWallpaper = config?.wallpaper.custom ?? ''
+  const wallpaperSource = JSON.stringify([wallpaperMode, wallpaperResolution, customWallpaper])
+  // 只保留当前来源的照片；切走再切回来也要重新预加载，不复用上次的淡入状态。
+  if (photo.source !== wallpaperSource) {
+    setPhoto({ source: wallpaperSource, url: null, loaded: false })
+  }
+  const photoUrl = photo.source === wallpaperSource ? photo.url : null
+  const photoLoaded = photo.source === wallpaperSource && photo.loaded
+
   useEffect(() => {
-    if (!config) return
-    const { mode, resolution, custom } = config.wallpaper
     let canceled = false
+    if (wallpaperMode === 'default' || (wallpaperMode === 'custom' && !customWallpaper)) return
 
-    // 换模式时先把旧图摘掉，露出默认背景，等新图下完再淡入
-    setPhotoUrl(null)
-    setPhotoLoaded(false)
-
-    if (mode === 'default' || (mode === 'custom' && !custom)) return
-
-    // 下完才算数：onload 里才 setPhotoUrl，此时图已在缓存里，
+    // 下完才算数：onload 里才保存照片，此时图已在缓存里，
     // <img> 挂上去立刻可解码，opacity 0 → 1 是一次真正的渐显。
     const preload = (url: string) => {
       const image = new Image()
       image.onload = () => {
-        if (!canceled) setPhotoUrl(url)
+        if (!canceled) setPhoto({ source: wallpaperSource, url, loaded: false })
       }
       image.src = url
     }
 
-    if (mode === 'custom') {
-      preload(`/${custom}`)
+    if (wallpaperMode === 'custom') {
+      preload(`/${customWallpaper}`)
       return () => {
         canceled = true
       }
     }
 
     api
-      .getBingWallpaper(resolution)
+      .getBingWallpaper(wallpaperResolution)
       .then((data) => {
         if (data.url && !canceled) preload(data.url)
       })
@@ -1083,7 +1098,7 @@ function App() {
     return () => {
       canceled = true
     }
-  }, [config?.wallpaper.mode, config?.wallpaper.resolution, config?.wallpaper.custom])
+  }, [wallpaperMode, wallpaperResolution, customWallpaper, wallpaperSource])
 
   // 自定义的默认背景样式：塞进一个 <style>，选择器写两遍类名把特异度拉高，
   // 这样能盖掉 App.css 里那条出厂规则，不用 !important。
@@ -1119,7 +1134,7 @@ function App() {
 
   /* ============ 翻页动画 ============ */
 
-  const movePage = (delta: number, axis: 'x' | 'y') => {
+  const movePage = useCallback((delta: number, axis: 'x' | 'y') => {
     if (animatingRef.current) return
     setAppPage((curr) => {
       const next = curr + delta
@@ -1133,12 +1148,12 @@ function App() {
       }, 360)
       return next
     })
-  }
+  }, [appPages.length])
 
-  const goToAppPage = (target: number, axis: 'x' | 'y') => {
+  const goToAppPage = (target: number, axis: 'x' | 'y', pageTotal = appPages.length) => {
     if (animatingRef.current) return
     setAppPage((curr) => {
-      if (target === curr || target < 0 || target >= appPages.length) return curr
+      if (target === curr || target < 0 || target >= pageTotal) return curr
       animatingRef.current = true
       setAppSlide({ from: curr, axis, dir: target > curr ? 1 : -1 })
       if (slideTimeoutRef.current !== null) window.clearTimeout(slideTimeoutRef.current)
@@ -1150,25 +1165,11 @@ function App() {
     })
   }
 
-  useEffect(() => {
-    if (appPage > appPages.length - 1) setAppPage(Math.max(0, appPages.length - 1))
-  }, [appPages.length, appPage])
-
-  useEffect(() => {
-    const pending = pendingNavigatePageRef.current
-    if (pending !== null && pending < appPages.length) {
-      pendingNavigatePageRef.current = null
-      goToAppPage(pending, allowHorizontal ? 'x' : 'y')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [appPages.length])
-
   const addNewPage = () => {
-    setDesiredPageTotal((prev) => {
-      const next = Math.max(prev, autoPageCount) + 1
-      pendingNavigatePageRef.current = next - 1
-      return next
-    })
+    const next = Math.max(desiredPageTotal, autoPageCount) + 1
+    setDesiredPageTotal(next)
+    // 新页与跳转一起更新，校验用即将生效的页数。
+    goToAppPage(next - 1, allowHorizontal ? 'x' : 'y', next)
   }
 
   useEffect(() => {
@@ -1234,7 +1235,7 @@ function App() {
       pager.removeEventListener('touchstart', onTouchStart)
       pager.removeEventListener('touchend', onTouchEnd)
     }
-  }, [appPages.length, showSettings, isScrollMode, allowHorizontal, allowVertical, config])
+  }, [appPages.length, showSettings, isScrollMode, allowHorizontal, allowVertical, config, movePage])
 
   const getSlideInClass = (axis: 'x' | 'y', dir: 1 | -1) => {
     if (axis === 'x') return dir === 1 ? 'app-slide-in-from-right' : 'app-slide-in-from-left'
@@ -1697,7 +1698,7 @@ function App() {
     const node = floatingIconRef.current
     if (!info || !node) return
     node.style.transform = `translate3d(${info.lastX}px, ${info.lastY}px, 0)`
-  }, [pagedDragSource?.id])
+  }, [pagedDragSource])
 
   const removeApp = async (id: string) => {
     if (!window.confirm('从主页移除该应用?')) return
@@ -1738,13 +1739,15 @@ function App() {
       {/* 上面一层：自定义图 / Bing 图，下完了才挂上来，700ms 淡入 */}
       {photoUrl && (
         <img
+          key={wallpaperSource}
           src={photoUrl}
           alt=""
-          onLoad={() => setPhotoLoaded(true)}
-          onError={() => {
-            setPhotoLoaded(false)
-            setPhotoUrl(null)
-          }}
+          onLoad={() => setPhoto((prev) => (
+            prev.source === wallpaperSource && prev.url === photoUrl ? { ...prev, loaded: true } : prev
+          ))}
+          onError={() => setPhoto((prev) => (
+            prev.source === wallpaperSource && prev.url === photoUrl ? { ...prev, url: null, loaded: false } : prev
+          ))}
           className={`fixed inset-0 h-full w-full object-cover transition-opacity duration-700 ${photoLoaded ? 'opacity-100' : 'opacity-0'
             }`}
           style={{

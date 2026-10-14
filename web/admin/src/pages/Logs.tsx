@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RotateCw, Search } from 'lucide-react'
 import { Card, CardHeader } from '../components/Card'
 import * as api from '../lib/api'
@@ -32,8 +32,13 @@ export function Logs() {
   const [search, setSearch] = useState('')
   const [rows, setRows] = useState<LogEntry[]>([])
   const [truncated, setTruncated] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const query = useMemo(() => ({ day, level, keyword: search, limit: 500 }), [day, level, search])
+  const [loadedQuery, setLoadedQuery] = useState<typeof query | null>(null)
+  // 筛选变化就进入读取态，手动刷新由点击事件启动，避免 effect 再同步改状态。
+  const loading = !!day && (refreshing || loadedQuery !== query)
   const [err, setErr] = useState('')
+  const latestRequest = useRef(0)
 
   useEffect(() => {
     api
@@ -45,25 +50,40 @@ export function Logs() {
       .catch((e) => setErr(e instanceof Error ? e.message : String(e)))
   }, [])
 
-  const refresh = useCallback(async () => {
+  const load = useCallback(() => {
+    if (!query.day) return
+    const requestId = ++latestRequest.current
+    return api.getLogs(query)
+      .then((r) => {
+        if (requestId !== latestRequest.current) return
+        setRows(r.list || [])
+        setTruncated(r.truncated)
+        setErr('')
+      })
+      .catch((e) => {
+        if (requestId !== latestRequest.current) return
+        setErr(e instanceof Error ? e.message : String(e))
+        setRows([])
+      })
+      .finally(() => {
+        if (requestId !== latestRequest.current) return
+        setLoadedQuery(query)
+        setRefreshing(false)
+      })
+  }, [query])
+
+  const refresh = () => {
     if (!day) return
-    setLoading(true)
-    try {
-      const r = await api.getLogs({ day, level, keyword: search, limit: 500 })
-      setRows(r.list || [])
-      setTruncated(r.truncated)
-      setErr('')
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e))
-      setRows([])
-    } finally {
-      setLoading(false)
-    }
-  }, [day, level, search])
+    setRefreshing(true)
+    void load()
+  }
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    void load()
+    return () => {
+      latestRequest.current += 1
+    }
+  }, [load])
 
   return (
     <div className="space-y-4">

@@ -104,10 +104,10 @@ export const MIN_PASSWORD_LENGTH = 8
 export const getAuthStatus = () =>
   request<{ initialized: boolean }>('/api/auth/status')
 
-export const setupPassword = (password: string) =>
+export const setupPassword = (password: string, setupToken?: string) =>
   request<{ token: string }>('/api/auth/setup', {
     method: 'POST',
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, setupToken: setupToken ?? '' }),
   })
 
 export const login = (password: string) =>

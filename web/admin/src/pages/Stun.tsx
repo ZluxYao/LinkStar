@@ -654,7 +654,7 @@ function ServiceModal({
   const [activeTab, setActiveTab] = useState<ServiceModalTab>('basic')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [templates, setTemplates] = useState<WebhookTemplate[]>([])
-  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templatesLoading, setTemplatesLoading] = useState(true)
   const [templateBusy, setTemplateBusy] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [templateDescription, setTemplateDescription] = useState('')
@@ -671,7 +671,16 @@ function ServiceModal({
     let alive = true
     api
       .getCertList()
-      .then((list) => alive && setCerts(list))
+      .then((list) => {
+        if (!alive) return
+        setCerts(list)
+        // 证书晚到时只补空域名，保留等待期间用户输入和 TLS / 协议选择。
+        setForm((p) => {
+          if (!p.tlsTerminate || p.protocol === 'UDP' || p.domain.trim()) return p
+          const filled = pickCertDomain(list, p.certId)
+          return filled ? { ...p, domain: filled } : p
+        })
+      })
       .catch(() => {})
     return () => {
       alive = false
@@ -811,17 +820,6 @@ function ServiceModal({
     }
   }
 
-  // 老服务可能是「已经终结 TLS、对外域名却空着」的状态（那时候还没这条约束）。
-  // 证书列表是异步来的，等它到位再补，且只补空的——用户自己填过的不动。
-  useEffect(() => {
-    if (certs.length === 0) return
-    setForm((p) => {
-      if (!p.tlsTerminate || p.protocol === 'UDP' || p.domain.trim()) return p
-      const filled = pickCertDomain(certs, p.certId)
-      return filled ? { ...p, domain: filled } : p
-    })
-  }, [certs])
-
   const tlsOn = form.tlsTerminate && form.protocol !== 'UDP'
   const certDomains = useMemo(() => certDomainsOf(certs, form.certId), [certs, form.certId])
   const domainValue = form.domain.trim().toLowerCase()
@@ -831,26 +829,19 @@ function ServiceModal({
   const domainRequired = tlsOn && Number(form.certId) !== 0 && certDomains.length > 0
   const domainCovered = certDomains.some((d) => matchCertDomain(d, domainValue))
 
-  const refreshWebhookTemplates = useCallback(async () => {
-    setTemplatesLoading(true)
-    try {
-      const list = await api.getWebhookTemplates()
-      setTemplates(
-        list.map((item) => ({
-          ...item,
-          config: normalizeWebhook(item.config),
-        })),
-      )
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : '读取模板失败')
-    } finally {
-      setTemplatesLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    refreshWebhookTemplates()
-  }, [refreshWebhookTemplates])
+    api.getWebhookTemplates()
+      .then((list) => {
+        setTemplates(
+          list.map((item) => ({
+            ...item,
+            config: normalizeWebhook(item.config),
+          })),
+        )
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : '读取模板失败'))
+      .finally(() => setTemplatesLoading(false))
+  }, [])
 
   const updateWebhook = (patch: Partial<WebhookConfig>) => {
     setForm((p) => ({
@@ -2263,21 +2254,20 @@ export function Stun() {
   const [logKey, setLogKey] = useState<string | null>(null)
   const [natTypeOpen, setNatTypeOpen] = useState(false)
 
-  const refresh = useCallback(async () => {
-    try {
-      const [cfg, home] = await Promise.all([api.getStunConfig(), api.getHomeConfig().catch(() => ({ apps: [] as api.HomeApp[] }))])
-      setConfig(cfg)
-      const set = new Set<string>()
-      for (const app of home.apps) {
-        if (app.type === 'stun') {
-          const m = /^stun-(\d+)-(\d+)$/.exec(app.id || '')
-          if (m) set.add(`${m[1]}-${m[2]}`)
+  const refresh = useCallback(() => {
+    return Promise.all([api.getStunConfig(), api.getHomeConfig().catch(() => ({ apps: [] as api.HomeApp[] }))])
+      .then(([cfg, home]) => {
+        setConfig(cfg)
+        const set = new Set<string>()
+        for (const app of home.apps) {
+          if (app.type === 'stun') {
+            const m = /^stun-(\d+)-(\d+)$/.exec(app.id || '')
+            if (m) set.add(`${m[1]}-${m[2]}`)
+          }
         }
-      }
-      setHomeSet(set)
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : String(e))
-    }
+        setHomeSet(set)
+      })
+      .catch((e) => setLoadErr(e instanceof Error ? e.message : String(e)))
   }, [])
 
   useEffect(() => {
