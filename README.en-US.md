@@ -332,7 +332,7 @@ For building from source, contributing, or forking.
 
 ### Stack
 
-- **Backend**: Go, Gin, logrus, pion/stun, goupnp, lego (ACME)
+- **Backend**: Go, Gin, logrus, pion/stun, goupnp, `golang.org/x/crypto/acme`
 - **Desktop shell**: Wails v3 (optional, for the tray build)
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, lucide-react
 - **Storage**: local JSON config files
@@ -369,9 +369,12 @@ A [Taskfile](Taskfile.yml) is included for the Wails v3 tray build:
 
 ```bash
 task build:frontend   # build both Home and Admin frontends
-task build            # build the desktop app for the current platform
-task run              # run it
+task build:linux      # Linux CLI; this target works on Linux
+task build            # Windows release: desktop + Windows CLI + Linux CLI; needs powershell and Wails
+task run              # run the desktop app (Windows)
 ```
+
+For a Linux CLI build without task, `go build -o linkstar .` is enough.
 
 The desktop build lives in the tray, opens the dashboard or homepage quickly, and minimises to tray on close.
 

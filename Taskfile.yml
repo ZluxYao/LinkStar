@@ -42,7 +42,7 @@ tasks:
       GOARCH: amd64
       CGO_ENABLED: 0
     cmds:
-      - powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path '{{.BIN_DIR}}' | Out-Null"
+      - mkdir -p {{.BIN_DIR}}
       - go build -trimpath -ldflags="-s -w" -o "{{.BIN_DIR}}/linkstar" .
 
   # 前端构建：改过前端后先跑这个再 build

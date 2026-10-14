@@ -332,7 +332,7 @@ Webhook 请求体和 URL 中可以用服务的运行时变量：
 
 ### 技术栈
 
-- **后端**：Go、Gin、logrus、pion/stun、goupnp、lego（ACME）
+- **后端**：Go、Gin、logrus、pion/stun、goupnp、`golang.org/x/crypto/acme`
 - **桌面壳**：Wails v3（可选，构建托盘桌面版时使用）
 - **前端**：React、TypeScript、Vite、Tailwind CSS、lucide-react
 - **存储**：本地 JSON 配置文件
@@ -369,9 +369,12 @@ go build -o linkstar .     # CLI / 服务版
 
 ```bash
 task build:frontend   # 构建 Home / Admin 两个前端
-task build            # 构建当前平台的桌面应用
-task run              # 运行桌面应用
+task build:linux      # Linux CLI（在 Linux 上可直接跑）
+task build            # Windows 发布：桌面版 + Windows CLI + Linux CLI，需要 powershell 和 Wails
+task run              # 运行桌面应用（Windows）
 ```
+
+Linux 上只要命令行版时，也可以不装 task，直接 `go build -o linkstar .`。
 
 桌面版在托盘常驻，可快速打开管理后台或导航主页，关闭窗口即最小化到托盘。
 
