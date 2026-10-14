@@ -352,7 +352,10 @@ func initDefaultIPSources() {
 	wg.Wait()
 }
 
-// fetchIPFromWebList 从默认列表自动尝试
+// fetchIPFromWebList 按评分从低到高试内置回显源。
+//
+// 两个源给出同一个地址就立刻采用。只剩一个有效来源，或各源对不上且都没有两票时，
+// 仍返回最先成功的公网 IP：内置列表是老配置的默认路径，凑不齐两票不能整次失败。
 func fetchIPFromWebList(sources []*webIPSource, version int) (string, error) {
 	sourceMu.Lock()
 	sort.Slice(sources, func(i, j int) bool {
@@ -363,6 +366,9 @@ func fetchIPFromWebList(sources []*webIPSource, version int) (string, error) {
 	sourceMu.Unlock()
 
 	var lastErr error
+	// 只统计通过校验的结果。失败、非 IP、非公网都不算一票。
+	var firstIP string
+	votes := map[string]int{}
 	for _, s := range ordered {
 		start := time.Now()
 		ip, err := fetchIPFromWeb(s.URL, version)
@@ -384,13 +390,27 @@ func fetchIPFromWebList(sources []*webIPSource, version int) (string, error) {
 		}
 		sourceMu.Unlock()
 
-		if err == nil {
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if firstIP == "" {
+			firstIP = ip
+		}
+		// 两个源一致就立刻用。扫完仍凑不齐两票时退回最先成功的那个：
+		// 内置列表是老配置的默认路径，不能再要求必须凑满两票。
+		votes[ip]++
+		if votes[ip] >= 2 {
 			return ip, nil
 		}
-		lastErr = err
 	}
-	return "", fmt.Errorf("所有 IP 查询源均失败，最后一个错误: %w", lastErr)
-
+	if len(votes) == 0 {
+		return "", fmt.Errorf("所有 IP 查询源均失败，最后一个错误: %w", lastErr)
+	}
+	if len(votes) > 1 {
+		logrus.Warnf("IP 查询源结果不一致 %v，采用最先成功的 %s", votes, firstIP)
+	}
+	return firstIP, nil
 }
 
 // fetchIPFormWeb 从给定URL拉取纯文本ip
@@ -410,13 +430,45 @@ func fetchIPFromWeb(url string, version int) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("从 %s 得到 HTTP %d", url, resp.StatusCode)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256))
 	if err != nil {
 		return "", err
 	}
-	ip := strings.TrimSpace(string(body))
-	if ip == "" {
-		return "", fmt.Errorf("从 %s 拿到空 IP", url)
+	ip, err := parseWebIP(string(body), version)
+	if err != nil {
+		return "", fmt.Errorf("从 %s 拿到的内容不能当 IP: %w", url, err)
 	}
 	return ip, nil
+}
+
+// parseWebIP 只接受对应地址族的公网地址。HTML 错误页、私网和链路本地都不能写进 DNS。
+func parseWebIP(raw string, version int) (string, error) {
+	ip := net.ParseIP(strings.TrimSpace(raw))
+	if ip == nil {
+		return "", fmt.Errorf("%q 不是 IP", strings.TrimSpace(raw))
+	}
+	if version == 4 && ip.To4() == nil {
+		return "", fmt.Errorf("%s 不是 IPv4", ip)
+	}
+	if version == 6 && (ip.To4() != nil || ip.To16() == nil) {
+		return "", fmt.Errorf("%s 不是 IPv6", ip)
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return "", fmt.Errorf("%s 不是公网地址", ip)
+	}
+	if ip4 := ip.To4(); ip4 != nil {
+		// 100.64.0.0/10 是运营商级 NAT，标准库的 IsPrivate 不覆盖。
+		if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+			return "", fmt.Errorf("%s 是运营商级 NAT 地址", ip)
+		}
+		// 0.0.0.0/8 和 240.0.0.0/4 同样不是可路由公网，写进 DNS 也不可达。
+		// 与路由扫描的 isNonPublicIP 同一口径。
+		if ip4[0] == 0 || ip4[0] >= 240 {
+			return "", fmt.Errorf("%s 不是公网地址", ip)
+		}
+	}
+	return ip.String(), nil
 }
