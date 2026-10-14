@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestRuntime 给每个用例一个独立的临时工作目录，
@@ -17,6 +18,26 @@ func newTestRuntime(t *testing.T) *AuthRuntime {
 	}
 	return &AuthRuntime{
 		Config: Config{JwtSecret: randomSecret(), TokenTTLHours: defaultTokenTTLHours},
+	}
+}
+
+func Test改密码错误次数和登录共用限制(t *testing.T) {
+	old := globalLoginFailureLimiter
+	globalLoginFailureLimiter = newLoginFailureLimiter(3*time.Minute, 13)
+	t.Cleanup(func() { globalLoginFailureLimiter = old })
+
+	r := newTestRuntime(t)
+	const pwd = "old-password-1"
+	if err := r.Setup(pwd); err != nil {
+		t.Fatalf("Setup 失败：%v", err)
+	}
+	for i := 0; i < 13; i++ {
+		if _, err := r.ChangePassword("not-the-password", "new-password-2"); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("第 %d 次应是密码错误，实际 %v", i+1, err)
+		}
+	}
+	if _, err := r.ChangePassword("not-the-password", "new-password-2"); !errors.Is(err, ErrLoginLimited) {
+		t.Fatalf("第 14 次应被限流，实际 %v", err)
 	}
 }
 
