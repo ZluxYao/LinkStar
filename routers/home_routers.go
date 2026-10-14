@@ -14,11 +14,13 @@ func HomeRoutersPublic(g *gin.RouterGroup) {
 	// 导航主页公开读接口（访客直接打开主页就用）
 	g.GET("home/config", app.GetHomeConfigView)
 	g.GET("home/bing-wallpaper", app.BingWallpaperView)
-	g.GET("home/search-history", app.SearchHistoryGetView)
 }
 
 func HomeRoutersProtected(g *gin.RouterGroup) {
 	var app = api.App.HomeApi
+
+	// 搜索历史里是使用者敲过的词，只给已登录的人看
+	g.GET("home/search-history", app.SearchHistoryGetView)
 
 	// 主页装饰
 	g.PUT("home/wallpaper",

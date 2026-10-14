@@ -1,6 +1,7 @@
 package home_api
 
 import (
+	"linkstar/middleware"
 	"linkstar/modules/home"
 	"linkstar/utils/res"
 
@@ -38,10 +39,18 @@ func (HomeApi) GetHomeConfigView(c *gin.Context) {
 			NetworkPrefer:         cfg.NetworkPrefer,
 			DefaultSearchEngineID: cfg.DefaultSearchEngineID,
 			SearchEngines:         append([]home.SearchEngine{}, cfg.SearchEngines...),
-			SearchHistory:         append([]string{}, cfg.SearchHistory...),
-			Categories:            append([]home.Category{}, cfg.Categories...),
-			Apps:                  home.HydrateApps(cfg.Apps),
+			// 导航页本身公开，但搜索词不是。没登录就给空列表，避免前端拿到 null。
+			SearchHistory: searchHistoryFor(c, cfg.SearchHistory),
+			Categories:    append([]home.Category{}, cfg.Categories...),
+			Apps:          home.HydrateApps(cfg.Apps),
 		}
 	})
 	res.OkWithData(resp, c)
+}
+
+func searchHistoryFor(c *gin.Context, history []string) []string {
+	if !middleware.IsAuthed(c) {
+		return []string{}
+	}
+	return append([]string{}, history...)
 }
