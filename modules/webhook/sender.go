@@ -31,8 +31,11 @@ func Send(cfg WebhookConfig, fields map[string]string) (respBody string, err err
 	}
 	body := replacer.Replace(cfg.Body)
 
-	// 构建客户端
+	// 构建客户端。代理地址非法时必须在这里返回，不能拿空客户端去发请求。
 	client, err := buildClient(cfg.Proxy)
+	if err != nil {
+		return "", err
+	}
 
 	for i := 0; i < 3; i++ {
 		respBody, err = sendOnce(client, method, rawURL, body, cfg, replacer)
@@ -98,7 +101,10 @@ func buildClient(proxy string) (*http.Client, error) {
 	// 解析http代理
 	if p := strings.TrimSpace(proxy); p != "" {
 		u, err := url.Parse(p)
-		if err != nil {
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			if err == nil {
+				err = fmt.Errorf("需要 http 或 https 代理，例如 http://127.0.0.1:7890")
+			}
 			return nil, fmt.Errorf("代理地址无效: %w", err)
 		}
 		transport.Proxy = http.ProxyURL(u)
