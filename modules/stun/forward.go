@@ -114,11 +114,25 @@ func describeDialError(err error) string {
 
 const udpSessionTimeout = 30 * time.Second
 
-var udpSessions sync.Map // remoteAddr.String() → net.Conn
+var udpSessions sync.Map // udpSessionKey → net.Conn
 
-// ForwardUDP 维护 session 表，同一客户端复用同一内部连接，持续转发回包。
+// udpSessionKey 必须带上本机端口和内网目标。
+// 只按客户端地址索引时，同一个源先打到服务 A、再打到服务 B，第二次的包会写进通往 A 的连接。
+func udpSessionKey(local net.Addr, remote *net.UDPAddr, targetAddr string) string {
+	localKey := ""
+	if local != nil {
+		localKey = local.String()
+	}
+	remoteKey := ""
+	if remote != nil {
+		remoteKey = remote.String()
+	}
+	return localKey + "->" + remoteKey + "->" + targetAddr
+}
+
+// ForwardUDP 维护 session 表，同一客户端、同一目标复用同一内部连接，持续转发回包。
 func ForwardUDP(localConn *net.UDPConn, remoteAddr *net.UDPAddr, data []byte, targetAddr string) {
-	key := remoteAddr.String()
+	key := udpSessionKey(localConn.LocalAddr(), remoteAddr, targetAddr)
 
 	if v, ok := udpSessions.Load(key); ok {
 		v.(net.Conn).Write(data)
