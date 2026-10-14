@@ -65,7 +65,6 @@ func ReadJsonFile[T any](filePath string) (T, error) {
 	if err = json.Unmarshal(data, &result); err != nil {
 		return result, err
 	}
-
 	return result, nil
 }
 
@@ -77,10 +76,10 @@ func WriteJsonFile[T any](filePath string, obj T) error {
 		return err
 	}
 
-	// 写入文件，权限设置为0644
-	if err = os.WriteFile(filePath, data, 0644); err != nil {
+	// 配置里有 JWT 密钥、DNS token、密码哈希。0644 会让同机其他用户直接读走密钥。
+	if err = os.WriteFile(filePath, data, 0600); err != nil {
 		return err
 	}
-
-	return nil
+	// 文件收成 0600。父目录只有在是项目 config/ 时才收成 0700，见 ProtectConfigFile。
+	return ProtectConfigFile(filePath)
 }

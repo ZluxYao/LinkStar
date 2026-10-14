@@ -84,10 +84,13 @@ func (r *AuthRuntime) Setup(password string) error {
 		if cfg.Initialized {
 			return ErrAlreadyInit
 		}
-		// 兜底：若 InitAuth 尚未生成 secret（启动竞态），此处补上，避免签发用空密钥
-		if cfg.JwtSecret == "" {
-			cfg.JwtSecret = randomSecret()
+		// 设置密码通常是因为机器刚暴露在网上。此前落盘的密钥可能已经被同机用户读走，
+		// 不换的话伪造的 token 在设完密码之后仍然有效。
+		secret, err := randomSecret()
+		if err != nil {
+			return err
 		}
+		cfg.JwtSecret = secret
 		if cfg.TokenTTLHours <= 0 {
 			cfg.TokenTTLHours = defaultTokenTTLHours
 		}
@@ -158,6 +161,13 @@ func (r *AuthRuntime) ChangePassword(oldPassword, newPassword string) (string, e
 	if !cfg.Initialized {
 		return "", ErrNotInitialized
 	}
+	if !globalLoginFailureLimiter.begin(time.Now()) {
+		return "", ErrLoginLimited
+	}
+	loginResult := loginAttemptIgnored
+	defer func() {
+		globalLoginFailureLimiter.finish(loginResult, time.Now())
+	}()
 	matched, err := pwd.VerifyPassword(cfg.PasswordHash, oldPassword)
 	if errors.Is(err, pwd.ErrArgon2Busy) {
 		return "", ErrPasswordBusy
@@ -166,6 +176,7 @@ func (r *AuthRuntime) ChangePassword(oldPassword, newPassword string) (string, e
 		return "", err
 	}
 	if !matched {
+		loginResult = loginAttemptFailed
 		return "", ErrWrongPassword
 	}
 	hash, err := pwd.HashPassword(newPassword)
@@ -179,8 +190,12 @@ func (r *AuthRuntime) ChangePassword(oldPassword, newPassword string) (string, e
 	var secret string
 	var ttlHours int
 	if err := r.WithLock(func(cfg *Config) error {
+		next, err := randomSecret()
+		if err != nil {
+			return err
+		}
 		cfg.PasswordHash = hash
-		cfg.JwtSecret = randomSecret()
+		cfg.JwtSecret = next
 		if cfg.TokenTTLHours <= 0 {
 			cfg.TokenTTLHours = defaultTokenTTLHours
 		}
@@ -189,5 +204,6 @@ func (r *AuthRuntime) ChangePassword(oldPassword, newPassword string) (string, e
 	}); err != nil {
 		return "", err
 	}
+	loginResult = loginAttemptSucceeded
 	return jwt.GenerateToken(secret, time.Duration(ttlHours)*time.Hour)
 }

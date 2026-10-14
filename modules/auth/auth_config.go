@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"time"
 
@@ -26,9 +27,18 @@ func ReadConfig() (Config, error) {
 		logrus.Error("Auth Config 读取失败：", err)
 		return cfg, err
 	}
+	// 老配置可能是 0644。读鉴权配置时收紧，而不是让所有 JSON 读取都去改父目录。
+	if err := utilsFile.ProtectConfigFile(ConfigPath); err != nil {
+		logrus.Error("Auth Config 权限收紧失败：", err)
+		return cfg, err
+	}
 	// 兜底：老配置或被清空的 secret，补一个
 	if cfg.JwtSecret == "" {
-		cfg.JwtSecret = randomSecret()
+		secret, err := randomSecret()
+		if err != nil {
+			return cfg, err
+		}
+		cfg.JwtSecret = secret
 	}
 	if cfg.TokenTTLHours <= 0 {
 		cfg.TokenTTLHours = defaultTokenTTLHours
@@ -38,13 +48,17 @@ func ReadConfig() (Config, error) {
 
 // createConfig 首次启动写入默认值：未初始化 + 随机 JwtSecret
 func createConfig() (Config, error) {
+	secret, err := randomSecret()
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		Initialized:   false,
-		JwtSecret:     randomSecret(),
+		JwtSecret:     secret,
 		TokenTTLHours: defaultTokenTTLHours,
 		UpdatedAt:     time.Now().Format(time.RFC3339),
 	}
-	if err := os.MkdirAll("config", 0755); err != nil {
+	if err := os.MkdirAll("config", 0700); err != nil {
 		logrus.Error("创建 config 目录失败：", err)
 		return cfg, err
 	}
@@ -65,12 +79,12 @@ func UpdateConfig(cfg Config) error {
 	return nil
 }
 
-// randomSecret 生成 32 字节的 hex 随机密钥
-func randomSecret() string {
+// randomSecret 生成 32 字节的 hex 随机密钥。
+// crypto/rand 失败时直接返回错误，不用时间戳凑一把可预测的密钥。
+func randomSecret() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand 失败极罕见，用时间兜底避免空 secret
-		return hex.EncodeToString([]byte(time.Now().Format(time.RFC3339Nano)))
+		return "", fmt.Errorf("生成签名密钥失败: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }

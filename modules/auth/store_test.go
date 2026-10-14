@@ -5,6 +5,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"linkstar/utils/jwt"
+	"linkstar/utils/utilsFile"
 )
 
 // newTestRuntime 给每个用例一个独立的临时工作目录，
@@ -15,8 +19,77 @@ func newTestRuntime(t *testing.T) *AuthRuntime {
 	if err := os.MkdirAll("config", 0o755); err != nil {
 		t.Fatalf("创建 config 目录失败：%v", err)
 	}
+	secret, err := randomSecret()
+	if err != nil {
+		t.Fatalf("生成测试密钥失败：%v", err)
+	}
 	return &AuthRuntime{
-		Config: Config{JwtSecret: randomSecret(), TokenTTLHours: defaultTokenTTLHours},
+		Config: Config{JwtSecret: secret, TokenTTLHours: defaultTokenTTLHours},
+	}
+}
+
+func Test读取旧配置时把权限收紧到只有属主可读(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.MkdirAll("config", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("config/authConfig.json", []byte("{\"initialized\":false,\"jwtSecret\":\"abc\",\"tokenTtlHours\":1}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	if err := utilsFile.VerifyConfigProtected("config/authConfig.json", "config"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func Test设置密码会换掉已落盘的密钥并收紧权限(t *testing.T) {
+	r := newTestRuntime(t)
+	oldSecret := r.Config.JwtSecret
+	if err := os.WriteFile("config/authConfig.json", []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod("config", 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.Setup("password-123"); err != nil {
+		t.Fatalf("Setup 失败：%v", err)
+	}
+	if r.Config.JwtSecret == "" || r.Config.JwtSecret == oldSecret {
+		t.Fatal("设置密码后应换一把新的签名密钥，避免事先抄走的密钥继续有效")
+	}
+	if err := utilsFile.VerifyConfigProtected("config/authConfig.json", "config"); err != nil {
+		t.Fatal(err)
+	}
+
+	oldToken, err := jwt.GenerateToken(oldSecret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.ValidateToken(oldToken) {
+		t.Fatal("用设置密码前的密钥签发的 token 不应再通过")
+	}
+}
+
+func Test改密码错误次数和登录共用限制(t *testing.T) {
+	old := globalLoginFailureLimiter
+	globalLoginFailureLimiter = newLoginFailureLimiter(3*time.Minute, 13)
+	t.Cleanup(func() { globalLoginFailureLimiter = old })
+
+	r := newTestRuntime(t)
+	const pwd = "old-password-1"
+	if err := r.Setup(pwd); err != nil {
+		t.Fatalf("Setup 失败：%v", err)
+	}
+	for i := 0; i < 13; i++ {
+		if _, err := r.ChangePassword("not-the-password", "new-password-2"); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("第 %d 次应是密码错误，实际 %v", i+1, err)
+		}
+	}
+	if _, err := r.ChangePassword("not-the-password", "new-password-2"); !errors.Is(err, ErrLoginLimited) {
+		t.Fatalf("第 14 次应被限流，实际 %v", err)
 	}
 }
 
