@@ -23,7 +23,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 	if err != nil {
 		return err
 	}
-	localIP := Runtime.Network.LocalIP
+	localIP := LocalIP()
 	if localIP == "" {
 		return fmt.Errorf("get local IP failed")
 	}

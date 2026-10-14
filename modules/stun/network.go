@@ -83,12 +83,15 @@ func updateNetworkAddress(stunServer string) bool {
 	}
 
 	//如果发生网络变化更新NatRouter
-	if Runtime.Network.LocalIP != addrInfo.LocalIP || Runtime.Network.PublicIP != addrInfo.PublicIP {
-		publicChanged := Runtime.Network.PublicIP != addrInfo.PublicIP
-
-		// 更新网络信息
+	networkMu.Lock()
+	addressChanged := Runtime.Network.LocalIP != addrInfo.LocalIP || Runtime.Network.PublicIP != addrInfo.PublicIP
+	publicChanged := Runtime.Network.PublicIP != addrInfo.PublicIP
+	if addressChanged {
 		Runtime.Network.LocalIP = addrInfo.LocalIP
 		Runtime.Network.PublicIP = addrInfo.PublicIP
+	}
+	networkMu.Unlock()
+	if addressChanged {
 
 		// 更新NatRouter
 		go updateNatRouter()
@@ -109,7 +112,7 @@ func updateNatRouter() {
 		logrus.Warnf("更新 NAT Router 失败: %v", err)
 		return
 	}
-	Runtime.Network.NatRouterList = natRouterList
+	setNatRouters(natRouterList)
 }
 
 // refreshOutboundIface 出口网卡换了（拔网线切 Wi-Fi、DHCP 换地址、改了网络设置）：
@@ -133,8 +136,10 @@ func refreshOutboundIface() {
 
 	// 公网 IP 交给紧接着的那一轮去问；LocalIP 在这里先换掉，
 	// 不然下面重启的服务还会绑回旧地址
-	Runtime.Network.LocalIP = cur.LocalIP
+	setLocalIP(cur.LocalIP)
+	networkMu.Lock()
 	Runtime.Network.Iface, Runtime.Network.Gateway = cur.Name, cur.Gateway
+	networkMu.Unlock()
 	go updateNatRouter()
 	if Runtime.Scheduler != nil {
 		go Runtime.Scheduler.StartAll(Runtime.Config.Devices)

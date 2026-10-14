@@ -37,7 +37,9 @@ func InitSTUN() error {
 		logrus.Warnf("获取出口网卡失败: %v", err)
 	}
 	currentOutboundIface.Store(&outbound)
+	networkMu.Lock()
 	Runtime.Network.Iface, Runtime.Network.Gateway = outbound.Name, outbound.Gateway
+	networkMu.Unlock()
 	logrus.Info("当前出口网卡：", outbound)
 
 	var g errgroup.Group
@@ -60,8 +62,8 @@ func InitSTUN() error {
 		if err != nil {
 			return fmt.Errorf("获取 NAT Router 列表失败: %w", err)
 		}
-		Runtime.Network.NatRouterList = natRouterList
-		logrus.Info("当前NAT Router：", Runtime.Network.NatRouterList)
+		setNatRouters(natRouterList)
+		logrus.Info("当前NAT Router：", NetworkSnapshot().NatRouterList)
 		return nil
 	})
 
@@ -83,8 +85,7 @@ func InitSTUN() error {
 	if err != nil {
 		return fmt.Errorf("获取网络地址信息失败: %w", err)
 	}
-	Runtime.Network.LocalIP = addrInfo.LocalIP
-	Runtime.Network.PublicIP = addrInfo.PublicIP
+	setObservedAddress(addrInfo.LocalIP, addrInfo.PublicIP)
 
 	// DDNS 是和 STUN 并排起的，它先跑那一轮多半赶在这行之前，只能记一次失败。
 	// 这里回头叫它一声，就绪了立刻补一次，不用干等到下个周期。
