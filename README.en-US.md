@@ -332,7 +332,7 @@ For building from source, contributing, or forking.
 
 ### Stack
 
-- **Backend**: Go, Gin, logrus, pion/stun, goupnp, `golang.org/x/crypto/acme`
+- **Backend**: Go, Gin, logrus, pion/stun, goupnp
 - **Desktop shell**: Wails v3 (optional, for the tray build)
 - **Frontend**: React, TypeScript, Vite, Tailwind CSS, lucide-react
 - **Storage**: local JSON config files

@@ -332,7 +332,7 @@ Webhook 请求体和 URL 中可以用服务的运行时变量：
 
 ### 技术栈
 
-- **后端**：Go、Gin、logrus、pion/stun、goupnp、`golang.org/x/crypto/acme`
+- **后端**：Go、Gin、logrus、pion/stun、goupnp
 - **桌面壳**：Wails v3（可选，构建托盘桌面版时使用）
 - **前端**：React、TypeScript、Vite、Tailwind CSS、lucide-react
 - **存储**：本地 JSON 配置文件
