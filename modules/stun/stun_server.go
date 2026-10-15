@@ -194,8 +194,16 @@ func isNonPublicIP(ip net.IP) bool {
 		ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
 		return true
 	}
+	ip4 := ip.To4()
+	if ip4 == nil {
+		return false
+	}
 	// CGNAT 100.64.0.0/10，IsPrivate 不覆盖
-	if ip4 := ip.To4(); ip4 != nil && ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+	if ip4[0] == 100 && ip4[1] >= 64 && ip4[1] <= 127 {
+		return true
+	}
+	// 0.0.0.0/8 和 240.0.0.0/4 都不是可路由公网。云上的路由扫描会在 242.x 停住。
+	if ip4[0] == 0 || ip4[0] >= 240 {
 		return true
 	}
 	return false
