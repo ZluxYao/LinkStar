@@ -19,6 +19,7 @@ func GetNatDetectionResults() (udp, tcp *model.NatDetectResult) {
 	natDetectionMu.Lock()
 	defer natDetectionMu.Unlock()
 
+	networkMu.RLock()
 	if Runtime.Network.NatStatuUDP != nil {
 		value := *Runtime.Network.NatStatuUDP
 		udp = &value
@@ -27,6 +28,7 @@ func GetNatDetectionResults() (udp, tcp *model.NatDetectResult) {
 		value := *Runtime.Network.NatStatuTCP
 		tcp = &value
 	}
+	networkMu.RUnlock()
 	return udp, tcp
 }
 
@@ -69,7 +71,9 @@ func DetectAndClassifyNat() (udpResult, tcpResult *model.NatDetectResult, err er
 	} else {
 		udpResult = toNatDetectResult(udpStatus, ClassifyUDPNatType(udpStatus, localIP, publicIP))
 	}
+	networkMu.Lock()
 	Runtime.Network.NatStatuUDP = udpResult
+	networkMu.Unlock()
 
 	tcpStatus, tcpErr := DetectNatTCP()
 	if tcpErr != nil {
@@ -82,7 +86,9 @@ func DetectAndClassifyNat() (udpResult, tcpResult *model.NatDetectResult, err er
 	} else {
 		tcpResult = toNatDetectResult(tcpStatus, ClassifyTCPNatType(tcpStatus, localIP, publicIP))
 	}
+	networkMu.Lock()
 	Runtime.Network.NatStatuTCP = tcpResult
+	networkMu.Unlock()
 
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
@@ -164,8 +170,8 @@ func ClassifyTCPNatType(status *NATStatus, localIP, publicIP string) NatType {
 // getNetworkAddressData 返回分类所需的本机IP和公网IP。
 // Runtime中已有完整数据时直接返回；数据缺失时主动获取并写回Runtime。
 func getNetworkAddressData() (localIP, publicIP string, err error) {
-	localIP = Runtime.Network.LocalIP
-	publicIP = Runtime.Network.PublicIP
+	localIP = LocalIP()
+	publicIP = PublicIP()
 	if localIP != "" && publicIP != "" {
 		return localIP, publicIP, nil
 	}
@@ -192,8 +198,8 @@ func getNetworkAddressData() (localIP, publicIP string, err error) {
 		return "", "", fmt.Errorf("获取本机网络地址失败(server=%s)", stunServer)
 	}
 
-	localIP = Runtime.Network.LocalIP
-	publicIP = Runtime.Network.PublicIP
+	localIP = LocalIP()
+	publicIP = PublicIP()
 	if localIP == "" || publicIP == "" {
 		return "", "", fmt.Errorf("获取到的网络地址不完整(localIP=%q, publicIP=%q)", localIP, publicIP)
 	}

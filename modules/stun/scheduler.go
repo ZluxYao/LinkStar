@@ -646,7 +646,7 @@ func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUN
 	}
 	publicIP := state.ExternalIP
 	if publicIP == "" {
-		publicIP = Runtime.Network.PublicIP
+		publicIP = PublicIP()
 	}
 	if publicIP == "" || state.ExternalPort == 0 {
 		return
@@ -709,7 +709,7 @@ func (s *Scheduler) syncServiceRedirect(entry *serviceEntry, key string, req STU
 	if host == "" {
 		host = state.ExternalIP
 		if host == "" {
-			host = Runtime.Network.PublicIP
+			host = PublicIP()
 		}
 	}
 	if host == "" {

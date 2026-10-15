@@ -18,14 +18,15 @@ import (
 func TestRunReturnsAfterCancel(t *testing.T) {
 	stunAddr := startFakeSTUNServer(t)
 
-	oldOutbound, oldService, oldLocalIP := currentOutboundIface.Load(), Runtime.STUNService, Runtime.Network.LocalIP
+	oldOutbound, oldService, oldLocalIP := currentOutboundIface.Load(), Runtime.STUNService, LocalIP()
 	t.Cleanup(func() {
 		currentOutboundIface.Store(oldOutbound)
-		Runtime.STUNService, Runtime.Network.LocalIP = oldService, oldLocalIP
+		Runtime.STUNService = oldService
+		setLocalIP(oldLocalIP)
 	})
 	currentOutboundIface.Store(&OutboundIface{Name: "lo", LocalIP: "127.0.0.1"})
 	Runtime.STUNService = &STUNService{BestSTUNServer: stunAddr}
-	Runtime.Network.LocalIP = "127.0.0.1"
+	setLocalIP("127.0.0.1")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	alive := make(chan struct{}, 1)
