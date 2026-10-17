@@ -54,7 +54,8 @@ const (
 	propagationInterval = 5 * time.Second
 )
 
-// waitTXTPropagation 直接向权威 NS 查询 TXT，确认记录已生效后才让 CA 来验。
+// waitTXTPropagation 直接向权威 NS 查询 TXT，确认记录已生效后才让 CA 来验；
+// 超时也不报错，只是不再等。
 //
 // 不能查本地 resolver：本地有缓存，既可能查到过期的否定结果（假阴），
 // 也可能因为上游缓存而在记录实际未生效时返回旧值（假阳）。
@@ -84,8 +85,11 @@ func waitTXTPropagation(ctx context.Context, rootDomain, fqdn, value string) err
 			return nil
 		}
 
+		// 本机查不到不代表 CA 查不到：实测有运营商在 IPv6 上劫持 53 端口并返回陈旧应答，
+		// 而 Go 会优先走 IPv6 去连权威 NS。自检只为少浪费 CA 的验证次数，结论交给 CA。
 		if time.Now().After(deadline) {
-			return fmt.Errorf("等待 TXT 记录 %s 生效超时（%s）", fqdn, propagationTimeout)
+			logrus.Warnf("[cert] 等待 %s 已超过 %s，本机仍未从权威 NS 查到 TXT（可能是本地网络劫持了 DNS），直接交给 CA 验证", fqdn, propagationTimeout)
+			return nil
 		}
 
 		select {
