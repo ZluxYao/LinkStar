@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"linkstar/modules/stun/model"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -19,12 +20,13 @@ func GetNatDetectionResults() (udp, tcp *model.NatDetectResult) {
 	natDetectionMu.Lock()
 	defer natDetectionMu.Unlock()
 
-	if Runtime.Network.NatStatuUDP != nil {
-		value := *Runtime.Network.NatStatuUDP
+	state := Runtime.NetworkSnapshot()
+	if state.NatStatuUDP != nil {
+		value := *state.NatStatuUDP
 		udp = &value
 	}
-	if Runtime.Network.NatStatuTCP != nil {
-		value := *Runtime.Network.NatStatuTCP
+	if state.NatStatuTCP != nil {
+		value := *state.NatStatuTCP
 		tcp = &value
 	}
 	return udp, tcp
@@ -69,7 +71,9 @@ func DetectAndClassifyNat() (udpResult, tcpResult *model.NatDetectResult, err er
 	} else {
 		udpResult = toNatDetectResult(udpStatus, ClassifyUDPNatType(udpStatus, localIP, publicIP))
 	}
-	Runtime.Network.NatStatuUDP = udpResult
+	Runtime.updateNetwork(func(state *model.NetworkState) {
+		state.NatStatuUDP = udpResult
+	})
 
 	tcpStatus, tcpErr := DetectNatTCP()
 	if tcpErr != nil {
@@ -82,7 +86,10 @@ func DetectAndClassifyNat() (udpResult, tcpResult *model.NatDetectResult, err er
 	} else {
 		tcpResult = toNatDetectResult(tcpStatus, ClassifyTCPNatType(tcpStatus, localIP, publicIP))
 	}
-	Runtime.Network.NatStatuTCP = tcpResult
+	Runtime.updateNetwork(func(state *model.NetworkState) {
+		state.NatStatuTCP = tcpResult
+		state.NatDetectedAt = time.Now()
+	})
 
 	if len(errs) > 0 {
 		err = errors.Join(errs...)
@@ -164,8 +171,9 @@ func ClassifyTCPNatType(status *NATStatus, localIP, publicIP string) NatType {
 // getNetworkAddressData 返回分类所需的本机IP和公网IP。
 // Runtime中已有完整数据时直接返回；数据缺失时主动获取并写回Runtime。
 func getNetworkAddressData() (localIP, publicIP string, err error) {
-	localIP = Runtime.Network.LocalIP
-	publicIP = Runtime.Network.PublicIP
+	state := Runtime.NetworkSnapshot()
+	localIP = state.LocalIP
+	publicIP = state.PublicIP
 	if localIP != "" && publicIP != "" {
 		return localIP, publicIP, nil
 	}
@@ -192,8 +200,9 @@ func getNetworkAddressData() (localIP, publicIP string, err error) {
 		return "", "", fmt.Errorf("获取本机网络地址失败(server=%s)", stunServer)
 	}
 
-	localIP = Runtime.Network.LocalIP
-	publicIP = Runtime.Network.PublicIP
+	state = Runtime.NetworkSnapshot()
+	localIP = state.LocalIP
+	publicIP = state.PublicIP
 	if localIP == "" || publicIP == "" {
 		return "", "", fmt.Errorf("获取到的网络地址不完整(localIP=%q, publicIP=%q)", localIP, publicIP)
 	}

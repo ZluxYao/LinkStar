@@ -214,7 +214,7 @@ func AddPortMappingByQueue(ctx context.Context, externalPort, internalPort uint1
 		internalPort,
 		protocol,
 		description,
-		Runtime.Network.LocalIP,
+		Runtime.NetworkSnapshot().LocalIP,
 	)
 }
 
@@ -250,7 +250,7 @@ func CheckPortMappingByQueue(ctx context.Context, externalPort uint16, protocol 
 // 添加UPNP端口映射具体实现 默认本地ip
 func AddPortMapping(localIP string, externalPort, internalPort uint16, protocol, description string) error {
 	if localIP == "" {
-		localIP = Runtime.Network.LocalIP
+		localIP = Runtime.NetworkSnapshot().LocalIP
 	}
 	protocol = strings.ToUpper(strings.TrimSpace(protocol))
 	switch protocol {

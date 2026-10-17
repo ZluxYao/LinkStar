@@ -13,6 +13,7 @@ interface TopBarProps {
 const pageMeta: Partial<Record<PageKey, { subtitle: string }>> = {
   dashboard: { subtitle: '一站式管理网络、域名、证书与服务，让一切安全、稳定、简单' },
   stun: { subtitle: '基于 STUN 的内网穿透与连接质量检测' },
+  observability: { subtitle: '实时查看网络、NAT、进程和磁盘资源状态' },
   ddns: { subtitle: '动态域名解析与多服务商同步' },
 }
 

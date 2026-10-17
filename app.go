@@ -17,6 +17,7 @@ import (
 	"linkstar/modules/ddns"
 	"linkstar/modules/ddns/dns"
 	"linkstar/modules/home"
+	"linkstar/modules/monitor"
 	"linkstar/modules/proxy"
 	"linkstar/modules/stun"
 	"linkstar/modules/update"
@@ -126,6 +127,7 @@ func startModulesInBackground() {
 	// Cert 排在 STUN 前面：洞口终结 TLS 时要用它的证书
 	initModule("Cert", cert.InitCert)
 	initModule("STUN", stun.InitSTUN)
+	initModule("Monitor", monitor.InitMonitor)
 	initModule("DDNS", ddns.DDNSInit)
 	initModule("Proxy", proxy.InitProxy)
 	initModule("Update", func() error { return update.InitUpdate(system_api.Version) })

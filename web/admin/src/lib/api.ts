@@ -10,6 +10,7 @@ import type {
   LogEntry,
   NatTypeInfo,
   NetInterface,
+  ObservabilitySnapshot,
   ProxyConfig,
   ProxyEntry,
   ProxyProbeResult,
@@ -20,6 +21,7 @@ import type {
   StunConfig,
   StunNetwork,
   StunNetworkConfig,
+  SystemObservation,
   UpdateConfig,
   UpdateStatus,
   WebhookConfig,
@@ -184,6 +186,12 @@ export const updateStunNetwork = (body: StunNetworkConfig) =>
 export const getNatType = () => request<NatTypeInfo>('/api/stun/nat-type')
 
 export const detectNatType = () => request<NatTypeInfo>('/api/stun/nat-type/detect', { method: 'POST' })
+
+/** 读取当前网络、NAT 资源和 LinkStar 转发流量快照 */
+export const getStunObservability = () => request<ObservabilitySnapshot>('/api/stun/observability')
+
+/** 读取主机和 LinkStar 进程的系统资源快照 */
+export const getSystemObservability = () => request<SystemObservation>('/api/monitor/observability')
 
 export interface SSEHandle {
   close: () => void

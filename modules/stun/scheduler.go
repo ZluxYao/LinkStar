@@ -446,6 +446,12 @@ func (s *Scheduler) StartService(device *model.Device, service *model.Service) {
 	// 重建服务
 	ctx, cancel := context.WithCancel(context.Background())
 	entry := newServiceEntry(cancel, device.DeviceID, service.ID, device.Name, service.Name)
+	trafficMeter(TrafficServiceInfo{
+		Key:         key,
+		DeviceName:  device.Name,
+		ServiceName: service.Name,
+		Protocol:    observationProtocol(service.Protocol),
+	})
 
 	// 二次检查：waitEntry 期间另一方可能已注册了相同 key
 	s.mu.Lock()
@@ -624,6 +630,7 @@ func serviceKey(deviceID, serviceID uint) string {
 func buildSTUNRequest(device *model.Device, service *model.Service) STUNRequest {
 	return STUNRequest{
 		ServiceName:   service.Name,
+		TrafficKey:    serviceKey(device.DeviceID, service.ID),
 		TargetIP:      device.IP,
 		InternalPort:  service.InternalPort,
 		Protocol:      service.Protocol,
@@ -646,7 +653,7 @@ func (s *Scheduler) sendServiceWebhook(entry *serviceEntry, key string, req STUN
 	}
 	publicIP := state.ExternalIP
 	if publicIP == "" {
-		publicIP = Runtime.Network.PublicIP
+		publicIP = Runtime.NetworkSnapshot().PublicIP
 	}
 	if publicIP == "" || state.ExternalPort == 0 {
 		return
@@ -709,7 +716,7 @@ func (s *Scheduler) syncServiceRedirect(entry *serviceEntry, key string, req STU
 	if host == "" {
 		host = state.ExternalIP
 		if host == "" {
-			host = Runtime.Network.PublicIP
+			host = Runtime.NetworkSnapshot().PublicIP
 		}
 	}
 	if host == "" {

@@ -194,7 +194,7 @@ func ListLanSubnets() []LanSubnet {
 	}
 
 	// 本机主 IP 所在的那段排最前：绝大多数时候要扫的就是它
-	local := strings.TrimSpace(Runtime.Network.LocalIP)
+	local := strings.TrimSpace(Runtime.NetworkSnapshot().LocalIP)
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].LocalIP == local && out[j].LocalIP != local
 	})
@@ -226,7 +226,7 @@ func localIPv4s() map[string]bool {
 			}
 		}
 	}
-	if ip := strings.TrimSpace(Runtime.Network.LocalIP); ip != "" {
+	if ip := strings.TrimSpace(Runtime.NetworkSnapshot().LocalIP); ip != "" {
 		out[ip] = true
 	}
 	return out

@@ -5,6 +5,7 @@ import (
 	"linkstar/api/cert_api"
 	"linkstar/api/ddns_api"
 	"linkstar/api/home_api"
+	"linkstar/api/monitor_api"
 	"linkstar/api/proxy_api"
 	"linkstar/api/stun_api"
 	"linkstar/api/system_api"
@@ -14,6 +15,7 @@ import (
 type Api struct {
 	StunApi    stun_api.StunApi
 	HomeApi    home_api.HomeApi
+	MonitorApi monitor_api.MonitorApi
 	DdnsApi    ddns_api.DdnsApi
 	CertApi    cert_api.CertApi
 	ProxyApi   proxy_api.ProxyApi

@@ -85,7 +85,7 @@ func ServiceEndpoint(deviceID uint, service *model.Service) PublicEndpoint {
 
 	host := strings.TrimSpace(service.Domain)
 	if host == "" {
-		host = Runtime.Network.PublicIP
+		host = Runtime.NetworkSnapshot().PublicIP
 	}
 
 	return PublicEndpoint{

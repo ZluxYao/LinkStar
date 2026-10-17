@@ -18,12 +18,13 @@ type StunConfigViewResponse struct {
 
 // 获取全部的stun配置文件信息
 func (StunApi) GetStunConfigView(c *gin.Context) {
+	network := stun.Runtime.NetworkSnapshot()
 	data := StunConfigViewResponse{
 		Config:        stun.Runtime.Config,
-		LocalIP:       stun.Runtime.Network.LocalIP,
-		PublicIP:      stun.Runtime.Network.PublicIP,
-		NatRouterList: stun.Runtime.Network.NatRouterList,
-		Network:       stun.Runtime.Network,
+		LocalIP:       network.LocalIP,
+		PublicIP:      network.PublicIP,
+		NatRouterList: append([]model.NatRouterInfo(nil), network.NatRouterList...),
+		Network:       network,
 	}
 
 	if stun.Runtime.STUNService != nil && stun.Runtime.STUNService.BestSTUNServer != "" {

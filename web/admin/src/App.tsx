@@ -4,6 +4,7 @@ import { Cert } from './pages/Cert'
 import { Dashboard } from './pages/Dashboard'
 import { Ddns } from './pages/Ddns'
 import { Logs } from './pages/Logs'
+import { Observability } from './pages/Observability'
 import { Placeholder } from './pages/Placeholder'
 import { ReverseProxy } from './pages/ReverseProxy'
 import { Settings } from './pages/Settings'
@@ -71,6 +72,8 @@ function App() {
         return <Dashboard />
       case 'stun':
         return <Stun />
+      case 'observability':
+        return <Observability />
       case 'ddns':
         return <Ddns />
       case 'cert':

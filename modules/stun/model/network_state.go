@@ -1,15 +1,19 @@
 package model
 
+import "time"
+
 type NetworkState struct {
 	LocalIP  string `json:"localIP"`  // 本机内网IP（出口网卡上的地址）
 	PublicIP string `json:"publicIP"` // 真实公网IP
 	Iface    string `json:"iface"`    // 出口网卡名
 	Gateway  string `json:"gateway"`  // 出口网关
 
-	NatRouterList []NatRouterInfo `json:"natRouterList"` // 路由信息
+	NatRouterList      []NatRouterInfo `json:"natRouterList"`                // 路由信息
+	NatRouterUpdatedAt time.Time       `json:"natRouterUpdatedAt,omitempty"` // 最近一次 NAT 路由扫描时间
 
-	NatStatuUDP *NatDetectResult `json:"natStatuUDP,omitempty"`
-	NatStatuTCP *NatDetectResult `json:"natStatuTCP,omitempty"`
+	NatStatuUDP   *NatDetectResult `json:"natStatuUDP,omitempty"`
+	NatStatuTCP   *NatDetectResult `json:"natStatuTCP,omitempty"`
+	NatDetectedAt time.Time        `json:"natDetectedAt,omitempty"` // 最近一次 NAT 行为检测时间
 }
 
 // 每个Nat路由信息

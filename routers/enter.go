@@ -35,6 +35,7 @@ func Run(webFS fs.FS) {
 	// 受保护接口：需登录（或桌面 secret）
 	protected := g.Group("", middleware.AuthMiddleware)
 	StunRouters(protected)
+	MonitorRouters(protected)
 	DdnsRouters(protected)
 	CertRouters(protected)
 	ProxyRouters(protected)

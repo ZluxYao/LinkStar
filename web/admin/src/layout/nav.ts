@@ -1,4 +1,5 @@
 import {
+  Activity,
   Bell,
   FileText,
   Globe,
@@ -35,6 +36,10 @@ export const navGroups: NavGroup[] = [
       { key: 'reverse-proxy', label: '反向代理', icon: Repeat },
       { key: 'cert', label: '证书管理', icon: ShieldCheck },
     ],
+  },
+  {
+    title: '运行监控',
+    items: [{ key: 'observability', label: '网络观测', icon: Activity }],
   },
   {
     title: '系统与管理',

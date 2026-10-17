@@ -39,6 +39,12 @@ func StunRouters(g *gin.RouterGroup) {
 		app.StunStatusEventsView,
 	)
 
+	// 网络观测：NAT 拓扑、LinkStar 端口资源和转发流量
+	g.GET(
+		"stun/observability",
+		app.GetObservabilityView,
+	)
+
 	// 网络设置：打洞走哪张网卡、STUN 域名找谁解析
 	g.GET(
 		"stun/network",

@@ -23,7 +23,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 	if err != nil {
 		return err
 	}
-	localIP := Runtime.Network.LocalIP
+	localIP := Runtime.NetworkSnapshot().LocalIP
 	if localIP == "" {
 		return fmt.Errorf("get local IP failed")
 	}
@@ -180,11 +180,16 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 	// 接收外网连接，转发到对应内网服务
 	go func() {
 		targetAddr := fmt.Sprintf("%s:%d", req.TargetIP, req.InternalPort) // 构建目标ip+端口
+		traffic := trafficMeter(TrafficServiceInfo{
+			Key:         req.TrafficKey,
+			ServiceName: req.ServiceName,
+			Protocol:    strings.ToUpper(protocol),
+		})
 		if protocol == "tcp" {
 			// 转发选项只构造一次，被这个洞上所有连接共享。
 			// tls.Config 里的 GetCertificate 每次握手实时回调，
 			// 因此证书续期后新连接自动用上新证书，不需要重启洞。
-			opt := ForwardOptions{BackendHTTPS: req.BackendHTTPS}
+			opt := ForwardOptions{BackendHTTPS: req.BackendHTTPS, Traffic: traffic}
 			if req.TLSTerminate {
 				opt.TLSConfig = cert.Runtime.Manager.ServerTLSConfig(req.CertID)
 			}
@@ -215,7 +220,7 @@ func (STUNRunner) Run(ctx context.Context, req STUNRequest, onState func(STUNSta
 				}
 				data := make([]byte, n)
 				copy(data, buf[:n])
-				go ForwardUDP(udpListener, remoteAddr, data, targetAddr)
+				go forwardUDP(udpListener, remoteAddr, data, targetAddr, req.TrafficKey, traffic)
 			}
 		}
 

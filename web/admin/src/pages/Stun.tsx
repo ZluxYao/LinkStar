@@ -39,6 +39,7 @@ import type {
   LanSubnet,
   NatDetectResult,
   NatTypeInfo,
+  ObservabilitySnapshot,
   StunConfig,
   StunDevice,
   RedirectConfig,
@@ -64,6 +65,255 @@ function fmtTime(v?: string) {
   const d = new Date(v)
   if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return ''
   return d.toLocaleString()
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let n = value
+  let unit = 0
+  while (n >= 1024 && unit < units.length - 1) {
+    n /= 1024
+    unit++
+  }
+  return `${n >= 10 || unit === 0 ? n.toFixed(0) : n.toFixed(1)} ${units[unit]}`
+}
+
+function formatRate(value: number) {
+  return `${formatBytes(value)}/s`
+}
+
+function observationStatus(status: string) {
+  switch (status) {
+    case 'RUNNING':
+      return { label: '正常', className: 'bg-emerald-50 text-emerald-600' }
+    case 'PROBING':
+      return { label: '探测中', className: 'bg-sky-50 text-sky-600' }
+    case 'RESTARTING':
+      return { label: '重启中', className: 'bg-amber-50 text-amber-600' }
+    case 'FAILED':
+      return { label: '失败', className: 'bg-rose-50 text-rose-600' }
+    case 'STOPPED':
+      return { label: '已停止', className: 'bg-slate-100 text-slate-500' }
+    default:
+      return { label: '未启动', className: 'bg-slate-100 text-slate-500' }
+  }
+}
+
+export interface ObservationHistoryPoint {
+  sampledAt: string
+  inBytesPerSecond: number
+  outBytesPerSecond: number
+}
+
+function Sparkline({
+  values,
+  color,
+}: {
+  values: number[]
+  color: string
+}) {
+  if (values.length < 2) {
+    return <div className="grid h-12 place-items-center text-[11px] text-slate-400">等待更多采样</div>
+  }
+  const max = Math.max(...values, 1)
+  const points = values
+    .map((value, index) => {
+      const x = (index / (values.length - 1)) * 100
+      const y = 44 - (value / max) * 38
+      return `${x},${y}`
+    })
+    .join(' ')
+  return (
+    <svg viewBox="0 0 100 48" preserveAspectRatio="none" className="h-12 w-full overflow-visible">
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
+export function ObservabilityPanel({
+  data,
+  history,
+  error,
+  onRefresh,
+}: {
+  data: ObservabilitySnapshot | null
+  history: ObservationHistoryPoint[]
+  error: string
+  onRefresh: () => void
+}) {
+  const traffic = data?.traffic
+  const natType = data?.nat.udp?.natType || data?.nat.tcp?.natType || '未检测'
+  const inHistory = history.map((point) => point.inBytesPerSecond)
+  const outHistory = history.map((point) => point.outBytesPerSecond)
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between gap-2 px-1">
+        <h2 className="text-sm font-bold text-slate-800">网络与穿透状态</h2>
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-400">
+            {data?.sampledAt ? `采样于 ${fmtTime(data.sampledAt)}` : '等待采样'}
+          </span>
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="flex items-center gap-1 rounded-md text-slate-500 transition hover:text-blue-500"
+          >
+            <RotateCw className="h-3.5 w-3.5" /> 刷新
+          </button>
+        </div>
+      </div>
+
+      <Card>
+        {error && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            观测数据暂时不可用：{error}
+          </div>
+        )}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="rounded-xl bg-sky-50 p-3 ring-1 ring-sky-100">
+          <div className="text-xs text-sky-600">入站速率</div>
+          <div className="mt-1 text-lg font-bold text-slate-800">{traffic ? formatRate(traffic.inBytesPerSecond) : '--'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">累计 {traffic ? formatBytes(traffic.inBytes) : '--'}</div>
+        </div>
+        <div className="rounded-xl bg-violet-50 p-3 ring-1 ring-violet-100">
+          <div className="text-xs text-violet-600">出站速率</div>
+          <div className="mt-1 text-lg font-bold text-slate-800">{traffic ? formatRate(traffic.outBytesPerSecond) : '--'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">累计 {traffic ? formatBytes(traffic.outBytes) : '--'}</div>
+        </div>
+        <div className="rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-100">
+          <div className="text-xs text-emerald-600">活跃连接 / 会话</div>
+          <div className="mt-1 text-lg font-bold text-slate-800">{traffic?.activeConnections ?? '--'}</div>
+          <div className="mt-1 text-[11px] text-slate-400">只统计 STUN 穿透转发</div>
+        </div>
+        <div className="rounded-xl bg-amber-50 p-3 ring-1 ring-amber-100">
+          <div className="text-xs text-amber-600">NAT 层数 / 类型</div>
+          <div className="mt-1 text-lg font-bold text-slate-800">{data ? `${data.nat.routers.length} 层` : '--'}</div>
+          <div className="mt-1 truncate text-[11px] text-slate-400" title={natType}>{natType}</div>
+        </div>
+      </div>
+
+      {data && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+          <span>出口网卡：<b className="font-medium text-slate-700">{data.network.iface || '--'}</b></span>
+          <span>网关：<b className="font-mono font-medium text-slate-700">{data.network.gateway || '--'}</b></span>
+          <span>公网 IP：<b className="font-mono font-medium text-slate-700">{data.network.publicIP || '--'}</b></span>
+          <span>STUN：<b className="font-mono font-medium text-slate-700">{data.network.bestStun || '--'}</b></span>
+          <span>NAT 检测：<b className="font-medium text-slate-700">{fmtTime(data.nat.detectedAt) || '未检测'}</b></span>
+        </div>
+      )}
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-sky-100 bg-sky-50/40 p-3">
+          <div className="flex items-center justify-between text-xs font-semibold text-sky-700">
+            <span>最近 60 秒入站趋势</span>
+            <span className="font-normal text-slate-400">{formatRate(traffic?.inBytesPerSecond ?? 0)}</span>
+          </div>
+          <div className="mt-2"><Sparkline values={inHistory} color="#0284c7" /></div>
+        </div>
+        <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3">
+          <div className="flex items-center justify-between text-xs font-semibold text-violet-700">
+            <span>最近 60 秒出站趋势</span>
+            <span className="font-normal text-slate-400">{formatRate(traffic?.outBytesPerSecond ?? 0)}</span>
+          </div>
+          <div className="mt-2"><Sparkline values={outHistory} color="#7c3aed" /></div>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-sm font-bold text-slate-700">LinkStar 端口资源</div>
+          <div className="text-[11px] text-slate-400">只显示 LinkStar 自己管理的穿透端口</div>
+        </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="min-w-[760px] w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] text-slate-400">
+              <tr>
+                <th className="px-3 py-2 font-semibold">服务</th>
+                <th className="px-3 py-2 font-semibold">协议</th>
+                <th className="px-3 py-2 font-semibold">内部地址</th>
+                <th className="px-3 py-2 font-semibold">外部端口</th>
+                <th className="px-3 py-2 font-semibold">来源</th>
+                <th className="px-3 py-2 font-semibold">连接</th>
+                <th className="px-3 py-2 font-semibold">状态</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(data?.nat.resources ?? []).map((resource) => {
+                const status = observationStatus(resource.status)
+                return (
+                  <tr key={resource.key} className="text-slate-600">
+                    <td className="px-3 py-2.5">
+                      <div className="font-semibold text-slate-700">{resource.serviceName || '未命名服务'}</div>
+                      <div className="text-[11px] text-slate-400">{resource.deviceName || '未命名设备'}</div>
+                    </td>
+                    <td className="px-3 py-2.5 font-mono">{resource.protocol}</td>
+                    <td className="px-3 py-2.5 font-mono">{resource.localIP}:{resource.localPort}</td>
+                    <td className="px-3 py-2.5 font-mono">
+                      {resource.externalIP || '--'}:{resource.externalPort || '--'}
+                    </td>
+                    <td className="px-3 py-2.5">{resource.source}</td>
+                    <td className="px-3 py-2.5">{resource.activeConnections}</td>
+                    <td className="px-3 py-2.5">
+                      <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${status.className}`}>
+                        {status.label}
+                      </span>
+                      {resource.lastError && <div className="mt-1 max-w-56 truncate text-[10px] text-rose-500" title={resource.lastError}>{resource.lastError}</div>}
+                    </td>
+                  </tr>
+                )
+              })}
+              {!data?.nat.resources.length && (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">暂无穿透端口</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-sm font-bold text-slate-700">STUN 服务流量</div>
+          <div className="text-[11px] text-slate-400">入站：公网到内网；出站：内网到公网</div>
+        </div>
+        <div className="overflow-x-auto rounded-xl border border-slate-100">
+          <table className="min-w-[680px] w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] text-slate-400">
+              <tr>
+                <th className="px-3 py-2 font-semibold">服务</th>
+                <th className="px-3 py-2 font-semibold">协议</th>
+                <th className="px-3 py-2 font-semibold">入站速率</th>
+                <th className="px-3 py-2 font-semibold">出站速率</th>
+                <th className="px-3 py-2 font-semibold">累计流量</th>
+                <th className="px-3 py-2 font-semibold">连接</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(traffic?.services ?? []).map((service) => (
+                <tr key={service.key} className="text-slate-600">
+                  <td className="px-3 py-2.5">
+                    <div className="font-semibold text-slate-700">{service.serviceName || '未命名服务'}</div>
+                    <div className="text-[11px] text-slate-400">{service.deviceName || '未命名设备'}</div>
+                  </td>
+                  <td className="px-3 py-2.5 font-mono">{service.protocol}</td>
+                  <td className="px-3 py-2.5 font-medium text-sky-600">{formatRate(service.inBytesPerSecond)}</td>
+                  <td className="px-3 py-2.5 font-medium text-violet-600">{formatRate(service.outBytesPerSecond)}</td>
+                  <td className="px-3 py-2.5 text-[11px]">{formatBytes(service.inBytes)} / {formatBytes(service.outBytes)}</td>
+                  <td className="px-3 py-2.5">{service.activeConnections}</td>
+                </tr>
+              ))}
+              {!traffic?.services.length && (
+                <tr><td colSpan={6} className="px-3 py-8 text-center text-slate-400">暂无服务流量</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        </div>
+      </Card>
+    </section>
+  )
 }
 
 interface Toast {
@@ -2610,86 +2860,86 @@ export function Stun() {
       {/* 设备 + 服务 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <Card className="lg:col-span-3">
-          <CardHeader title="设备列表" className="mb-2" />
-          {/* 这一栏窄，两个按钮跟标题挤一行会把标题挤断，单独占一行 */}
-          <div className="mb-3 flex items-center gap-2">
-            {/* 扫描摆在前面：不用去路由器后台翻 IP，是更省事的那条路 */}
-            <button
-              onClick={openScan}
-              disabled={scanOpening}
-              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600 disabled:opacity-50"
-            >
-              {scanOpening ? (
-                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Radar className="h-3.5 w-3.5" />
-              )}
-              扫描
-            </button>
-            <button
-              onClick={() => setDeviceModal({ open: true })}
-              className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-            >
-              <Plus className="h-3.5 w-3.5" /> 添加
-            </button>
-          </div>
-          {!config.devices || config.devices.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">暂无设备接入</div>
-          ) : (
-            <ul className="space-y-1.5">
-              {config.devices.map((d, idx) => {
-                const active = idx === selectedIndex
-                return (
-                  <li
-                    key={getDeviceId(d)}
-                    onClick={() => setSelectedIndex(idx)}
-                    className={`group relative cursor-pointer rounded-xl border px-3 py-2 transition ${
-                      active
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-transparent hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Server
-                        className={`h-4 w-4 shrink-0 ${active ? 'text-blue-500' : 'text-slate-400'}`}
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-                        {d.name || '未知设备'}
-                      </span>
-                    </div>
-                    <div className="ml-6 truncate font-mono text-xs text-slate-400">{d.ip || '--'}</div>
-                    {/* 浮在右上角，不占位：选中/悬停时出现，行高不会跟着跳，名字也不用让出宽度 */}
-                    <div
-                      className={`absolute right-2 top-2 flex gap-0.5 rounded-lg bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 backdrop-blur transition ${
-                        active ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+            <CardHeader title="设备列表" className="mb-2" />
+            {/* 这一栏窄，两个按钮跟标题挤一行会把标题挤断，单独占一行 */}
+            <div className="mb-3 flex items-center gap-2">
+              {/* 扫描摆在前面：不用去路由器后台翻 IP，是更省事的那条路 */}
+              <button
+                onClick={openScan}
+                disabled={scanOpening}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-blue-500 px-2 py-1.5 text-xs font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-600 disabled:opacity-50"
+              >
+                {scanOpening ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Radar className="h-3.5 w-3.5" />
+                )}
+                扫描
+              </button>
+              <button
+                onClick={() => setDeviceModal({ open: true })}
+                className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-white px-2 py-1.5 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+              >
+                <Plus className="h-3.5 w-3.5" /> 添加
+              </button>
+            </div>
+            {!config.devices || config.devices.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400">暂无设备接入</div>
+            ) : (
+              <ul className="space-y-1.5">
+                {config.devices.map((d, idx) => {
+                  const active = idx === selectedIndex
+                  return (
+                    <li
+                      key={getDeviceId(d)}
+                      onClick={() => setSelectedIndex(idx)}
+                      className={`group relative cursor-pointer rounded-xl border px-3 py-2 transition ${
+                        active
+                          ? 'border-blue-200 bg-blue-50 text-blue-700'
+                          : 'border-transparent hover:bg-slate-50'
                       }`}
                     >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeviceModal({ open: true, initial: d })
-                        }}
-                        title="编辑设备"
-                        className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
+                      <div className="flex items-center gap-2">
+                        <Server
+                          className={`h-4 w-4 shrink-0 ${active ? 'text-blue-500' : 'text-slate-400'}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                          {d.name || '未知设备'}
+                        </span>
+                      </div>
+                      <div className="ml-6 truncate font-mono text-xs text-slate-400">{d.ip || '--'}</div>
+                      {/* 浮在右上角，不占位：选中/悬停时出现，行高不会跟着跳，名字也不用让出宽度 */}
+                      <div
+                        className={`absolute right-2 top-2 flex gap-0.5 rounded-lg bg-white/90 p-0.5 shadow-sm ring-1 ring-slate-200 backdrop-blur transition ${
+                          active ? 'opacity-100' : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+                        }`}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          removeDevice(d)
-                        }}
-                        title="删除设备"
-                        className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeviceModal({ open: true, initial: d })
+                          }}
+                          title="编辑设备"
+                          className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeDevice(d)
+                          }}
+                          title="删除设备"
+                          className="grid h-6 w-6 place-items-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
         </Card>
 
         <div className="lg:col-span-9">

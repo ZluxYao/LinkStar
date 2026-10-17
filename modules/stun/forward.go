@@ -36,6 +36,9 @@ type ForwardOptions struct {
 	// 自己那条 TLS，必然握手失败。配置层（normalizeBackendHTTPS / normalizeServices）
 	// 已经挡掉这个组合，这里保持诚实：给什么就做什么。
 	BackendHTTPS bool
+
+	// Traffic 统计这个洞转发的业务字节数和活跃连接数。
+	Traffic *TrafficMeter
 }
 
 // ForwardTCP 把洞上的连接转发到内网服务
@@ -89,13 +92,23 @@ func ForwardTCP(src net.Conn, targetAddr string, protocol string, opt ForwardOpt
 		return
 	}
 	defer dst.Close()
+	if opt.Traffic != nil {
+		opt.Traffic.beginConnection()
+		defer opt.Traffic.endConnection()
+	}
 
 	go func() {
-		_, _ = io.Copy(dst, src)
+		n, _ := io.Copy(dst, src)
+		if opt.Traffic != nil {
+			opt.Traffic.addInbound(n)
+		}
 		dst.Close()
 	}()
 
-	_, _ = io.Copy(src, dst)
+	n, _ := io.Copy(src, dst)
+	if opt.Traffic != nil {
+		opt.Traffic.addOutbound(n)
+	}
 	src.Close()
 }
 
@@ -118,10 +131,17 @@ var udpSessions sync.Map // remoteAddr.String() → net.Conn
 
 // ForwardUDP 维护 session 表，同一客户端复用同一内部连接，持续转发回包。
 func ForwardUDP(localConn *net.UDPConn, remoteAddr *net.UDPAddr, data []byte, targetAddr string) {
+	forwardUDP(localConn, remoteAddr, data, targetAddr, "", nil)
+}
+
+func forwardUDP(localConn *net.UDPConn, remoteAddr *net.UDPAddr, data []byte, targetAddr, sessionNamespace string, traffic *TrafficMeter) {
 	key := remoteAddr.String()
+	if sessionNamespace != "" {
+		key = sessionNamespace + "|" + key
+	}
 
 	if v, ok := udpSessions.Load(key); ok {
-		v.(net.Conn).Write(data)
+		writeMeteredUDP(v.(net.Conn), data, traffic)
 		return
 	}
 
@@ -133,13 +153,19 @@ func ForwardUDP(localConn *net.UDPConn, remoteAddr *net.UDPAddr, data []byte, ta
 
 	if actual, loaded := udpSessions.LoadOrStore(key, dst); loaded {
 		dst.Close()
-		actual.(net.Conn).Write(data)
+		writeMeteredUDP(actual.(net.Conn), data, traffic)
 		return
 	}
 
-	dst.Write(data)
+	if traffic != nil {
+		traffic.beginConnection()
+	}
+	writeMeteredUDP(dst, data, traffic)
 
 	go func() {
+		if traffic != nil {
+			defer traffic.endConnection()
+		}
 		buf := make([]byte, 65535)
 		for {
 			dst.SetReadDeadline(time.Now().Add(udpSessionTimeout))
@@ -147,9 +173,19 @@ func ForwardUDP(localConn *net.UDPConn, remoteAddr *net.UDPAddr, data []byte, ta
 			if err != nil {
 				break
 			}
-			localConn.WriteToUDP(buf[:n], remoteAddr)
+			written, writeErr := localConn.WriteToUDP(buf[:n], remoteAddr)
+			if writeErr == nil && traffic != nil {
+				traffic.addOutbound(int64(written))
+			}
 		}
 		udpSessions.Delete(key)
 		dst.Close()
 	}()
+}
+
+func writeMeteredUDP(conn net.Conn, data []byte, traffic *TrafficMeter) {
+	n, _ := conn.Write(data)
+	if n > 0 && traffic != nil {
+		traffic.addInbound(int64(n))
+	}
 }

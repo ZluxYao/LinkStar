@@ -144,7 +144,7 @@ func resolveIP(r *model.DDNSRecord) (ip string, err error) {
 	switch r.IPSourceType {
 	case model.IPSourceSTUN:
 		// 直接读 STUN 模块已探测好的 IP
-		ip := stun.Runtime.Network.PublicIP
+		ip := stun.Runtime.NetworkSnapshot().PublicIP
 		if ip == "" {
 			// 开机头一两分钟正常：STUN 要先挑服务器再打一轮探测才有公网 IP。
 			// 拿到的那一刻 STUN 会回头触发一次同步，不用等到下个周期。

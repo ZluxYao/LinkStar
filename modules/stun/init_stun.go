@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"linkstar/core"
+	"linkstar/modules/stun/model"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -37,7 +38,9 @@ func InitSTUN() error {
 		logrus.Warnf("获取出口网卡失败: %v", err)
 	}
 	currentOutboundIface.Store(&outbound)
-	Runtime.Network.Iface, Runtime.Network.Gateway = outbound.Name, outbound.Gateway
+	Runtime.updateNetwork(func(state *model.NetworkState) {
+		state.Iface, state.Gateway = outbound.Name, outbound.Gateway
+	})
 	logrus.Info("当前出口网卡：", outbound)
 
 	var g errgroup.Group
@@ -60,8 +63,11 @@ func InitSTUN() error {
 		if err != nil {
 			return fmt.Errorf("获取 NAT Router 列表失败: %w", err)
 		}
-		Runtime.Network.NatRouterList = natRouterList
-		logrus.Info("当前NAT Router：", Runtime.Network.NatRouterList)
+		Runtime.updateNetwork(func(state *model.NetworkState) {
+			state.NatRouterList = append([]model.NatRouterInfo(nil), natRouterList...)
+			state.NatRouterUpdatedAt = time.Now()
+		})
+		logrus.Info("当前NAT Router：", natRouterList)
 		return nil
 	})
 
@@ -83,8 +89,10 @@ func InitSTUN() error {
 	if err != nil {
 		return fmt.Errorf("获取网络地址信息失败: %w", err)
 	}
-	Runtime.Network.LocalIP = addrInfo.LocalIP
-	Runtime.Network.PublicIP = addrInfo.PublicIP
+	Runtime.updateNetwork(func(state *model.NetworkState) {
+		state.LocalIP = addrInfo.LocalIP
+		state.PublicIP = addrInfo.PublicIP
+	})
 
 	// DDNS 是和 STUN 并排起的，它先跑那一轮多半赶在这行之前，只能记一次失败。
 	// 这里回头叫它一声，就绪了立刻补一次，不用干等到下个周期。

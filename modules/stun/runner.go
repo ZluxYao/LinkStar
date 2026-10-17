@@ -9,6 +9,7 @@ import (
 // STUN 需要的参数
 type STUNRequest struct {
 	ServiceName   string
+	TrafficKey    string // 统计转发流量的设备-服务键
 	TargetIP      string
 	InternalPort  uint16
 	Protocol      string

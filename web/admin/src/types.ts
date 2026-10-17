@@ -1,6 +1,7 @@
 export type PageKey =
   | 'dashboard'
   | 'stun'
+  | 'observability'
   | 'ddns'
   | 'reverse-proxy'
   | 'cert'
@@ -228,6 +229,89 @@ export interface NatTypeInfo {
   udp: NatDetectResult | null
   tcp: NatDetectResult | null
   error?: string
+}
+
+export interface NatResource {
+  key: string
+  deviceName: string
+  serviceName: string
+  protocol: string
+  localIP: string
+  localPort: number
+  externalIP: string
+  externalPort: number
+  source: string
+  status: string
+  activeConnections: number
+  lastError?: string
+  updatedAt: string
+}
+
+export interface TrafficService {
+  key: string
+  deviceName: string
+  serviceName: string
+  protocol: string
+  inBytes: number
+  outBytes: number
+  inBytesPerSecond: number
+  outBytesPerSecond: number
+  activeConnections: number
+}
+
+export interface TrafficObservation {
+  inBytes: number
+  outBytes: number
+  inBytesPerSecond: number
+  outBytesPerSecond: number
+  activeConnections: number
+  services: TrafficService[]
+}
+
+export interface ObservabilitySnapshot {
+  sampledAt: string
+  network: {
+    localIP: string
+    publicIP: string
+    iface: string
+    gateway: string
+    bestStun: string
+  }
+  nat: {
+    routers: NatRouter[]
+    udp: NatDetectResult | null
+    tcp: NatDetectResult | null
+    routerUpdatedAt?: string
+    detectedAt?: string
+    resources: NatResource[]
+  }
+  traffic: TrafficObservation
+}
+
+export interface SystemObservation {
+  sampledAt: string
+  os: string
+  arch: string
+  cpuCount: number
+  memory: {
+    totalBytes: number
+    availableBytes: number
+    usedBytes: number
+  }
+  process: {
+    cpuPercent: number
+    memoryBytes: number
+    heapBytes: number
+    goroutines: number
+    uptimeSeconds: number
+  }
+  disk: {
+    path: string
+    totalBytes: number
+    usedBytes: number
+    freeBytes: number
+    error?: string
+  }
 }
 
 export interface StunConfig {
